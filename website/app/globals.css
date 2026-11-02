@@ -139,12 +139,13 @@
 html {
   scroll-behavior: smooth;
   background: #080808;
+  color-scheme: dark;
   scrollbar-color: #3f3f46 #080808;
 }
 
 body {
   min-width: 320px;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 ::selection {
@@ -153,14 +154,33 @@ body {
 }
 
 .marketing-page {
-  overflow: clip;
+  position: relative;
+  isolation: isolate;
   background: #080808;
   color: #ffffff;
 }
 
+.panel-stack {
+  --panel-hero: 1;
+  --panel-introduction: 2;
+  --panel-capabilities: 3;
+  --panel-workflow: 4;
+  --panel-future: 5;
+  --panel-closing: 6;
+}
+
 .hero-section {
+  min-height: 100vh;
   min-height: 100svh;
+  min-height: max(100vh, 38rem);
   min-height: max(100svh, 38rem);
+  padding-inline: max(1.5rem, env(safe-area-inset-left)) max(1.5rem, env(safe-area-inset-right));
+}
+
+.panel-stack[data-stacking="enabled"] > .hero-section {
+  position: sticky;
+  top: 0;
+  z-index: var(--panel-hero);
 }
 
 .hero-flow {
@@ -198,13 +218,46 @@ body {
   text-shadow: 0 1px 12px rgb(0 0 0 / 70%);
 }
 
+.hero-explore {
+  bottom: max(1.75rem, calc(env(safe-area-inset-bottom) + 1rem));
+}
+
+@media (min-width: 640px) {
+  .hero-explore {
+    bottom: max(2.5rem, calc(env(safe-area-inset-bottom) + 1rem));
+  }
+}
+
 .story-section {
   position: relative;
+  min-height: 100vh;
+  min-height: 100svh;
   padding: clamp(6.5rem, 12vw, 12rem) 0;
 }
 
+.panel-stack[data-stacking="enabled"] > .story-section {
+  position: sticky;
+  top: 0;
+}
+
+.panel-stack[data-stacking="enabled"] > .introduction-section {
+  z-index: var(--panel-introduction);
+}
+
+.panel-stack[data-stacking="enabled"] > .capabilities-section {
+  z-index: var(--panel-capabilities);
+}
+
+.panel-stack[data-stacking="enabled"] > .workflow-section {
+  z-index: var(--panel-workflow);
+}
+
+.panel-stack[data-stacking="enabled"] > .future-section {
+  z-index: var(--panel-future);
+}
+
 .section-shell {
-  width: min(100% - 3rem, 80rem);
+  width: min(100% - max(3rem, env(safe-area-inset-left) + env(safe-area-inset-right)), 80rem);
   margin-inline: auto;
 }
 
@@ -318,6 +371,8 @@ body {
 }
 
 .capabilities-section {
+  padding-block: clamp(3rem, 7vh, 5.5rem);
+  padding-block: clamp(3rem, 7svh, 5.5rem);
   background: #080808;
 }
 
@@ -326,7 +381,8 @@ body {
   align-items: end;
   justify-content: space-between;
   gap: 3rem;
-  margin-bottom: clamp(3rem, 7vw, 6rem);
+  margin-bottom: clamp(2rem, 6vh, 3.5rem);
+  margin-bottom: clamp(2rem, 6svh, 3.5rem);
 }
 
 .capability-list {
@@ -338,8 +394,8 @@ body {
   grid-template-columns: 3.5rem minmax(12rem, 0.9fr) minmax(16rem, 1.2fr) minmax(8rem, 0.65fr);
   align-items: center;
   gap: 2rem;
-  min-height: 8rem;
-  padding: 1.5rem 0;
+  min-height: 5.25rem;
+  padding: 1rem 0;
   border-bottom: 1px solid #242424;
 }
 
@@ -527,8 +583,17 @@ body {
 }
 
 .closing-section {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100svh;
   padding: clamp(7rem, 14vw, 13rem) 0 2.5rem;
   background: #080808;
+}
+
+.panel-stack[data-stacking="enabled"] > .closing-section {
+  position: sticky;
+  top: 0;
+  z-index: var(--panel-closing);
 }
 
 .closing-content {
@@ -636,6 +701,7 @@ body {
 
 @media (max-width: 600px) {
   .hero-section {
+    min-height: max(100vh, 34rem);
     min-height: max(100svh, 34rem);
   }
 
@@ -645,7 +711,7 @@ body {
   }
 
   .section-shell {
-    width: min(100% - 2.5rem, 80rem);
+    width: min(100% - max(2.5rem, env(safe-area-inset-left) + env(safe-area-inset-right)), 80rem);
   }
 
   .workflow-list {
@@ -686,6 +752,31 @@ body {
 
   .future-status {
     grid-column: 2;
+  }
+}
+
+@media (min-width: 801px) and (max-height: 700px) {
+  .capabilities-section {
+    padding-block: 2rem;
+  }
+
+  .section-heading-row {
+    margin-bottom: 1.5rem;
+  }
+
+  .capability-row {
+    min-height: 0;
+    padding: 0.6rem 0;
+  }
+}
+
+@media (max-width: 800px), (max-height: 608px), (prefers-reduced-motion: reduce) {
+  .panel-stack[data-stacking="enabled"] > .hero-section,
+  .panel-stack[data-stacking="enabled"] > .story-section,
+  .panel-stack[data-stacking="enabled"] > .closing-section {
+    position: relative;
+    top: auto;
+    z-index: auto;
   }
 }
 
