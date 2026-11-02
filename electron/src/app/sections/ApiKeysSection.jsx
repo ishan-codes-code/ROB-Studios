@@ -310,6 +310,9 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
         if (Array.isArray(result?.referencedBy) && result.referencedBy.length > 0) {
           throw new Error(`In use by ${result.referencedBy.length} project(s): ${result.referencedBy.slice(0, 3).join(", ")}. Change those projects first.`);
         }
+        if (result?.referencedByGlobal === true) {
+          throw new Error("Used as the global TTS default. Choose another TTS credential in the TTS Studio first.");
+        }
         throw new Error("Could not delete the configuration.");
       }
       setNotice("Configuration deleted.");

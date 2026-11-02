@@ -49,6 +49,11 @@ Defined contracts:
   milestone M6): one WAV per script segment plus explicit per-entry
   success/skipped/error outcomes, failure isolation, atomic output
   layout, and the rerun policy.
+- [tts-studio-v1.md](tts-studio-v1.md) — the TTS Studio (roadmap
+  milestone M7): backend voice catalogue, global/project voice
+  configuration with precedence, validated Studio IPC, preview
+  synthesis with temp artifacts, and the vault-to-worker TTS
+  credential handoff.
 
 - [provider-vault-v1.md](provider-vault-v1.md) — named, encrypted,
   multi-credential provider storage owned by the Electron main

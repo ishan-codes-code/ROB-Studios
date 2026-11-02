@@ -100,7 +100,8 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     }
     for (const project of projects) {
       const config = project.configuration ?? {};
-      if ((credentialId !== null && config.credentialId === credentialId)
+      if ((credentialId !== null && (config.credentialId === credentialId
+          || config.tts?.credentialId === credentialId))
         || (gameProfileId !== null && config.gameProfileId === gameProfileId)
         || (presetId !== null && config.commentaryPresetId === presetId)) {
         names.push(project.name);
@@ -248,6 +249,11 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       if (usedBy.length > 0) {
         return { ok: false, error: 'Settings operation failed.', referencedBy: usedBy };
       }
+      try {
+        if (loadSettings(userDataPath()).tts?.credentialId === id) {
+          return { ok: false, error: 'Settings operation failed.', referencedByGlobal: true };
+        }
+      } catch { /* unreadable settings cannot block deletion */ }
       return { ok: true, ...vaultDelete(userDataPath(), safeStorage, id) };
     } catch (err) { return safe(err); }
   });
@@ -423,6 +429,10 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     try {
       if (typeof projectId !== 'string' || projectId === '') throw new Error('Invalid project id.');
       if (!configuration || typeof configuration !== 'object') throw new Error('Invalid project configuration.');
+      // TTS overrides have a single validated writer (`tts-config-set`,
+      // which checks catalogue membership and credential purpose); this
+      // channel never accepts them, even though the store shape allows it.
+      if (configuration.tts !== undefined) throw new Error('Save TTS overrides from the TTS Studio.');
       if (configuration.credentialId !== undefined && configuration.credentialId !== null) {
         // Validates existence + readability without exposing the secret.
         const resolved = getCredentialForRun(userDataPath(), safeStorage, configuration.credentialId);

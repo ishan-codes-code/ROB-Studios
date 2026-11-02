@@ -13,7 +13,7 @@ import {
   createCredential,
   markCredentialVerified,
 } from '../src/credentials-store.mjs';
-import { resolveProjectRunConfig, stripHostSecrets } from '../src/main/run-config.mjs';
+import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../src/main/run-config.mjs';
 
 const storage = () => ({
   isEncryptionAvailable: () => true,
@@ -63,6 +63,83 @@ test('partial stored configuration defaults on read without rewriting', async (t
   // Loading must not silently overwrite the stored selections.
   const stored = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
   assert.deepEqual(stored.configuration, { credentialId: null });
+});
+
+test('project TTS overrides default to inherit and persist explicitly', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'TTS', sourcePath: seedVideo(t) });
+  assert.deepEqual(project.configuration.tts, {
+    model: null, voice: null, voiceDirection: null, credentialId: null,
+  });
+  const updated = updateProject(dir, project.id, {
+    configuration: { tts: { voice: 'Fenrir', credentialId: null } },
+  });
+  assert.deepEqual(updated.configuration.tts, {
+    model: null, voice: 'Fenrir', voiceDirection: null, credentialId: null,
+  });
+  // A fresh read (application restart) returns the same override.
+  assert.deepEqual(getProject(dir, project.id).configuration.tts, updated.configuration.tts);
+  assert.throws(
+    () => updateProject(dir, project.id, { configuration: { tts: { voice: 'v'.repeat(65) } } }),
+    /Invalid TTS configuration field 'voice'/,
+  );
+});
+
+test('legacy project configuration without TTS inherits without rewriting', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'LegacyTTS', sourcePath: seedVideo(t) });
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  raw.configuration = { credentialId: null };
+  fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+  const reread = getProject(dir, project.id);
+  assert.deepEqual(reread.configuration.tts, {
+    model: null, voice: null, voiceDirection: null, credentialId: null,
+  });
+  const stored = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  assert.deepEqual(stored.configuration, { credentialId: null });
+});
+
+test('TTS run resolution merges config and gates the credential', async (t) => {
+  const dir = tempDir(t);
+  const catalog = {
+    models: [{ id: 'gemini-3.8-flash-tts', description: '' }],
+    voices: [{ id: 'Kore', character: '' }],
+    defaults: { model: 'gemini-3.8-flash-tts', voice: 'Kore', voiceDirection: 'Default style.' },
+    limits: { voiceMaxLength: 64, voiceDirectionMaxLength: 500 },
+  };
+  const project = createProject(dir, { name: 'TTS Run', sourcePath: seedVideo(t) });
+  assert.throws(
+    () => resolveTtsRunConfig(dir, storage(), project.id, catalog),
+    /no TTS credential selected/,
+  );
+  const tts = createCredential(dir, storage(), {
+    name: 'TTS', provider: 'google-gemini-tts', model: null, key: 'run-tts-key',
+  });
+  updateProject(dir, project.id, {
+    configuration: { tts: { voice: 'Kore', credentialId: tts.id } },
+  });
+  assert.throws(
+    () => resolveTtsRunConfig(dir, storage(), project.id, catalog),
+    /not verified/,
+  );
+  markCredentialVerified(dir, storage(), tts.id, null);
+  const resolved = resolveTtsRunConfig(dir, storage(), project.id, catalog);
+  assert.deepEqual(resolved.config, {
+    model: 'gemini-3.8-flash-tts',
+    voice: 'Kore',
+    voiceDirection: 'Default style.',
+  });
+  assert.equal(resolved.apiKey, 'run-tts-key');
+  assert.equal(resolved.credentialName, 'TTS');
+  const vision = createCredential(dir, storage(), {
+    name: 'Vision', provider: 'meta', model: 'muse-spark-1.3', key: 'vision-key',
+  });
+  updateProject(dir, project.id, { configuration: { tts: { credentialId: vision.id } } });
+  assert.throws(
+    () => resolveTtsRunConfig(dir, storage(), project.id, catalog),
+    /not a TTS credential/,
+  );
 });
 
 test('configuration patches merge and validate fields', async (t) => {

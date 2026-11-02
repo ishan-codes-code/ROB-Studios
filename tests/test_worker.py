@@ -274,6 +274,34 @@ class WorkerCliTests(unittest.TestCase):
         # Fail-fast: no output tree created.
         self.assertFalse(out.exists())
 
+    def test_invalid_tts_config_fails_fast_before_any_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            out = root / "out"
+            env = offline_env()
+            env["BASETEN_API_KEY"] = "unit-test-sentinel-vision-key"
+            env["AI_COMMENTATOR_PROVIDER_API_KEY"] = "unit-test-sentinel-tts-key"
+            proc = run_worker(
+                str(video),
+                "--output-dir",
+                str(out),
+                "--adaptive",
+                "--with-script",
+                "--generate-tts",
+                "--tts-model",
+                "not-a-real-model",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 1)
+        messages = parse_stdout_lines(proc)
+        self.assertEqual(messages[0]["type"], "error")
+        self.assertEqual(messages[0]["stage"], "tts")
+        self.assertIn("Invalid TTS configuration", messages[0]["message"])
+        self.assertNotIn("unit-test-sentinel-vision-key", proc.stdout)
+        self.assertNotIn("unit-test-sentinel-tts-key", proc.stderr)
+        self.assertFalse(out.exists())
+
     def test_never_prints_tts_secret_values(self):
         sentinel = "unit-test-sentinel-tts-credential"
         with tempfile.TemporaryDirectory() as tmp:
@@ -686,6 +714,89 @@ class TtsStageTests(unittest.TestCase):
             self.assertEqual(
                 completed[0]["detail"],
                 {"status": "success", "segments": 1, "succeeded": 1, "failed": 0},
+            )
+
+    def test_resolve_tts_config_defaults(self):
+        import types
+
+        args = types.SimpleNamespace()
+        self.assertEqual(
+            worker.resolve_tts_config(args),
+            (
+                worker.engine.DEFAULT_TTS_MODEL,
+                worker.engine.DEFAULT_TTS_VOICE,
+                worker.engine.DEFAULT_TTS_VOICE_DIRECTION,
+            ),
+        )
+
+    def test_resolve_tts_config_custom_and_rejections(self):
+        import types
+
+        args = types.SimpleNamespace(
+            tts_model="gemini-3.8-flash-lite-tts",
+            tts_voice="Fenrir",
+            tts_voice_direction="Calm and measured.",
+        )
+        self.assertEqual(
+            worker.resolve_tts_config(args),
+            ("gemini-3.8-flash-lite-tts", "Fenrir", "Calm and measured."),
+        )
+        with self.assertRaises(ValueError):
+            worker.resolve_tts_config(types.SimpleNamespace(tts_model="bogus"))
+        with self.assertRaises(ValueError):
+            worker.resolve_tts_config(types.SimpleNamespace(tts_voice=""))
+        with self.assertRaises(ValueError):
+            worker.resolve_tts_config(
+                types.SimpleNamespace(tts_voice_direction="x" * 501)
+            )
+
+    def test_tts_stage_threads_configured_voice(self):
+        captured = {}
+        original = self.fake_tts_success
+
+        def capturing(**kwargs):
+            captured.update(
+                {
+                    key: kwargs[key]
+                    for key in ("model", "voice", "voice_direction")
+                }
+            )
+            return original(**kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            out = root / "out"
+            with (
+                mock.patch.object(
+                    worker.engine,
+                    "run_adaptive_vision",
+                    side_effect=self.fake_adaptive(out / "observations"),
+                ),
+                mock.patch.object(
+                    worker.engine, "run_generate_script", side_effect=self.fake_script
+                ),
+                mock.patch.object(
+                    worker.engine, "run_generate_tts", side_effect=capturing
+                ),
+            ):
+                code, _, _ = self.run_pipeline_quiet(
+                    self.tts_args(
+                        str(video),
+                        str(out),
+                        tts_model="gemini-3.8-flash-lite-tts",
+                        tts_voice="Fenrir",
+                        tts_voice_direction="Calm and measured.",
+                    )
+                )
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                captured,
+                {
+                    "model": "gemini-3.8-flash-lite-tts",
+                    "voice": "Fenrir",
+                    "voice_direction": "Calm and measured.",
+                },
             )
 
     def test_tts_failure_fails_run_without_results(self):

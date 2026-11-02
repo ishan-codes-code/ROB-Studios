@@ -70,7 +70,13 @@ write-only, and saved keys render as "Credential stored securely" (or
   renderer state.
 - Deleting a credential referenced by any project is refused with the
   referencing project names; the caller must reassign those projects
-  first. There is no silent substitution of another key — ever.
+  first. This covers TTS references too: a project TTS override or the
+  global TTS default blocks deletion until reassigned. There is no
+  silent substitution of another key — ever.
+- TTS runs and previews resolve the key main-side from the selected
+  purpose-`tts` record and hand it to Python exclusively through the
+  `AI_COMMENTATOR_PROVIDER_API_KEY` child environment (see
+  `tts-studio-v1.md`), beside — never mixed with — the vision key.
 
 ## Migration
 

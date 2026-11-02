@@ -10,12 +10,18 @@ and the tests together.
 ## Transport
 
 - Command: `<repo>/.venv/bin/python python/worker.py VIDEO [--output-dir DIR]
-  --adaptive [--adaptive-max-frames N] [--with-script] [--generate-tts]`
+  --adaptive [--adaptive-max-frames N] [--with-script] [--generate-tts
+  [--tts-model MODEL] [--tts-voice VOICE] [--tts-voice-direction TEXT]]`
   (Windows interpreter: `.venv/Scripts/python.exe`).
 - The video path is a positional argument. `--adaptive` is required:
   adaptive sampling is the only supported analysis mode; `--generate-tts`
   synthesizes commentary audio from the generated script (requires
-  `--with-script`; see `docs/contracts/tts-v1.md`).
+  `--with-script`; see `docs/contracts/tts-v1.md`). The `--tts-*` options
+  carry the effective Studio voice configuration resolved main-side from
+  stored settings (see `docs/contracts/tts-studio-v1.md`); unset options
+  fall back to engine defaults, and anything else must pass
+  `validate_tts_config` or the worker fails fast with a stage-`tts`
+  error before any paid call.
 - **stdout carries only protocol messages**: one JSON object per line,
   newline-delimited (NDJSON). Engine diagnostics and legacy `print` output
   are redirected to **stderr** so stdout stays parseable even though the
@@ -197,9 +203,11 @@ dispatched as a final message.
   emission), the iteration hook, and the engine stop boundaries —
   all offline with fixture videos and observations, never paid calls.
   `tests/test_tts.py` covers the TTS runner and manifest (mocked
-  synthesis, per-segment failure isolation, redaction), and
+  synthesis, per-segment failure isolation, redaction),
+  `tests/test_tts_catalog.py` covers the offline catalogue probe, and
   `tests/test_worker.py` covers the `--generate-tts` flag validation,
-  TTS key fail-fast, and the `tts` worker stage.
+  TTS key fail-fast, `--tts-*` config validation/thread-through, and
+  the `tts` worker stage.
 - `electron/test/` covers incremental parsing (split chunks, multiple
   messages per chunk, invalid lines), input validation, interpreter
   resolution, process cancel/cleanup, `adaptive_sample` shape validation,

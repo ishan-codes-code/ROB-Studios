@@ -1,5 +1,37 @@
 # Current state
 
+## TTS Studio (M7, on `feature/tts-generation`, uncommitted)
+
+A dedicated TTS Studio sidebar section configures the commentary
+voice: backend-provided catalogue (30 prebuilt voices, pinned models,
+defaults, limits via the offline `python/tts_catalog.py` probe —
+never a renderer copy), model/voice/delivery-style editors with
+per-field inherited/overridden captions, TTS credential selection,
+paid preview synthesis of a fixed phrase, and a custom-text test
+bench. Preview audio returns base64 over IPC while temp WAVs are
+deleted immediately; previews never touch project artifacts.
+
+Configuration has two partial layers — global `settings.json` `tts`
+section and `project.json` `configuration.tts` overrides — resolving
+project override > global default > application default through
+`electron/src/tts-config.mjs`. Runs opt into script/audio with two
+editor checkboxes (default off); the main process resolves the
+effective triple plus the verified vault TTS key, passes
+`--generate-tts --tts-model/--tts-voice/--tts-voice-direction`
+(worker re-validates and fails fast), and injects
+`AI_COMMENTATOR_PROVIDER_API_KEY` only for TTS runs. Credential
+deletion now also guards project TTS overrides and the global TTS
+default. See `docs/contracts/tts-studio-v1.md`. `tts-v1` and
+`script-v1` are unchanged.
+
+Verification: Python suite 447 tests OK (new `test_tts_catalog.py`,
+worker `--tts-*` cases; offline, fakes only); Electron suite 206
+tests pass, 0 fail (offline, `node:test`); renderer production build
+and full `electron-forge package` succeed. No live Gemini calls were made; renderer
+behavior beyond the static hook-import guard is covered by manual
+steps (catalogue load, save/reset round-trips, preview playback,
+opt-in run wiring) in the task handoff.
+
 ## Script-to-audio generation pipeline (M6, on `feature/tts-generation`, uncommitted)
 
 `run_generate_tts` (`python/ai_commentator/tts/runner.py`) reads the

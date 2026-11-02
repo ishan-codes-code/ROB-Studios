@@ -262,6 +262,45 @@ test('buildWorkerArgv passes the script flag', () => {
   );
 });
 
+test('buildWorkerArgv passes TTS flags with a validated voice triple', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      adaptive: true,
+      withScript: true,
+      generateTts: true,
+      ttsModel: 'gemini-3.8-flash-tts',
+      ttsVoice: 'Fenrir',
+      ttsVoiceDirection: 'Calm and measured.',
+    }),
+    [
+      'worker.py', 'clip.mp4', '--with-script', '--generate-tts',
+      '--tts-model', 'gemini-3.8-flash-tts',
+      '--tts-voice', 'Fenrir',
+      '--tts-voice-direction', 'Calm and measured.',
+      '--adaptive',
+    ],
+  );
+});
+
+test('buildWorkerArgv rejects TTS without the script and unbounded values', () => {
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { generateTts: true }),
+    /requires --with-script/,
+  );
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { ttsVoice: '' }),
+    /ttsVoice must be a non-empty string/,
+  );
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { ttsVoice: 'v'.repeat(65) }),
+    /ttsVoice must be a non-empty string/,
+  );
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { ttsVoiceDirection: 'd'.repeat(501) }),
+    /ttsVoiceDirection must be a non-empty string/,
+  );
+});
+
 test('isVisionConfigured reads only presence of the key', () => {
   assert.equal(isVisionConfigured({ BASETEN_API_KEY: 'secret' }), true);
   assert.equal(isVisionConfigured({ BASETEN_API_KEY: '  ' }), false);

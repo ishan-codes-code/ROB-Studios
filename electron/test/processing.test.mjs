@@ -38,7 +38,7 @@ const testSafeStorage = {
   decryptString: (buf) => Buffer.from(String(buf == null ? '' : buf).replace(/^enc:/, ''), 'base64').toString('utf8'),
 };
 
-function setup(t, { requestStopResult } = {}) {
+function setup(t, { requestStopResult, ttsCatalog = null } = {}) {
   const userData = makeUserData(t);
   const handlers = {};
   const ipcMain = {
@@ -79,6 +79,7 @@ function setup(t, { requestStopResult } = {}) {
     repoRoot: () => repoRoot,
     sendWorkerEvent: (message) => events.push(message),
     getMainWindow: () => null,
+    ttsCatalogLoader: ttsCatalog ? { load: async () => ttsCatalog, reset: () => {} } : null,
   });
   return { userData, handlers, workerManager, state, events, getStart: () => captured };
 }
@@ -268,4 +269,90 @@ test('stop-request IPC acceptance does not settle the run by itself', async (t) 
   assert.deepEqual(accepted, { ok: true, requested: true, reason: 'stop-requested' });
   // No run exists, so nothing settled: acceptance is not completion.
   assert.equal(s.state.activeProjectId, null);
+});
+
+const TTS_CATALOG = {
+  models: [
+    { id: 'gemini-3.8-flash-tts', description: '' },
+    { id: 'gemini-3.8-flash-lite-tts', description: '' },
+  ],
+  voices: [{ id: 'Kore', character: '' }, { id: 'Fenrir', character: '' }],
+  defaults: { model: 'gemini-3.8-flash-tts', voice: 'Kore', voiceDirection: 'Default style.' },
+  limits: { voiceMaxLength: 64, voiceDirectionMaxLength: 500 },
+};
+
+function seedTtsProject(userData, { voice = null } = {}) {
+  const vision = createCredential(userData, testSafeStorage, {
+    name: 'Vision', provider: 'meta', model: 'muse-spark-1.3', key: 'vision-run-key',
+  });
+  markCredentialVerified(userData, testSafeStorage, vision.id, vision.model);
+  const tts = createCredential(userData, testSafeStorage, {
+    name: 'TTS', provider: 'google-gemini-tts', model: null, key: 'tts-run-key',
+  });
+  markCredentialVerified(userData, testSafeStorage, tts.id, null);
+  const video = makeFixtureVideo(path.join(userData, 'incoming'));
+  const project = createProject(userData, { name: 'tts run', sourcePath: video });
+  updateProject(userData, project.id, {
+    configuration: {
+      credentialId: vision.id,
+      tts: { voice, voiceDirection: null, model: null, credentialId: tts.id },
+    },
+  });
+  return project;
+}
+
+test('TTS run passes resolved config argv and injects the vault key only', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData, { voice: 'Fenrir' });
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    {
+      projectId: project.id, adaptive: true, withScript: true, requestTts: true,
+      // Renderer-supplied TTS values must never reach the worker.
+      generateTts: false, ttsVoice: 'Evil', ttsModel: 'evil-model', ttsVoiceDirection: 'evil',
+    },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.ok(argv.includes('--with-script'));
+  assert.ok(argv.includes('--generate-tts'));
+  const valueOf = (flag) => argv[argv.indexOf(flag) + 1];
+  assert.equal(valueOf('--tts-model'), 'gemini-3.8-flash-tts');
+  assert.equal(valueOf('--tts-voice'), 'Fenrir');
+  assert.equal(valueOf('--tts-voice-direction'), 'Default style.');
+  assert.equal(argv.join(' ').includes('Evil'), false);
+  assert.equal(env.AI_COMMENTATOR_PROVIDER_API_KEY, 'tts-run-key');
+  assert.equal(env.AI_COMMENTATOR_API_KEY, 'vision-run-key');
+});
+
+test('plain runs carry no TTS key or flags', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData);
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path, { projectId: project.id, adaptive: true },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.equal(argv.includes('--generate-tts'), false);
+  assert.equal('AI_COMMENTATOR_PROVIDER_API_KEY' in env, false);
+});
+
+test('TTS run without the script or credential fails before spawning', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData);
+  const noScript = await s.handlers['process-video'](
+    {}, project.sourceVideo.path, { projectId: project.id, adaptive: true, requestTts: true },
+  );
+  assert.equal(noScript.ok, false);
+  assert.match(noScript.error, /final casting script/);
+  assert.equal(s.getStart(), null);
+
+  updateProject(s.userData, project.id, { configuration: { tts: { credentialId: null } } });
+  const noCredential = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    { projectId: project.id, adaptive: true, withScript: true, requestTts: true },
+  );
+  assert.equal(noCredential.ok, false);
+  assert.match(noCredential.error, /no TTS credential selected/);
+  assert.equal(s.getStart(), null);
 });

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_SETTINGS } from './settings-defaults.mjs';
+import { normalizePartialTtsConfig } from './tts-config.mjs';
 export { DEFAULT_SETTINGS } from './settings-defaults.mjs';
 
 export const SETTINGS_VERSION = 1;
@@ -28,6 +29,7 @@ export function validateSettings(value) {
     provider: { type: p.type, baseUrl: url.toString().replace(/\/$/, ''), model: p.model.trim(), modelVisionVerified: p.modelVisionVerified },
     game: { id: g.id, context: g.context },
     prompt: { personality: c.personality, tone: c.tone, language: c.language, instructions: c.instructions },
+    tts: normalizePartialTtsConfig(value.tts ?? null),
     onboardingCompleted: value.onboardingCompleted,
   };
 }

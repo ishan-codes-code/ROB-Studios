@@ -35,3 +35,31 @@ test('partial existing settings are defaulted during load', (t) => {
   assert.equal(result.game.id, 'free-fire');
   assert.equal(result.prompt.language, 'Japanese');
 });
+
+test('global TTS layer persists, reloads, and trims voice input', (t) => {
+  const dir = temp(t);
+  const saved = saveSettings(dir, {
+    ...DEFAULT_SETTINGS,
+    tts: { model: null, voice: '  Fenrir ', voiceDirection: 'Calm and measured.', credentialId: null },
+  });
+  assert.deepEqual(saved.tts, { model: null, voice: 'Fenrir', voiceDirection: 'Calm and measured.', credentialId: null });
+  // A fresh load (application restart) returns the same layer.
+  assert.deepEqual(loadSettings(dir).tts, saved.tts);
+});
+
+test('legacy settings without a TTS section inherit fully', (t) => {
+  const dir = temp(t);
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ prompt: { language: 'Japanese' } }));
+  assert.deepEqual(loadSettings(dir).tts, { model: null, voice: null, voiceDirection: null, credentialId: null });
+});
+
+test('global TTS layer rejects overlong and unknown fields', () => {
+  assert.throws(
+    () => validateSettings({ ...DEFAULT_SETTINGS, tts: { voice: 'v'.repeat(65) } }),
+    /Invalid TTS configuration field 'voice'/,
+  );
+  assert.throws(
+    () => validateSettings({ ...DEFAULT_SETTINGS, tts: { tempo: 2 } }),
+    /Unknown TTS configuration field/,
+  );
+});

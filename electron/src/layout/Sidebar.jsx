@@ -4,6 +4,7 @@ import {
   Clapperboard,
   KeyRound,
   MessagesSquare,
+  Mic,
   ScanSearch,
   Settings,
   Sparkles,
@@ -21,6 +22,7 @@ const WORKSPACE_ITEMS = [
 const CONFIGURATION_ITEMS = [
   { id: "api-keys", label: "API Keys", icon: KeyRound },
   { id: "games-prompts", label: "Games & Prompts", icon: Sparkles },
+  { id: "tts-studio", label: "TTS Studio", icon: Mic },
   { id: "preferences", label: "Preferences", icon: Settings },
 ];
 

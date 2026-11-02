@@ -9,6 +9,8 @@ import { resolvePythonExecutable } from './worker-protocol.mjs';
 import { registerProjectIpc } from './main/ipc/projects.js';
 import { registerProcessingIpc } from './main/ipc/processing.js';
 import { registerSettingsIpc } from './main/ipc/settings.js';
+import { registerTtsIpc } from './main/ipc/tts.js';
+import { createTtsCatalogLoader } from './tts-catalog.mjs';
 import { registerProjectMediaProtocol } from './main/media-protocol.js';
 import { createMainWindow } from './main/window.js';
 import { reconcileInterruptedRuns, resolveProjectMedia } from './project-store.mjs';
@@ -155,10 +157,13 @@ app.on('before-quit', () => {
   }
 });
 
-registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow });
+const ttsCatalogLoader = createTtsCatalogLoader({ repoRoot });
+
+registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader });
 
 registerProjectIpc({ ipcMain, app, workerManager });
 registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup });
+registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.

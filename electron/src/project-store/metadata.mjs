@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { validateVideoInput } from '../worker-protocol.mjs';
+import { normalizePartialTtsConfig } from '../tts-config.mjs';
 import {
   DEFAULT_COMMENTARY_PRESET_ID,
   DEFAULT_GAME_PROFILE_ID,
@@ -12,7 +13,7 @@ export const PROJECTS_DIR_NAME = 'projects';
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_NAME_LENGTH = 100;
-const CONFIGURATION_FIELDS = new Set(['credentialId', 'gameProfileId', 'commentaryPresetId']);
+const CONFIGURATION_FIELDS = new Set(['credentialId', 'gameProfileId', 'commentaryPresetId', 'tts']);
 const PATCHABLE_FIELDS = new Set(['processingStatus', 'lastOpenedAt', 'configuration']);
 const PROCESSING_STATUSES = new Set(['idle', 'processing', 'done', 'stopped', 'error', 'cancelled', 'interrupted']);
 
@@ -66,7 +67,12 @@ function validateConfiguration(value) {
   if (typeof commentaryPresetId !== 'string' || !ID_PATTERN.test(commentaryPresetId)) {
     throw new Error('Invalid project configuration.');
   }
-  return { credentialId, gameProfileId, commentaryPresetId };
+  return {
+    credentialId,
+    gameProfileId,
+    commentaryPresetId,
+    tts: normalizePartialTtsConfig(value.tts ?? null),
+  };
 }
 
 export function defaultProjectConfiguration() {
@@ -74,6 +80,7 @@ export function defaultProjectConfiguration() {
     credentialId: null,
     gameProfileId: DEFAULT_GAME_PROFILE_ID,
     commentaryPresetId: DEFAULT_COMMENTARY_PRESET_ID,
+    tts: { model: null, voice: null, voiceDirection: null, credentialId: null },
   };
 }
 

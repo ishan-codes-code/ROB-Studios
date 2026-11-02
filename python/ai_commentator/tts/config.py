@@ -10,6 +10,17 @@ TTS_MODELS = (
     "gemini-3.8-flash-tts",
     "gemini-3.8-flash-lite-tts",
 )
+# One-line model descriptions from the official Gemini documentation
+# (gemini-api-dev skill model list). Display metadata only; the pinned
+# TTS_MODELS membership above stays the authoritative gate.
+TTS_MODEL_DESCRIPTIONS = {
+    "gemini-3.8-flash-tts": (
+        "Expressive text-to-speech, the default for commentary."
+    ),
+    "gemini-3.8-flash-lite-tts": (
+        "Fast, cost-efficient text-to-speech for high-volume generation."
+    ),
+}
 DEFAULT_TTS_MODEL = "gemini-3.8-flash-tts"
 
 DEFAULT_TTS_VOICE = "Kore"

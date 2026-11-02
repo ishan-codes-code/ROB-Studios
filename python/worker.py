@@ -100,6 +100,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--with-script).",
     )
     parser.add_argument(
+        "--tts-model",
+        default=None,
+        metavar="MODEL",
+        help="TTS model for --generate-tts (pinned catalogue choice; "
+        f"default {engine.DEFAULT_TTS_MODEL}).",
+    )
+    parser.add_argument(
+        "--tts-voice",
+        default=None,
+        metavar="VOICE",
+        help="TTS voice for --generate-tts "
+        f"(default {engine.DEFAULT_TTS_VOICE}).",
+    )
+    parser.add_argument(
+        "--tts-voice-direction",
+        default=None,
+        metavar="TEXT",
+        help="TTS voice direction for --generate-tts (delivery style, "
+        "not commentary content).",
+    )
+    parser.add_argument(
         "--adaptive",
         action="store_true",
         help="Sample the video adaptively: one captured frame, one vision "
@@ -195,6 +216,24 @@ def require_tts_key() -> str | None:
         return None
     return (
         f"{engine.TTS_API_KEY_ENV_VAR} is not set in the environment."
+    )
+
+
+def resolve_tts_config(args) -> tuple[str, str, str]:
+    """Validate the TTS voice configuration for a `--generate-tts` run.
+
+    Unset options fall back to the engine defaults; anything else must
+    pass the authoritative ``validate_tts_config`` gate. Raises
+    ``ValueError`` with a secret-free message. Used both for fail-fast
+    validation in ``main`` and for the stage call in ``run_pipeline``.
+    """
+    model = getattr(args, "tts_model", None)
+    voice = getattr(args, "tts_voice", None)
+    direction = getattr(args, "tts_voice_direction", None)
+    return engine.validate_tts_config(
+        engine.DEFAULT_TTS_MODEL if model is None else model,
+        engine.DEFAULT_TTS_VOICE if voice is None else voice,
+        engine.DEFAULT_TTS_VOICE_DIRECTION if direction is None else direction,
     )
 
 
@@ -455,10 +494,14 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
     tts_status = "skipped"
     if getattr(args, "generate_tts", False):
         progress("tts")
+        tts_model, tts_voice, tts_direction = resolve_tts_config(args)
         with contextlib.redirect_stdout(sys.stderr):
             code = engine.run_generate_tts(
                 script_path=script_path,
                 audio_dir=audio_dir,
+                model=tts_model,
+                voice=tts_voice,
+                voice_direction=tts_direction,
             )
         if code != 0:
             emit_error(
@@ -550,6 +593,11 @@ def main(argv: list[str] | None = None) -> int:
         tts_key_problem = require_tts_key()
         if tts_key_problem is not None:
             emit_error("tts", tts_key_problem)
+            return 1
+        try:
+            resolve_tts_config(args)
+        except ValueError as exc:
+            emit_error("tts", f"Invalid TTS configuration: {exc}")
             return 1
     try:
         # Engine diagnostics print to stderr from here on; protocol

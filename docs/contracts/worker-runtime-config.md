@@ -13,6 +13,7 @@ assumption.
 | `AI_COMMENTATOR_PROVIDER` | `meta` or `baseten` (explicit, validated) |
 | `AI_COMMENTATOR_MODEL` | Curated model ID for that provider |
 | `AI_COMMENTATOR_API_KEY` | Decrypted key for the selected credential only |
+| `AI_COMMENTATOR_PROVIDER_API_KEY` | Decrypted TTS key, only for runs with `--generate-tts` |
 | `AI_COMMENTATOR_SETTINGS_JSON` | Non-secret `{game, prompt}` preferences |
 | `BASETEN_API_KEY` | Legacy mirror of the run key (fallback compat) |
 | `BASETEN_BASE_URL` / `BASETEN_MODEL` | Mirrored only for Baseten runs |

@@ -175,7 +175,7 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
   );
 }
 
-function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, onReadinessChange }) {
+function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, withScript, setWithScript, requestTts, setRequestTts, onReadinessChange }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 p-3">
       <ProjectConfiguration projectId={projectId} onReadinessChange={onReadinessChange} />
@@ -217,6 +217,47 @@ function ConfigurationContent({ projectId, visionConfigured, visionChecked, canS
             Each sampled frame makes at most one paid vision request. Default {ADAPTIVE_DEFAULT_MAX_FRAMES}; the engine caps runs at {ADAPTIVE_HARD_MAX_FRAMES}.
           </p>
         </div>
+      </section>
+
+      <Separator />
+
+      <section className="flex min-w-0 flex-col gap-2" aria-labelledby="generation-extras-title">
+        <SectionHeading id="generation-extras-title">Generation extras</SectionHeading>
+        <label className="flex min-w-0 cursor-pointer items-start gap-2">
+          <input
+            type="checkbox"
+            checked={withScript}
+            disabled={!canStart}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setWithScript(checked);
+              if (!checked) setRequestTts(false);
+            }}
+            className="mt-0.5 size-4 shrink-0 accent-primary disabled:opacity-50"
+          />
+          <span className="min-w-0">
+            <span className="block text-[12px] text-foreground">Final casting script</span>
+            <span className="block text-[11px] leading-relaxed text-muted-foreground">
+              One paid text request words the validated claims for broadcast.
+            </span>
+          </span>
+        </label>
+        <label className="flex min-w-0 cursor-pointer items-start gap-2">
+          <input
+            type="checkbox"
+            checked={requestTts}
+            disabled={!canStart || !withScript}
+            onChange={(event) => setRequestTts(event.target.checked)}
+            className="mt-0.5 size-4 shrink-0 accent-primary disabled:opacity-50"
+          />
+          <span className="min-w-0">
+            <span className="block text-[12px] text-foreground">Commentary audio</span>
+            <span className="block text-[11px] leading-relaxed text-muted-foreground">
+              One paid TTS request per script segment, using this project&apos;s TTS Studio voice.
+              Needs the script plus a verified TTS credential.
+            </span>
+          </span>
+        </label>
       </section>
 
       <Separator />
@@ -294,6 +335,10 @@ export default function ProcessingInspector({
   runIsAdaptive,
   adaptiveMaxFrames,
   setAdaptiveMaxFrames,
+  withScript,
+  setWithScript,
+  requestTts,
+  setRequestTts,
   onStart,
   onCancel,
   onStop,
@@ -334,6 +379,10 @@ export default function ProcessingInspector({
           canStart={canStart}
           adaptiveMaxFrames={adaptiveMaxFrames}
           setAdaptiveMaxFrames={setAdaptiveMaxFrames}
+          withScript={withScript}
+          setWithScript={setWithScript}
+          requestTts={requestTts}
+          setRequestTts={setRequestTts}
           onReadinessChange={onReadinessChange}
         />
       </TabsContent>

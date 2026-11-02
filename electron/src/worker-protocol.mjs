@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { TTS_CONFIG_BOUNDS } from './tts-config.mjs';
 
 const SUPPORTED_VIDEO_EXTENSIONS = new Set([
   '.mp4',
@@ -197,6 +198,16 @@ function isVisionConfigured(env = process.env) {
 }
 
 /**
+ * TTS argv options are bounded non-empty strings (the worker re-validates
+ * them against the authoritative Python gate before any synthesis).
+ */
+function assertTtsOption(value, name, maxLength) {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > maxLength) {
+    throw new Error(`${name} must be a non-empty string under ${maxLength + 1} characters.`);
+  }
+}
+
+/**
  * Build the worker argv from validated main-process inputs. Throws on
  * an invalid limit so the IPC handler can reject before spawning.
  * Only known flags are ever emitted; renderer input cannot inject
@@ -210,6 +221,26 @@ function buildWorkerArgv(script, videoPath, opts = {}) {
   }
   if (options.withScript) {
     argv.push('--with-script');
+  }
+  if (options.generateTts) {
+    if (!options.withScript) {
+      throw new Error('--generate-tts requires --with-script.');
+    }
+    argv.push('--generate-tts');
+  }
+  if (options.ttsModel !== undefined && options.ttsModel !== null) {
+    assertTtsOption(options.ttsModel, 'ttsModel', TTS_CONFIG_BOUNDS.modelMaxLength);
+    argv.push('--tts-model', options.ttsModel);
+  }
+  if (options.ttsVoice !== undefined && options.ttsVoice !== null) {
+    assertTtsOption(options.ttsVoice, 'ttsVoice', TTS_CONFIG_BOUNDS.voiceMaxLength);
+    argv.push('--tts-voice', options.ttsVoice);
+  }
+  if (options.ttsVoiceDirection !== undefined && options.ttsVoiceDirection !== null) {
+    assertTtsOption(
+      options.ttsVoiceDirection, 'ttsVoiceDirection', TTS_CONFIG_BOUNDS.voiceDirectionMaxLength,
+    );
+    argv.push('--tts-voice-direction', options.ttsVoiceDirection);
   }
   if (options.adaptive) {
     argv.push('--adaptive');

@@ -9,6 +9,7 @@ import CommentarySection from "@/app/sections/CommentarySection.jsx";
 import ApiKeysSection from "@/app/sections/ApiKeysSection.jsx";
 import GamesPromptsSection from "@/app/sections/GamesPromptsSection.jsx";
 import PreferencesSection from "@/app/sections/PreferencesSection.jsx";
+import TtsStudioSection from "@/app/sections/TtsStudioSection.jsx";
 import WorkspaceSection from "@/app/sections/WorkspaceSection.jsx";
 import StudioPlaceholder from "@/app/sections/StudioPlaceholder.jsx";
 import { MOTION, EASING } from "@/lib/tokens.js";
@@ -20,6 +21,7 @@ const SECTION_VIEWS = {
   audio: StudioPlaceholder,
   "api-keys": ApiKeysSection,
   "games-prompts": GamesPromptsSection,
+  "tts-studio": TtsStudioSection,
   preferences: PreferencesSection,
 };
 
@@ -30,6 +32,7 @@ const SECTION_META = {
   audio: { title: "Audio", context: "Playback lanes are not available yet" },
   "api-keys": { title: "API Keys", context: "Saved provider configurations" },
   "games-prompts": { title: "Games & Prompts", context: "Game profiles and commentary presets" },
+  "tts-studio": { title: "TTS Studio", context: "Commentary voice configuration and previews" },
   preferences: { title: "Preferences", context: "Application preferences" },
 };
 

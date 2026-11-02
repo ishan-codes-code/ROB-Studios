@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { getProjectOutputDir, getProject as getStoredProject, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
 import { buildWorkerArgv, isVisionConfigured, resolvePythonExecutable, resolveWorkerScript, validateVideoInput } from '../../worker-protocol.mjs';
-import { resolveProjectRunConfig, stripHostSecrets } from '../run-config.mjs';
+import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../run-config.mjs';
+import { TTS_API_KEY_ENV_VAR } from '../../tts-config.mjs';
 import { loadSettings } from '../../settings-store.mjs';
 
-export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow }) {
+export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow, ttsCatalogLoader = null }) {
   // True once the active run emitted its terminal `stopped` message.
   // Reset on every start; runs never overlap, so one flag is enough.
   let stoppedSeenForActiveRun = false;
@@ -108,6 +109,40 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
         error: 'Adaptive sampling needs an API key. Open API Keys to configure a provider.',
       };
     }
+    // TTS runs resolve here, never from renderer values: the renderer only
+    // opts in with `requestTts`. Worker argv and the TTS key below derive
+    // exclusively from the vault plus stored configuration.
+    delete opts.generateTts;
+    delete opts.ttsModel;
+    delete opts.ttsVoice;
+    delete opts.ttsVoiceDirection;
+    let ttsRun = null;
+    if (opts.requestTts === true) {
+      if (runConfig === null) {
+        return { ok: false, error: 'Commentary audio needs a project with TTS configuration. Open the TTS Studio to configure it.' };
+      }
+      if (opts.withScript !== true) {
+        return { ok: false, error: 'Commentary audio requires the final casting script. Enable both options.' };
+      }
+      if (!ttsCatalogLoader) {
+        return { ok: false, error: 'TTS catalogue is unavailable.' };
+      }
+      let catalog;
+      try {
+        catalog = await ttsCatalogLoader.load();
+      } catch (err) {
+        return { ok: false, error: err?.message ?? 'TTS catalogue is unavailable.' };
+      }
+      try {
+        ttsRun = resolveTtsRunConfig(app.getPath('userData'), safeStorage, opts.projectId, catalog);
+      } catch (err) {
+        return { ok: false, error: err?.message ?? 'The TTS configuration could not be resolved.' };
+      }
+      opts.generateTts = true;
+      opts.ttsModel = ttsRun.config.model;
+      opts.ttsVoice = ttsRun.config.voice;
+      opts.ttsVoiceDirection = ttsRun.config.voiceDirection;
+    }
     let argv;
     try {
       argv = buildWorkerArgv(script, videoPath, opts);
@@ -130,6 +165,11 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       if (runConfig.provider === 'baseten') {
         workerEnv.BASETEN_BASE_URL = runConfig.baseUrl;
         workerEnv.BASETEN_MODEL = runConfig.model;
+      }
+      // The TTS key is injected only for runs that requested audio, and
+      // only from the resolved vault credential — never renderer input.
+      if (ttsRun !== null) {
+        workerEnv[TTS_API_KEY_ENV_VAR] = ttsRun.apiKey;
       }
     } else {
     let credential = '';
