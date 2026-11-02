@@ -83,6 +83,7 @@ const inputClassName =
 export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
   const [credentials, setCredentials] = useState([]);
   const [secureStorage, setSecureStorage] = useState(true);
+  const [devBypass, setDevBypass] = useState({ supported: false, enabled: false });
   const [migration, setMigration] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -102,10 +103,17 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
     setLoading(true);
     setError("");
     try {
-      const result = await window.api.listCredentials();
+      const [result, bypass] = await Promise.all([
+        window.api.listCredentials(),
+        window.api.getDevBypass().catch(() => null),
+      ]);
       if (!result?.ok) throw new Error("Could not load API configurations.");
       setCredentials(result.credentials ?? []);
       setSecureStorage(result.secureStorageAvailable !== false);
+      setDevBypass({
+        supported: bypass?.supported === true,
+        enabled: bypass?.enabled === true,
+      });
       setMigration(result.migration ?? null);
       if (result.migration?.notice) setNotice(result.migration.notice);
     } catch (err) {
@@ -114,6 +122,24 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
       setLoading(false);
     }
   }, []);
+
+  const setBypass = useCallback(async (enabled) => {
+    setError("");
+    setNotice("");
+    try {
+      const result = await window.api.setDevBypass(enabled);
+      if (!result?.ok) throw new Error(result?.error ?? "Could not change the development bypass.");
+      setDevBypass({ supported: true, enabled: result.enabled === true });
+      setNotice(
+        result.enabled === true
+          ? "Development credential mode active — credentials are held in memory only and will be cleared when the application closes."
+          : "Development credential mode disabled. Secure storage is required again.",
+      );
+      await reload();
+    } catch (err) {
+      setError(err?.message ?? "Could not change the development bypass.");
+    }
+  }, [reload]);
 
   useEffect(() => {
     let alive = true;
@@ -482,6 +508,37 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
         </Alert>
       ) : null}
 
+      {devBypass.supported && !secureStorage ? (
+        <label className="flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border border-border bg-background px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={devBypass.enabled}
+            disabled={loading || !!busy}
+            onChange={(event) => setBypass(event.target.checked)}
+            className="mt-0.5 size-4 shrink-0 accent-primary disabled:opacity-50"
+          />
+          <span className="min-w-0">
+            <span className="block text-[13px] font-medium text-foreground">
+              Allow insecure development credentials
+            </span>
+            <span className="block text-[11px] leading-relaxed text-muted-foreground">
+              When enabled, credentials are kept temporarily in memory if secure OS storage
+              is unavailable. They are never persisted and are cleared when the application closes.
+            </span>
+          </span>
+        </label>
+      ) : null}
+
+      {devBypass.enabled ? (
+        <Alert>
+          <AlertTitle>Development credential mode active</AlertTitle>
+          <AlertDescription>
+            Development credential mode active — credentials are held in memory only and will
+            be cleared when the application closes.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {migration && !migration.migrated ? (
         <Alert>
           <AlertTitle>Migration notice</AlertTitle>
@@ -517,7 +574,9 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
               <div className="flex flex-col gap-3 border-t border-border bg-card px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
                   <ShieldCheck className="size-4 shrink-0" aria-hidden />
-                  Encrypted on this device
+                  {devBypass.enabled && !secureStorage
+                    ? "Held in memory only — cleared on quit"
+                    : "Encrypted on this device"}
                 </p>
                 <DialogFooter className="gap-2 sm:flex-row">
                   {cancelAction}
@@ -574,6 +633,7 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
                         {providerLabel(entry.provider)} · {credentialTarget(entry)}
                       </span>
                     </span>
+                    {entry.devOnly === true ? <Badge variant="outline">In-memory (dev)</Badge> : null}
                     {statusBadge({ ...entry, verificationFailed: verificationFailures.includes(entry.id) })}
                   </button>
                 </li>
@@ -594,8 +654,11 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
               {statusBadge({ ...selected, verificationFailed: verificationFailures.includes(selected.id) })}
+              {selected.devOnly === true ? <Badge variant="outline">In-memory (dev)</Badge> : null}
               <span className="text-[12px] text-muted-foreground">
-                {selected.keyAvailable ? "Credential stored securely" : "Stored key cannot be read"}
+                {selected.devOnly === true && selected.keyAvailable
+                  ? "Held in memory only — cleared on quit"
+                  : selected.keyAvailable ? "Credential stored securely" : "Stored key cannot be read"}
                 {" · "}verified {formatTimestamp(selected.verification?.verifiedAt)}
               </span>
             </div>

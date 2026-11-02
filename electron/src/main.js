@@ -6,6 +6,7 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createWorkerManager } from './python-worker.mjs';
 import { resolvePythonExecutable } from './worker-protocol.mjs';
+import { clearDevCredentials } from './credentials-store.mjs';
 import { registerProjectIpc } from './main/ipc/projects.js';
 import { registerProcessingIpc } from './main/ipc/processing.js';
 import { registerSettingsIpc } from './main/ipc/settings.js';
@@ -149,6 +150,8 @@ app.on('window-all-closed', () => {
 
 // Never leave a worker running after the app exits.
 app.on('before-quit', () => {
+  // Temporary dev bypass: memory-held credentials vanish at shutdown.
+  try { clearDevCredentials(); } catch { /* never block quit */ }
   if (workerManager.isBusy()) {
     // Best effort: the process tree is torn down with the session, but an
     // explicit terminate avoids a stray paid API call or file write.

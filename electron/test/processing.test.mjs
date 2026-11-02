@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { registerProcessingIpc } from '../src/main/ipc/processing.js';
 import { createProject, getProject, updateProject } from '../src/project-store.mjs';
-import { createCredential, markCredentialVerified } from '../src/credentials-store.mjs';
+import { createCredential, markCredentialVerified, setDevBypassEnabled } from '../src/credentials-store.mjs';
 
 // Real repo root so resolvePythonExecutable/resolveWorkerScript find the
 // checked-in .venv layout and worker script; the fake manager never spawns.
@@ -38,7 +38,7 @@ const testSafeStorage = {
   decryptString: (buf) => Buffer.from(String(buf == null ? '' : buf).replace(/^enc:/, ''), 'base64').toString('utf8'),
 };
 
-function setup(t, { requestStopResult, ttsCatalog = null } = {}) {
+function setup(t, { requestStopResult, ttsCatalog = null, safeStorage = testSafeStorage } = {}) {
   const userData = makeUserData(t);
   const handlers = {};
   const ipcMain = {
@@ -73,7 +73,7 @@ function setup(t, { requestStopResult, ttsCatalog = null } = {}) {
     app,
     dialog,
     fs: fakeFs,
-    safeStorage: testSafeStorage,
+    safeStorage,
     workerManager,
     state,
     repoRoot: () => repoRoot,
@@ -355,4 +355,39 @@ test('TTS run without the script or credential fails before spawning', async (t)
   assert.equal(noCredential.ok, false);
   assert.match(noCredential.error, /no TTS credential selected/);
   assert.equal(s.getStart(), null);
+});
+
+test('TTS run with dev-bypass memory credentials injects keys via env only', async (t) => {
+  const downStorage = {
+    isEncryptionAvailable: () => false,
+    encryptString: () => { throw new Error('no encryption'); },
+    decryptString: () => { throw new Error('no encryption'); },
+  };
+  const s = setup(t, { ttsCatalog: TTS_CATALOG, safeStorage: downStorage });
+  t.after(() => setDevBypassEnabled(false, { isPackaged: false }));
+  setDevBypassEnabled(true, { isPackaged: false });
+  const vision = createCredential(s.userData, downStorage, {
+    name: 'Vision', provider: 'meta', model: 'muse-spark-1.3', key: 'memory-vision-key',
+  });
+  markCredentialVerified(s.userData, downStorage, vision.id, vision.model);
+  const tts = createCredential(s.userData, downStorage, {
+    name: 'TTS', provider: 'google-gemini-tts', model: null, key: 'memory-tts-key',
+  });
+  markCredentialVerified(s.userData, downStorage, tts.id, null);
+  const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+  const project = createProject(s.userData, { name: 'bypass run', sourcePath: video });
+  updateProject(s.userData, project.id, {
+    configuration: { credentialId: vision.id, tts: { credentialId: tts.id } },
+  });
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    { projectId: project.id, adaptive: true, withScript: true, requestTts: true },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.ok(argv.includes('--generate-tts'));
+  assert.equal(argv.join(' ').includes('memory-tts-key'), false);
+  assert.equal(argv.join(' ').includes('memory-vision-key'), false);
+  assert.equal(env.AI_COMMENTATOR_PROVIDER_API_KEY, 'memory-tts-key');
+  assert.equal(env.AI_COMMENTATOR_API_KEY, 'memory-vision-key');
 });

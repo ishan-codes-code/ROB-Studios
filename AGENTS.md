@@ -114,7 +114,9 @@ Read this file and the relevant `docs/` pages before implementing any task.
   `contextBridge` — no unrestricted Node.js APIs, no API keys, and no
   interpreter paths reach the renderer. The M7-approved TTS Studio surface
   (`tts-catalog`, `tts-config-get`, `tts-config-set`, `tts-preview`) follows
-  the same rules: main-side validation, no key material over IPC. Validate every IPC input
+  the same rules: main-side validation, no key material over IPC. The temporary
+  dev-only bypass (`dev-bypass-get`, `dev-bypass-set`) is additionally gated on
+  unpackaged builds main-side and must be removed before release. Validate every IPC input
   (non-empty string, supported video extension) in the main process.
 - Never weaken TLS verification or introduce arbitrary network configuration
   to bypass an error.

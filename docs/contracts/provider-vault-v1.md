@@ -77,6 +77,11 @@ write-only, and saved keys render as "Credential stored securely" (or
   purpose-`tts` record and hand it to Python exclusively through the
   `AI_COMMENTATOR_PROVIDER_API_KEY` child environment (see
   `tts-studio-v1.md`), beside — never mixed with — the vision key.
+- TEMPORARY development-only exception: in unpackaged builds only,
+  an explicit user opt-in permits memory-held credentials
+  (`devOnly`) while OS encryption is unavailable. They never touch
+  disk, clear on disable and quit, and production builds reject the
+  bypass entirely. Secure storage stays preferred whenever available.
 
 ## Migration
 

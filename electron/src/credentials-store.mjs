@@ -11,6 +11,13 @@
 // validation, no plaintext fallback, no secret in errors/logs/IPC,
 // corruption is reported (never silently defaulted), and verification
 // is invalidated whenever the credential or model changes.
+//
+// TEMPORARY development-only exception: when Electron safeStorage is
+// unavailable AND the user explicitly enables the dev bypass in an
+// unpackaged build, credentials may live in main-process memory only.
+// Memory records never touch disk, are visibly marked `devOnly`, and
+// vanish on disable or shutdown. Production builds always reject the
+// bypass; secure storage stays preferred whenever it is available.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -37,6 +44,57 @@ function assertSafeStorage(safeStorage) {
   if (safeStorage.isEncryptionAvailable() !== true) {
     throw new Error('Secure credential storage is unavailable on this device.');
   }
+}
+
+// ---- Temporary development-only memory fallback --------------------
+// Main-process memory only: id -> { record, key }. Never serialized,
+// never written to disk. Cleared on disable and on application quit.
+
+let devBypassEnabled = false;
+const devMemoryCredentials = new Map();
+
+export function isDevBypassEnabled() {
+  return devBypassEnabled === true;
+}
+
+/** Active only when enabled AND OS encryption is actually unavailable. */
+export function isDevBypassActive(safeStorage) {
+  return devBypassEnabled === true && safeStorage?.isEncryptionAvailable?.() !== true;
+}
+
+export function setDevBypassEnabled(enabled, { isPackaged } = {}) {
+  if (enabled === true && isPackaged === true) {
+    throw new Error('The development credential bypass is not available in production builds.');
+  }
+  devBypassEnabled = enabled === true;
+  if (!devBypassEnabled) devMemoryCredentials.clear();
+  return { enabled: devBypassEnabled };
+}
+
+export function clearDevCredentials() {
+  devMemoryCredentials.clear();
+}
+
+/**
+ * Storage gate: secure ciphertext whenever encryption is available
+ * (always preferred), memory records only under an active dev bypass,
+ * otherwise the original unavailable error. Returns the usable backend.
+ */
+function assertStoreAvailable(safeStorage) {
+  if (safeStorage?.isEncryptionAvailable?.() === true
+    && typeof safeStorage.encryptString === 'function'
+    && typeof safeStorage.decryptString === 'function') {
+    return 'secure';
+  }
+  if (isDevBypassActive(safeStorage)) return 'memory';
+  throw new Error('Secure credential storage is unavailable on this device.');
+}
+
+function validateKeyValue(key) {
+  if (typeof key !== 'string' || key.trim() === '' || key.length > MAX_KEY_LENGTH) {
+    throw new Error('API key must be a non-empty string under 4096 characters.');
+  }
+  return key;
 }
 
 function validateName(name) {
@@ -230,7 +288,7 @@ function probeKeyAvailable(userDataPath, safeStorage, id) {
   }
 }
 
-export function toPublicRecord(record, keyAvailable) {
+export function toPublicRecord(record, keyAvailable, devOnly = false) {
   return {
     id: record.id,
     name: record.name,
@@ -243,22 +301,29 @@ export function toPublicRecord(record, keyAvailable) {
     updatedAt: record.updatedAt,
     keyAvailable: keyAvailable === true,
     verification: { ...record.verification },
+    devOnly: devOnly === true,
   };
 }
 
 /** Sanitized list: never throws for one bad entry; flags it unavailable. */
 export function listCredentials(userDataPath, safeStorage) {
-  assertSafeStorage(safeStorage);
+  assertStoreAvailable(safeStorage);
   const vault = loadVault(userDataPath);
-  return vault.credentials.map((record) => {
+  const disk = vault.credentials.map((record) => {
     let available = false;
     try {
       available = probeKeyAvailable(userDataPath, safeStorage, record.id);
     } catch {
       available = false;
     }
-    return toPublicRecord(record, available);
+    return toPublicRecord(record, available, false);
   });
+  // Memory records are listed whenever they exist: they are usable by id,
+  // so hiding them would be dishonest. The devOnly flag distinguishes them.
+  const memory = [...devMemoryCredentials.values()].map(({ record, key }) =>
+    toPublicRecord(record, typeof key === 'string' && key.length > 0, true),
+  );
+  return [...disk, ...memory];
 }
 
 function findRecordOrThrow(records, id) {
@@ -268,9 +333,7 @@ function findRecordOrThrow(records, id) {
 }
 
 function writeKeyFile(userDataPath, safeStorage, id, key) {
-  if (typeof key !== 'string' || key.trim() === '' || key.length > MAX_KEY_LENGTH) {
-    throw new Error('API key must be a non-empty string under 4096 characters.');
-  }
+  validateKeyValue(key);
   let encrypted;
   try {
     encrypted = safeStorage.encryptString(key);
@@ -298,16 +361,25 @@ function wipeFile(file) {
   } catch { /* already gone */ }
 }
 
+function devMemoryByName(name) {
+  const lowered = name.toLowerCase();
+  for (const entry of devMemoryCredentials.values()) {
+    if (entry.record.name.toLowerCase() === lowered) return entry;
+  }
+  return null;
+}
+
 export function createCredential(userDataPath, safeStorage, { name, provider, model, key } = {}) {
-  assertSafeStorage(safeStorage);
+  const backend = assertStoreAvailable(safeStorage);
   const cleanName = validateName(name);
   const validated = validateProviderModel(provider, model);
   const vault = loadVault(userDataPath);
-  if (vault.credentials.some((entry) => entry.name.toLowerCase() === cleanName.toLowerCase())) {
+  if (vault.credentials.some((entry) => entry.name.toLowerCase() === cleanName.toLowerCase())
+    || devMemoryByName(cleanName) !== null) {
     throw new Error('A configuration with this name already exists.');
   }
   const timestamp = nowIso();
-  const record = {
+  const record = validateRecord({
     id: newId(),
     name: cleanName,
     provider: validated.provider,
@@ -316,7 +388,13 @@ export function createCredential(userDataPath, safeStorage, { name, provider, mo
     updatedAt: timestamp,
     credentialVersion: 1,
     verification: { ...unverifiedState() },
-  };
+  });
+  if (backend === 'memory') {
+    // Temporary dev bypass: record and key stay in main-process memory.
+    validateKeyValue(key);
+    devMemoryCredentials.set(record.id, { record, key });
+    return toPublicRecord(record, true, true);
+  }
   // Write the secret first: the index only references keys already on disk.
   writeKeyFile(userDataPath, safeStorage, record.id, key);
   try {
@@ -325,13 +403,26 @@ export function createCredential(userDataPath, safeStorage, { name, provider, mo
     try { wipeFile(credentialFile(userDataPath, record.id)); } catch { /* best effort */ }
     throw err;
   }
-  return toPublicRecord(record, true);
+  return toPublicRecord(record, true, false);
 }
 
 export function renameCredential(userDataPath, safeStorage, id, name) {
-  assertSafeStorage(safeStorage);
+  assertStoreAvailable(safeStorage);
   validateId(id);
   const cleanName = validateName(name);
+  const memory = devMemoryCredentials.get(id);
+  if (memory) {
+    const vault = loadVault(userDataPath);
+    if (vault.credentials.some((entry) => entry.name.toLowerCase() === cleanName.toLowerCase())
+      || [...devMemoryCredentials.values()].some((entry) => entry.record.id !== id
+        && entry.record.name.toLowerCase() === cleanName.toLowerCase())) {
+      throw new Error('A configuration with this name already exists.');
+    }
+    const next = { ...memory.record, name: cleanName, updatedAt: nowIso() };
+    devMemoryCredentials.set(id, { record: next, key: memory.key });
+    return toPublicRecord(next, true, true);
+  }
+  assertSafeStorage(safeStorage);
   const vault = loadVault(userDataPath);
   const record = findRecordOrThrow(vault.credentials, id);
   if (vault.credentials.some((entry) => entry.id !== id && entry.name.toLowerCase() === cleanName.toLowerCase())) {
@@ -343,8 +434,21 @@ export function renameCredential(userDataPath, safeStorage, id, name) {
 }
 
 export function setCredentialKey(userDataPath, safeStorage, id, key) {
-  assertSafeStorage(safeStorage);
+  assertStoreAvailable(safeStorage);
   validateId(id);
+  const memory = devMemoryCredentials.get(id);
+  if (memory) {
+    validateKeyValue(key);
+    const next = {
+      ...memory.record,
+      credentialVersion: memory.record.credentialVersion + 1,
+      verification: { ...unverifiedState() },
+      updatedAt: nowIso(),
+    };
+    devMemoryCredentials.set(id, { record: next, key });
+    return toPublicRecord(next, true, true);
+  }
+  assertSafeStorage(safeStorage);
   const vault = loadVault(userDataPath);
   const record = findRecordOrThrow(vault.credentials, id);
   writeKeyFile(userDataPath, safeStorage, id, key);
@@ -359,8 +463,24 @@ export function setCredentialKey(userDataPath, safeStorage, id, key) {
 }
 
 export function setCredentialModel(userDataPath, safeStorage, id, model) {
-  assertSafeStorage(safeStorage);
+  assertStoreAvailable(safeStorage);
   validateId(id);
+  const memory = devMemoryCredentials.get(id);
+  if (memory) {
+    const validated = validateProviderModel(memory.record.provider, model);
+    if (validated.model === memory.record.model) {
+      return toPublicRecord(memory.record, true, true);
+    }
+    const next = {
+      ...memory.record,
+      model: validated.model,
+      verification: { ...unverifiedState() },
+      updatedAt: nowIso(),
+    };
+    devMemoryCredentials.set(id, { record: next, key: memory.key });
+    return toPublicRecord(next, true, true);
+  }
+  assertSafeStorage(safeStorage);
   const vault = loadVault(userDataPath);
   const record = findRecordOrThrow(vault.credentials, id);
   const validated = validateProviderModel(record.provider, model);
@@ -378,8 +498,13 @@ export function setCredentialModel(userDataPath, safeStorage, id, model) {
 }
 
 export function deleteCredential(userDataPath, safeStorage, id) {
-  assertSafeStorage(safeStorage);
+  assertStoreAvailable(safeStorage);
   validateId(id);
+  if (devMemoryCredentials.has(id)) {
+    devMemoryCredentials.delete(id);
+    return { deleted: true, id };
+  }
+  assertSafeStorage(safeStorage);
   const vault = loadVault(userDataPath);
   findRecordOrThrow(vault.credentials, id);
   saveVault(userDataPath, vault.credentials.filter((entry) => entry.id !== id));
@@ -388,8 +513,32 @@ export function deleteCredential(userDataPath, safeStorage, id) {
 }
 
 export function markCredentialVerified(userDataPath, safeStorage, id, model) {
-  assertSafeStorage(safeStorage);
+  assertStoreAvailable(safeStorage);
   validateId(id);
+  const memory = devMemoryCredentials.get(id);
+  if (memory) {
+    if (memory.record.purpose === 'tts'
+      ? model !== null
+      : (typeof model !== 'string' || model !== memory.record.model)) {
+      throw new Error('Verification target does not match the saved configuration.');
+    }
+    if (typeof memory.key !== 'string' || memory.key === '') {
+      throw new Error('Secure API credential is unavailable. Check secure storage.');
+    }
+    const next = {
+      ...memory.record,
+      verification: {
+        status: 'verified',
+        verifiedAt: nowIso(),
+        verifiedCredentialVersion: memory.record.credentialVersion,
+        verifiedModel: memory.record.model,
+      },
+      updatedAt: nowIso(),
+    };
+    devMemoryCredentials.set(id, { record: next, key: memory.key });
+    return toPublicRecord(next, true, true);
+  }
+  assertSafeStorage(safeStorage);
   const vault = loadVault(userDataPath);
   const record = findRecordOrThrow(vault.credentials, id);
   if (record.purpose === 'tts'
@@ -415,8 +564,22 @@ export function markCredentialVerified(userDataPath, safeStorage, id, model) {
 }
 
 export function markCredentialUnverified(userDataPath, safeStorage, id) {
-  assertSafeStorage(safeStorage);
+  assertStoreAvailable(safeStorage);
   validateId(id);
+  const memory = devMemoryCredentials.get(id);
+  if (memory) {
+    if (memory.record.verification.status === 'unverified') {
+      return toPublicRecord(memory.record, true, true);
+    }
+    const next = {
+      ...memory.record,
+      verification: { ...unverifiedState() },
+      updatedAt: nowIso(),
+    };
+    devMemoryCredentials.set(id, { record: next, key: memory.key });
+    return toPublicRecord(next, true, true);
+  }
+  assertSafeStorage(safeStorage);
   const vault = loadVault(userDataPath);
   const record = findRecordOrThrow(vault.credentials, id);
   if (record.verification.status === 'unverified') {
@@ -445,8 +608,21 @@ export function isCredentialVerifiedForRun(record) {
  * the precise "run image verification" remediation.
  */
 export function getCredentialForRun(userDataPath, safeStorage, id) {
-  assertSafeStorage(safeStorage);
+  assertStoreAvailable(safeStorage);
   validateId(id);
+  const memory = devMemoryCredentials.get(id);
+  if (memory) {
+    if (typeof memory.key !== 'string' || memory.key === '') {
+      throw new Error('Secure API credential is unavailable. Check secure storage.');
+    }
+    return {
+      provider: memory.record.provider,
+      model: memory.record.model,
+      apiKey: memory.key,
+      record: memory.record,
+    };
+  }
+  assertSafeStorage(safeStorage);
   const vault = loadVault(userDataPath);
   const record = findRecordOrThrow(vault.credentials, id);
   let apiKey = '';

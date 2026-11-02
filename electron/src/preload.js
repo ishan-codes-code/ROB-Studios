@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('api', {
   setCredentialKey: (id, key) => ipcRenderer.invoke('credential-set-key', id, key),
   setCredentialModel: (id, model) => ipcRenderer.invoke('credential-set-model', id, model),
   removeCredential: (id) => ipcRenderer.invoke('credential-remove', id),
+  getDevBypass: () => ipcRenderer.invoke('dev-bypass-get'),
+  setDevBypass: (enabled) => ipcRenderer.invoke('dev-bypass-set', enabled === true),
   testCredential: (id) => ipcRenderer.invoke('credential-test', id),
   verifyCredential: (id) => ipcRenderer.invoke('credential-verify', id),
   providerModels: (providerId) => ipcRenderer.invoke('provider-models', providerId),

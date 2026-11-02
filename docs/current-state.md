@@ -1,5 +1,18 @@
 # Current state
 
+## Temporary dev-only secure-storage bypass (on `feature/tts-generation`, uncommitted)
+
+`credentials-store.mjs` holds an explicit-opt-in, unpackaged-only
+fallback: when `safeStorage` is unavailable and the user enables "Allow
+insecure development credentials" on the API Keys page, credentials
+live in main-process memory only (`devOnly` records), work with
+verification/preview/runs through the unchanged retrieval functions,
+and vanish on disable or quit. Nothing is written to disk; production
+builds reject enabling; bypass off preserves the original
+secure-storage requirement. Multifactor coverage in
+`electron/test/dev-bypass.test.mjs` plus a worker-env proof in
+`processing.test.mjs`. Remove before any production release.
+
 ## TTS Studio (M7, on `feature/tts-generation`, uncommitted)
 
 A dedicated TTS Studio sidebar section configures the commentary

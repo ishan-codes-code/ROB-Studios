@@ -126,6 +126,8 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
 
   const selectedProfile = profiles.find((entry) => entry.id === configuration?.gameProfileId) ?? null;
   const selectedPreset = presets.find((entry) => entry.id === configuration?.commentaryPresetId) ?? null;
+  const savedCredentialMissing = (configuration?.credentialId ?? "") !== ""
+    && !credentials.some((entry) => entry.id === configuration.credentialId);
 
   return (
     <div className="flex min-w-0 flex-col gap-4 p-3">
@@ -141,6 +143,12 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
           onChange={(event) => save("credentialId", event.target.value === "" ? null : event.target.value)}
         >
           <option value="">Select a configuration…</option>
+          {savedCredentialMissing ? (
+            <option value={configuration.credentialId}>
+              {credential ? `${credential.name} · ${credential.model}` : configuration.credentialId}
+              {" · unavailable — pick a replacement"}
+            </option>
+          ) : null}
           {credentials.map((entry) => (
             <option key={entry.id} value={entry.id}>
               {entry.name} · {entry.model}
@@ -159,9 +167,11 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
           </div>
         ) : (
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {credentials.length === 0
-              ? "No API configurations exist yet."
-              : "No configuration selected for this project."}
+            {configuration?.credentialId
+              ? "The saved configuration is unavailable. Choose another above."
+              : credentials.length === 0
+                ? "No API configurations exist yet."
+                : "No configuration selected for this project."}
           </p>
         )}
         <Button

@@ -12,6 +12,8 @@ import {
   markCredentialUnverified,
   getCredentialForRun,
   isCredentialVerifiedForRun,
+  isDevBypassEnabled,
+  setDevBypassEnabled,
 } from '../../credentials-store.mjs';
 import {
   getProvider,
@@ -206,6 +208,25 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
   });
 
   // ---- Provider vault -------------------------------------------------
+  // TEMPORARY development-only bypass: memory-held credentials when OS
+  // encryption is unavailable. Gated main-side on app.isPackaged —
+  // never on renderer input. Production builds always reject enabling.
+  ipcMain.handle('dev-bypass-get', async () => ({
+    ok: true,
+    supported: app.isPackaged !== true,
+    enabled: isDevBypassEnabled(),
+  }));
+  ipcMain.handle('dev-bypass-set', async (_event, enabled) => {
+    try {
+      if (app.isPackaged === true) {
+        return { ok: false, error: 'The development credential bypass is not available in production builds.' };
+      }
+      const state = setDevBypassEnabled(enabled === true, { isPackaged: app.isPackaged === true });
+      return { ok: true, supported: true, enabled: state.enabled };
+    } catch (err) {
+      return { ok: false, error: err?.message ?? 'Settings operation failed.' };
+    }
+  });
   ipcMain.handle('credential-list', async () => {
     try {
       const { credentials: items, migration } = ensureMigrated();
