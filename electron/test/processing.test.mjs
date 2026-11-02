@@ -85,11 +85,19 @@ function setup(t, { requestStopResult } = {}) {
 
 async function startRun(t, setupResult, videoPath, options) {
   const video = videoPath ?? makeFixtureVideo(path.join(setupResult.userData, 'incoming'));
+  // Every run is paid now: select a verified vault credential so the
+  // fake manager (which never spawns) starts the job. No request can
+  // leave the machine.
+  startRun.credentialCounter = (startRun.credentialCounter ?? 0) + 1;
+  const credential = createCredential(setupResult.userData, testSafeStorage, {
+    name: `Stop Test ${startRun.credentialCounter}`, provider: 'meta', model: 'muse-spark-1.3', key: 'test-dummy-key',
+  });
+  markCredentialVerified(setupResult.userData, testSafeStorage, credential.id, credential.model);
   const project = createProject(setupResult.userData, { name: 'stop test', sourcePath: video });
-  // ipcMain passes the event first; skipVision keeps the test independent
-  // of any ambient BASETEN_API_KEY.
+  updateProject(setupResult.userData, project.id, { configuration: { credentialId: credential.id } });
+  // ipcMain passes the event first.
   const started = await setupResult.handlers['process-video'](
-    {}, video, { skipVision: true, projectId: project.id, ...(options ?? {}) },
+    {}, video, { adaptive: true, projectId: project.id, ...(options ?? {}) },
   );
   assert.equal(started.ok, true);
   // Mirror the renderer: a started run marks its project processing, which

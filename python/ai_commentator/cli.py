@@ -7,18 +7,6 @@ def run_cli(engine, argv=None):
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
-        "--vision-test",
-        action="store_true",
-        help="Request a validated structured-JSON observation of "
-        "output/frames/frame_00000.jpg from Baseten's vision model.",
-    )
-    mode.add_argument(
-        "--vision-batch",
-        action="store_true",
-        help="Analyse up to --limit frames spread across the clip, saving "
-        "one validated observation-v1 JSON per frame in output/observations/.",
-    )
-    mode.add_argument(
         "--migrate-observations",
         action="store_true",
         help="Move validated legacy observation JSONs from output/frames/ "
@@ -68,27 +56,6 @@ def run_cli(engine, argv=None):
         "(paid, bounded by --adaptive-max-frames).",
     )
     parser.add_argument(
-        "--limit",
-        type=engine.parse_limit_argument,
-        default=None,
-        metavar="N",
-        help="Maximum frames for --vision-batch (positive integer, "
-        f"default {engine.DEFAULT_VISION_BATCH_LIMIT}).",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Re-analyse frames that already have a validated observation JSON.",
-    )
-    parser.add_argument(
-        "--jobs",
-        type=engine.parse_jobs_argument,
-        default=None,
-        metavar="J",
-        help="Maximum concurrent vision requests for --vision-batch "
-        f"(integer 1-{engine.MAX_VISION_BATCH_JOBS}, default {engine.DEFAULT_VISION_BATCH_JOBS}).",
-    )
-    parser.add_argument(
         "--adaptive-max-frames",
         type=engine.parse_max_frames_argument,
         default=None,
@@ -115,18 +82,10 @@ def run_cli(engine, argv=None):
     )
     args = parser.parse_args(argv)
     
-    if args.limit is not None and not args.vision_batch:
-        parser.error("--limit requires --vision-batch.")
-    if args.force and not args.vision_batch:
-        parser.error("--force requires --vision-batch.")
-    if args.jobs is not None and not args.vision_batch:
-        parser.error("--jobs requires --vision-batch.")
     if args.adaptive_max_frames is not None and not args.adaptive:
         parser.error("--adaptive-max-frames requires --adaptive.")
     offline_mode = (
-        args.vision_test
-        or args.vision_batch
-        or args.migrate_observations
+        args.migrate_observations
         or args.rebuild_state
         or args.detect_events
         or args.generate_commentary
@@ -150,26 +109,7 @@ def run_cli(engine, argv=None):
         commentary_path = base / "commentary" / engine.COMMENTARY_FILENAME
         script_path = base / "script" / engine.SCRIPT_FILENAME
     
-    if args.vision_test:
-        engine.run_vision_test(
-            frame_path=frames_dir / "frame_00000.jpg"
-            if frames_dir is not None
-            else None,
-            observations_dir=obs_dir,
-        )
-    elif args.vision_batch:
-        raise SystemExit(
-            engine.run_vision_batch(
-                limit=args.limit or engine.DEFAULT_VISION_BATCH_LIMIT,
-                force=args.force,
-                jobs=args.jobs
-                if args.jobs is not None
-                else engine.DEFAULT_VISION_BATCH_JOBS,
-                directory=frames_dir,
-                observations_dir=obs_dir,
-            )
-        )
-    elif args.migrate_observations:
+    if args.migrate_observations:
         raise SystemExit(
             engine.run_migration(
                 frames_dir=frames_dir, observations_dir=obs_dir

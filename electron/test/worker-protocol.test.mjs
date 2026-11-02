@@ -232,50 +232,33 @@ test('buildWorkerArgv rejects non-positive adaptiveMaxFrames', () => {
   }
 });
 
-test('buildWorkerArgv omits adaptive flags unless requested', () => {
-  assert.deepEqual(
-    buildWorkerArgv('worker.py', 'clip.mp4', { skipVision: true }),
-    ['worker.py', 'clip.mp4', '--skip-vision'],
-  );
-});
-
-test('buildWorkerArgv passes explicit limit for AI runs', () => {
+test('buildWorkerArgv omits vision flags when not adaptive', () => {
   assert.deepEqual(
     buildWorkerArgv('worker.py', 'clip.mp4', {
       outputDir: '/out',
-      limit: 10,
-      skipVision: false,
     }),
-    ['worker.py', 'clip.mp4', '--output-dir', '/out', '--limit', '10'],
+    ['worker.py', 'clip.mp4', '--output-dir', '/out'],
   );
-});
-
-test('buildWorkerArgv omits vision flags for offline runs', () => {
-  assert.deepEqual(
-    buildWorkerArgv('worker.py', 'clip.mp4', {
-      outputDir: '/out',
-      skipVision: true,
-    }),
-    ['worker.py', 'clip.mp4', '--output-dir', '/out', '--skip-vision'],
-  );
-});
-
-test('buildWorkerArgv rejects non-positive limits', () => {
-  for (const limit of [0, -3, 2.5, 'many', NaN]) {
-    assert.throws(
-      () => buildWorkerArgv('worker.py', 'clip.mp4', { limit }),
-      /positive integer/,
-    );
-  }
 });
 
 test('buildWorkerArgv never invents flags from unknown options', () => {
   assert.deepEqual(
     buildWorkerArgv('worker.py', 'clip.mp4', {
+      limit: 10,
       skipVision: true,
       extra: '--exec-evil',
     }),
-    ['worker.py', 'clip.mp4', '--skip-vision'],
+    ['worker.py', 'clip.mp4'],
+  );
+});
+
+test('buildWorkerArgv passes the script flag', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      adaptive: true,
+      withScript: true,
+    }),
+    ['worker.py', 'clip.mp4', '--with-script', '--adaptive'],
   );
 });
 

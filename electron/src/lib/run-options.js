@@ -1,14 +1,11 @@
 /**
  * Pure run-mode mapping for the workspace processing selector.
  *
- * AI analysis runs vision on exactly VISION_FRAME_LIMIT frames; offline
- * extraction skips vision; adaptive sampling captures one frame per
- * vision request up to a caller-supplied maximum. No IPC, no filesystem,
- * no secrets here — the main process validates and enforces these
- * options before spawning.
+ * Adaptive sampling is the only supported analysis mode: the worker
+ * captures one frame per vision request up to a caller-supplied
+ * maximum. No IPC, no filesystem, no secrets here — the main process
+ * validates and enforces these options before spawning.
  */
-
-export const VISION_FRAME_LIMIT = 10;
 
 /**
  * Adaptive sampling bounds (M4.2-B). The UI default is deliberately
@@ -20,27 +17,16 @@ export const ADAPTIVE_DEFAULT_MAX_FRAMES = 10;
 export const ADAPTIVE_HARD_MAX_FRAMES = 10000;
 
 export const RUN_MODES = {
-  AI: 'ai',
-  OFFLINE: 'offline',
   ADAPTIVE: 'adaptive',
 };
-
-export function isAiMode(mode) {
-  return mode === RUN_MODES.AI;
-}
 
 export function isAdaptiveMode(mode) {
   return mode === RUN_MODES.ADAPTIVE;
 }
 
-/** Any mode that spends paid vision requests. */
-export function isPaidMode(mode) {
-  return isAiMode(mode) || isAdaptiveMode(mode);
-}
-
-/** Default to AI analysis only when a key is configured. */
-export function defaultRunMode(visionConfigured) {
-  return visionConfigured ? RUN_MODES.AI : RUN_MODES.OFFLINE;
+/** Adaptive sampling is always the default mode. */
+export function defaultRunMode() {
+  return RUN_MODES.ADAPTIVE;
 }
 
 /**
@@ -62,21 +48,14 @@ export function clampAdaptiveMaxFrames(value) {
 }
 
 /**
- * Map a UI mode to worker options. AI mode always carries the explicit
- * frame limit; offline mode carries no limit key at all; adaptive mode
- * carries the validated maximum vision-request bound.
+ * Map the UI mode to worker options. Adaptive mode always carries the
+ * validated maximum vision-request bound.
  */
 export function buildProcessOptions(mode, { adaptiveMaxFrames } = {}) {
-  if (isAdaptiveMode(mode)) {
-    return {
-      adaptive: true,
-      adaptiveMaxFrames: clampAdaptiveMaxFrames(
-        adaptiveMaxFrames ?? ADAPTIVE_DEFAULT_MAX_FRAMES,
-      ),
-    };
-  }
-  if (isAiMode(mode)) {
-    return { skipVision: false, limit: VISION_FRAME_LIMIT };
-  }
-  return { skipVision: true };
+  return {
+    adaptive: true,
+    adaptiveMaxFrames: clampAdaptiveMaxFrames(
+      adaptiveMaxFrames ?? ADAPTIVE_DEFAULT_MAX_FRAMES,
+    ),
+  };
 }

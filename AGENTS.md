@@ -127,7 +127,7 @@ Read this file and the relevant `docs/` pages before implementing any task.
 - Run the Electron tests: `npm test` inside `electron/` (dependency-free,
   `node:test`).
 - Preserve the working default frame-extraction command.
-- Verify the vision-test mode (`--vision-test`) when changing vision-related code.
+- Verify the adaptive-only worker contract (`--adaptive` required; the removed batch/offline flags must stay rejected) when changing worker-related code.
 - Add unit tests when they provide useful coverage, especially for parsing,
   schemas, and event logic.
 - Worker changes need protocol coverage: argument parsing, invalid video

@@ -208,25 +208,6 @@ function buildWorkerArgv(script, videoPath, opts = {}) {
   if (options.outputDir) {
     argv.push('--output-dir', String(options.outputDir));
   }
-  if (options.limit !== undefined && options.limit !== null) {
-    const limit =
-      typeof options.limit === 'number'
-        ? options.limit
-        : Number(String(options.limit).trim());
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error('limit must be a positive integer.');
-    }
-    argv.push('--limit', String(limit));
-  }
-  if (options.jobs !== undefined && options.jobs !== null) {
-    argv.push('--jobs', String(options.jobs));
-  }
-  if (options.force) {
-    argv.push('--force');
-  }
-  if (options.skipVision) {
-    argv.push('--skip-vision');
-  }
   if (options.withScript) {
     argv.push('--with-script');
   }

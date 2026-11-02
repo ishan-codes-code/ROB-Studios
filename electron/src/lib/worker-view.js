@@ -9,8 +9,6 @@
  */
 
 export const STAGE_ORDER = [
-  'frame_extraction',
-  'vision_analysis',
   'adaptive_vision',
   'state_rebuild',
   'event_detection',
@@ -19,9 +17,7 @@ export const STAGE_ORDER = [
 ];
 
 export const STAGE_LABELS = {
-  frame_extraction: 'Frame extraction',
-  vision_analysis: 'Vision analysis',
-  adaptive_vision: 'Adaptive vision',
+  adaptive_vision: 'Adaptive sampling',
   state_rebuild: 'Match-state reconstruction',
   event_detection: 'Event detection',
   commentary: 'Commentary generation',

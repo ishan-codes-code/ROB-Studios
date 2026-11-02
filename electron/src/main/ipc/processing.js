@@ -74,19 +74,19 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     if (!script) {
       return { ok: false, error: `Worker script not found at ${missingScript}.` };
     }
-    // AI analysis is a paid run: refuse to spawn without a key rather
-    // than silently falling back to offline mode. The worker also
-    // fails fast, but this stops the job before any extraction work.
+    // Adaptive sampling is a paid run: refuse to spawn without a key.
+    // The worker also fails fast, but this stops the job before any
+    // paid request.
     let userSettings;
     try { userSettings = loadSettings(app.getPath('userData')); } catch { userSettings = null; }
     const hasStoredCredential = (() => { try { return fs.existsSync(path.join(app.getPath('userData'), 'provider-key.enc')); } catch { return false; } })();
     const legacyCredential = typeof process.env.BASETEN_API_KEY === 'string' ? process.env.BASETEN_API_KEY : '';
-    const paidRequested = !opts.skipVision || opts.withScript || opts.adaptive;
+    const paidRequested = true;
     // Project-scoped runs resolve the project's selected API credential,
     // game profile, and commentary preset. This resolution is the run
-    // snapshot: UI edits afterwards cannot change this job. Offline runs
-    // proceed without a key; paid runs require a verified configuration
-    // and never fall back to another key.
+    // snapshot: UI edits afterwards cannot change this job. All runs
+    // require a verified configuration and never fall back to another
+    // key.
     let runConfig = null;
     let runConfigError = null;
     if (opts.projectId !== undefined) {
@@ -105,7 +105,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     if (paidRequested && runConfig === null && !hasStoredCredential && !legacyCredential) {
       return {
         ok: false,
-        error: 'AI analysis needs an API key. Open Settings to configure a provider, or choose offline extraction.',
+        error: 'Adaptive sampling needs an API key. Open API Keys to configure a provider.',
       };
     }
     let argv;

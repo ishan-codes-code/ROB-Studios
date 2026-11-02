@@ -9,24 +9,13 @@ import {
   clampAdaptiveMaxFrames,
   defaultRunMode,
   isAdaptiveMode,
-  isAiMode,
-  isPaidMode,
 } from '../src/lib/run-options.js';
 
-test('mode predicates distinguish paid from offline runs', () => {
-  assert.equal(isAiMode(RUN_MODES.AI), true);
+test('adaptive is the only run mode', () => {
+  assert.deepEqual(Object.keys(RUN_MODES), ['ADAPTIVE']);
   assert.equal(isAdaptiveMode(RUN_MODES.ADAPTIVE), true);
-  assert.equal(isAiMode(RUN_MODES.ADAPTIVE), false);
-  assert.equal(isAdaptiveMode(RUN_MODES.AI), false);
-  assert.equal(isPaidMode(RUN_MODES.AI), true);
-  assert.equal(isPaidMode(RUN_MODES.ADAPTIVE), true);
-  assert.equal(isPaidMode(RUN_MODES.OFFLINE), false);
-  assert.equal(isPaidMode('mystery'), false);
-});
-
-test('default mode never selects adaptive implicitly', () => {
-  assert.equal(defaultRunMode(true), RUN_MODES.AI);
-  assert.equal(defaultRunMode(false), RUN_MODES.OFFLINE);
+  assert.equal(isAdaptiveMode('mystery'), false);
+  assert.equal(defaultRunMode(), RUN_MODES.ADAPTIVE);
 });
 
 test('adaptive options carry the validated sampling bound', () => {
@@ -64,15 +53,4 @@ test('clamp keeps bounds inside the engine hard cap', () => {
   assert.equal(clampAdaptiveMaxFrames(1), 1);
   assert.equal(clampAdaptiveMaxFrames('7'), 7);
   assert.equal(clampAdaptiveMaxFrames(' 12 '), 12);
-});
-
-test('AI and offline mappings are unchanged', () => {
-  assert.deepEqual(buildProcessOptions(RUN_MODES.AI), {
-    skipVision: false,
-    limit: 10,
-  });
-  assert.deepEqual(buildProcessOptions(RUN_MODES.OFFLINE), {
-    skipVision: true,
-  });
-  assert.deepEqual(buildProcessOptions('mystery'), { skipVision: true });
 });

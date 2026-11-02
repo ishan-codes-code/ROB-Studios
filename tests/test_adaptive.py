@@ -1209,10 +1209,6 @@ class WorkerAdaptiveTests(unittest.TestCase):
         kwargs = {
             "video": video,
             "output_dir": out,
-            "limit": None,
-            "force": False,
-            "jobs": None,
-            "skip_vision": False,
             "with_script": False,
             "adaptive": True,
             "adaptive_max_frames": 2,
@@ -1242,8 +1238,7 @@ class WorkerAdaptiveTests(unittest.TestCase):
         )
         self.assertTrue(args.adaptive)
         self.assertEqual(args.adaptive_max_frames, 5)
-        with tempfile.TemporaryDirectory() as tmp:
-            plan = worker.plan_stages(args, Path(tmp))
+        plan = worker.plan_stages(args)
         self.assertEqual(
             [stage for stage, _ in plan],
             [
@@ -1258,8 +1253,7 @@ class WorkerAdaptiveTests(unittest.TestCase):
         scripted = worker.build_parser().parse_args(
             ["clip.mp4", "--adaptive", "--with-script"]
         )
-        with tempfile.TemporaryDirectory() as tmp:
-            scripted_plan = worker.plan_stages(scripted, Path(tmp))
+        scripted_plan = worker.plan_stages(scripted)
         self.assertEqual(scripted_plan[-1], ("script", "run"))
 
     def test_conflicting_flags_rejected(self):
@@ -1276,17 +1270,17 @@ class WorkerAdaptiveTests(unittest.TestCase):
             root = Path(tmp)
             video = write_test_video(root / "clip.mp4")
             out = root / "out"
-            code, stdout = run_main(
-                [str(video), "--output-dir", str(out), "--adaptive", "--skip-vision"],
-            )
-            self.assertEqual(code, 2)
-            message = json.loads(stdout.strip().splitlines()[-1])
-            self.assertEqual(message["type"], "error")
-            self.assertEqual(message["stage"], "validation")
-            code, stdout = run_main(
-                [str(video), "--output-dir", str(out), "--adaptive", "--limit", "3"],
-            )
-            self.assertEqual(code, 2)
+            # Removed batch/offline flags are rejected by argparse.
+            for argv in (
+                ["--adaptive", "--skip-vision"],
+                ["--adaptive", "--limit", "3"],
+                ["--adaptive", "--force"],
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        run_main([str(video), "--output-dir", str(out), *argv])
+                self.assertEqual(raised.exception.code, 2)
+            # --adaptive-max-frames without --adaptive fails validation.
             code, stdout = run_main(
                 [
                     str(video),
@@ -1297,6 +1291,9 @@ class WorkerAdaptiveTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(code, 2)
+            message = json.loads(stdout.strip().splitlines()[-1])
+            self.assertEqual(message["type"], "error")
+            self.assertEqual(message["stage"], "validation")
 
     def test_completed_adaptive_run_reports_result(self):
         with tempfile.TemporaryDirectory() as tmp:

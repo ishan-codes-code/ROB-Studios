@@ -14,15 +14,14 @@ import {
 import { extensionOf, fileNameOf, fileUrlOf, formatBytes, projectMediaUrl, timeAgo } from '../src/lib/format.js';
 
 test('stageLabel maps known stages and passes unknown through', () => {
-  assert.equal(stageLabel('frame_extraction'), 'Frame extraction');
-  assert.equal(stageLabel('vision_analysis'), 'Vision analysis');
-  assert.equal(stageLabel('adaptive_vision'), 'Adaptive vision');
+  assert.equal(stageLabel('adaptive_vision'), 'Adaptive sampling');
+  assert.equal(stageLabel('frame_extraction'), 'frame_extraction');
   assert.equal(stageLabel('state_rebuild'), 'Match-state reconstruction');
   assert.equal(stageLabel('event_detection'), 'Event detection');
   assert.equal(stageLabel('commentary'), 'Commentary generation');
   assert.equal(stageLabel('script'), 'Script generation');
   assert.equal(stageLabel('mystery_stage'), 'mystery_stage');
-  assert.equal(Object.keys(STAGE_LABELS).length, 7);
+  assert.equal(Object.keys(STAGE_LABELS).length, 5);
 });
 
 test('started resets to a fresh processing state', () => {

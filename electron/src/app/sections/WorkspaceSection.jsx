@@ -23,7 +23,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [run, setRun] = useState(() => createInitialRunState());
-  const [runMode, setRunMode] = useState(RUN_MODES.OFFLINE);
+  const [runMode, setRunMode] = useState(RUN_MODES.ADAPTIVE);
   const [visionConfigured, setVisionConfigured] = useState(false);
   const [visionMissing, setVisionMissing] = useState('API key');
   const [visionChecked, setVisionChecked] = useState(false);
@@ -148,11 +148,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
     const ready = verified === true;
     setVisionConfigured(ready);
     setVisionMissing(ready ? null : "verified API configuration");
-    setRunMode((current) => {
-      if (ready) return current;
-      if (current === RUN_MODES.AI || isAdaptiveMode(current)) return RUN_MODES.OFFLINE;
-      return current;
-    });
+    setRunMode(RUN_MODES.ADAPTIVE);
   }, []);
 
   const processing = run.status === "processing";

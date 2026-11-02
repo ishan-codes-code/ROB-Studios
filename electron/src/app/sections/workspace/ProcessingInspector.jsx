@@ -9,7 +9,7 @@ import RunPanel from "@/components/RunPanel.jsx";
 import StatusIndicator from "@/primitives/StatusIndicator.jsx";
 import ProjectConfiguration from "./ProjectConfiguration.jsx";
 import { extensionOf, fileNameOf, formatBytes } from "@/lib/format.js";
-import { ADAPTIVE_DEFAULT_MAX_FRAMES, ADAPTIVE_HARD_MAX_FRAMES, RUN_MODES, VISION_FRAME_LIMIT, isAdaptiveMode, isAiMode } from "@/lib/run-options.js";
+import { ADAPTIVE_DEFAULT_MAX_FRAMES, ADAPTIVE_HARD_MAX_FRAMES } from "@/lib/run-options.js";
 import { stageLabel } from "@/lib/worker-view.js";
 
 const RUN_STATUS = {
@@ -175,92 +175,49 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
   );
 }
 
-function ConfigurationContent({ projectId, runMode, setRunMode, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, onReadinessChange }) {
-  const aiSelected = isAiMode(runMode);
-  const adaptiveSelected = isAdaptiveMode(runMode);
+function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, onReadinessChange }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 p-3">
       <ProjectConfiguration projectId={projectId} onReadinessChange={onReadinessChange} />
       <Separator />
       <section className="flex min-w-0 flex-col gap-2" aria-labelledby="processing-mode-title">
         <SectionHeading id="processing-mode-title">Processing mode</SectionHeading>
-        <div className="flex min-w-0 flex-col gap-1.5" role="group" aria-label="Processing mode">
-          <Button
-            type="button"
-            size="sm"
-            variant={aiSelected ? "default" : "outline"}
-            disabled={!canStart || !visionConfigured}
-            onClick={() => setRunMode(RUN_MODES.AI)}
-            aria-pressed={aiSelected}
-            title={visionConfigured ? `Analyze up to ${VISION_FRAME_LIMIT} frames with AI` : "AI analysis requires provider configuration"}
-            className="w-full justify-start"
-          >
-            <Sparkles data-icon="inline-start" />
-            AI analysis
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={adaptiveSelected ? "default" : "outline"}
-            disabled={!canStart || !visionConfigured}
-            onClick={() => setRunMode(RUN_MODES.ADAPTIVE)}
-            aria-pressed={adaptiveSelected}
-            title={visionConfigured ? "Sample adaptively: the vision model chooses the next capture" : "Adaptive sampling requires provider configuration"}
-            className="w-full justify-start"
-          >
-            <Sparkles data-icon="inline-start" />
-            Adaptive sampling
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={!aiSelected && !adaptiveSelected ? "default" : "outline"}
-            disabled={!canStart}
-            onClick={() => setRunMode(RUN_MODES.OFFLINE)}
-            aria-pressed={!aiSelected && !adaptiveSelected}
-            className="w-full justify-start"
-          >
-            Offline extraction
-          </Button>
+        <div className="flex min-w-0 items-center gap-2 rounded-sm border border-border bg-muted/40 px-2.5 py-2">
+          <Sparkles data-icon="inline-start" className="text-muted-foreground" />
+          <div className="min-w-0">
+            <p className="text-[12px] font-medium text-foreground">Adaptive sampling</p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Samples where the footage changes fastest: each frame costs one paid vision request, and the model schedules the next capture.
+            </p>
+          </div>
         </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          {adaptiveSelected
-            ? "Samples where the footage changes fastest: each frame costs one paid vision request, and the model schedules the next capture."
-            : aiSelected
-              ? `Analyzes up to ${VISION_FRAME_LIMIT} selected frames. Validated observations are reused.`
-              : "Extracts frames without vision analysis or paid API calls."}
-        </p>
       </section>
 
-      {adaptiveSelected ? (
-        <>
-          <Separator />
-          <section className="flex min-w-0 flex-col gap-2" aria-labelledby="adaptive-limit-title">
-            <SectionHeading id="adaptive-limit-title">Adaptive sampling limit</SectionHeading>
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <label htmlFor="adaptive-max-frames" className="text-[12px] text-foreground">
-                Maximum vision requests
-              </label>
-              <input
-                id="adaptive-max-frames"
-                type="number"
-                min={1}
-                max={ADAPTIVE_HARD_MAX_FRAMES}
-                value={adaptiveMaxFrames}
-                disabled={!canStart}
-                onChange={(event) => {
-                  const raw = event.target.value;
-                  setAdaptiveMaxFrames(raw === "" ? "" : Number(raw));
-                }}
-                className="h-8 rounded-sm border border-border bg-background px-2 font-mono text-[12px] tabular-nums text-foreground outline-none disabled:opacity-50"
-              />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Each sampled frame makes at most one paid vision request. Default {ADAPTIVE_DEFAULT_MAX_FRAMES}; the engine caps runs at {ADAPTIVE_HARD_MAX_FRAMES}.
-              </p>
-            </div>
-          </section>
-        </>
-      ) : null}
+      <Separator />
+      <section className="flex min-w-0 flex-col gap-2" aria-labelledby="adaptive-limit-title">
+        <SectionHeading id="adaptive-limit-title">Adaptive sampling limit</SectionHeading>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <label htmlFor="adaptive-max-frames" className="text-[12px] text-foreground">
+            Maximum vision requests
+          </label>
+          <input
+            id="adaptive-max-frames"
+            type="number"
+            min={1}
+            max={ADAPTIVE_HARD_MAX_FRAMES}
+            value={adaptiveMaxFrames}
+            disabled={!canStart}
+            onChange={(event) => {
+              const raw = event.target.value;
+              setAdaptiveMaxFrames(raw === "" ? "" : Number(raw));
+            }}
+            className="h-8 rounded-sm border border-border bg-background px-2 font-mono text-[12px] tabular-nums text-foreground outline-none disabled:opacity-50"
+          />
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Each sampled frame makes at most one paid vision request. Default {ADAPTIVE_DEFAULT_MAX_FRAMES}; the engine caps runs at {ADAPTIVE_HARD_MAX_FRAMES}.
+          </p>
+        </div>
+      </section>
 
       <Separator />
 
@@ -276,7 +233,7 @@ function ConfigurationContent({ projectId, runMode, setRunMode, visionConfigured
           {visionConfigured
             ? "AI analysis is available for this workspace."
             : visionChecked
-              ? `AI analysis is disabled until a verified API configuration is ready. Choose one in the Project configuration above. Offline extraction remains available.`
+              ? `Adaptive sampling is disabled until a verified API configuration is ready. Choose one in the Project configuration above.`
               : "Checking whether AI analysis is available…"}
         </p>
       </section>
