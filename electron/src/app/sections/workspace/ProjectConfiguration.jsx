@@ -5,14 +5,23 @@ import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
+import ApiKeysSection from "@/app/sections/ApiKeysSection.jsx";
+import GamesPromptsSection from "@/app/sections/GamesPromptsSection.jsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.jsx";
 
 /**
  * Project-scoped configuration selectors. The editor selects one saved
  * API configuration, one game profile, and one commentary preset; the
- * main process resolves them at run start. Managing credentials or
- * prompts happens on the dedicated pages via `onManageNavigate`.
+ * main process resolves them at run start. Related management screens
+ * open in a dialog so project selection stays in context.
  */
-export default function ProjectConfiguration({ projectId, onManageNavigate, onReadinessChange }) {
+export default function ProjectConfiguration({ projectId, onReadinessChange }) {
   const [configuration, setConfiguration] = useState(null);
   const [credential, setCredential] = useState(null);
   const [warnings, setWarnings] = useState([]);
@@ -22,6 +31,7 @@ export default function ProjectConfiguration({ projectId, onManageNavigate, onRe
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
+  const [manager, setManager] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,6 +73,13 @@ export default function ProjectConfiguration({ projectId, onManageNavigate, onRe
   }, [onReadinessChange, projectId]);
 
   useEffect(() => {
+    load();
+  }, [load]);
+
+  const closeManager = useCallback(() => {
+    setManager(null);
+    // Refresh project selections after adding or editing configuration in
+    // the modal, so new entries are immediately selectable.
     load();
   }, [load]);
 
@@ -150,9 +167,9 @@ export default function ProjectConfiguration({ projectId, onManageNavigate, onRe
           size="sm"
           variant="outline"
           className="w-full justify-start"
-          onClick={() => onManageNavigate?.("api-keys")}
+          onClick={() => setManager("api-keys")}
         >
-          Manage API configurations <ArrowUpRight data-icon="inline-end" />
+          Add or manage API configurations <ArrowUpRight data-icon="inline-end" />
         </Button>
       </section>
 
@@ -215,9 +232,9 @@ export default function ProjectConfiguration({ projectId, onManageNavigate, onRe
           size="sm"
           variant="outline"
           className="w-full justify-start"
-          onClick={() => onManageNavigate?.("games-prompts")}
+          onClick={() => setManager("games-prompts")}
         >
-          Manage games &amp; prompts <ArrowUpRight data-icon="inline-end" />
+          Add or manage games &amp; prompts <ArrowUpRight data-icon="inline-end" />
         </Button>
       </section>
 
@@ -244,6 +261,28 @@ export default function ProjectConfiguration({ projectId, onManageNavigate, onRe
           <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">{error}</AlertDescription>
         </Alert>
       ) : null}
+      <Dialog
+        open={manager !== null}
+        onOpenChange={(open) => {
+          if (!open) closeManager();
+        }}
+      >
+        <DialogContent className="max-h-[calc(100vh-2rem)] max-w-5xl overflow-y-auto sm:max-w-5xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>
+              {manager === "api-keys" ? "Manage API configurations" : "Manage games and prompts"}
+            </DialogTitle>
+            <DialogDescription>
+              Add or update saved configurations for this project.
+            </DialogDescription>
+          </DialogHeader>
+          {manager === "api-keys" ? (
+            <ApiKeysSection embedded />
+          ) : manager === "games-prompts" ? (
+            <GamesPromptsSection embedded />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

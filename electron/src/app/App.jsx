@@ -76,10 +76,6 @@ export default function App() {
     setProjectName(project.name);
   }, []);
 
-  const handleManageNavigate = useCallback((id) => {
-    setActiveSection(id);
-  }, []);
-
   const handleBackToEditor = useCallback(() => {
     if (workspaceId !== null) setActiveSection("editor");
   }, [workspaceId]);
@@ -121,7 +117,6 @@ export default function App() {
               inspectorOpen={inspectorOpen}
               onProjectLoaded={handleProjectLoaded}
               onBack={handleBackToProjects}
-              onManageNavigate={handleManageNavigate}
             />
           ) : (
             <div className="h-full min-h-0 overflow-y-auto px-5 py-4">

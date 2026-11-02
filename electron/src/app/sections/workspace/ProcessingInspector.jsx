@@ -175,12 +175,12 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
   );
 }
 
-function ConfigurationContent({ projectId, runMode, setRunMode, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, onManageNavigate, onReadinessChange }) {
+function ConfigurationContent({ projectId, runMode, setRunMode, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, onReadinessChange }) {
   const aiSelected = isAiMode(runMode);
   const adaptiveSelected = isAdaptiveMode(runMode);
   return (
     <div className="flex min-w-0 flex-col gap-1 p-3">
-      <ProjectConfiguration projectId={projectId} onManageNavigate={onManageNavigate} onReadinessChange={onReadinessChange} />
+      <ProjectConfiguration projectId={projectId} onReadinessChange={onReadinessChange} />
       <Separator />
       <section className="flex min-w-0 flex-col gap-2" aria-labelledby="processing-mode-title">
         <SectionHeading id="processing-mode-title">Processing mode</SectionHeading>
@@ -340,7 +340,6 @@ export default function ProcessingInspector({
   onStart,
   onCancel,
   onStop,
-  onManageNavigate,
   onReadinessChange,
 }) {
   return (
@@ -378,7 +377,6 @@ export default function ProcessingInspector({
           canStart={canStart}
           adaptiveMaxFrames={adaptiveMaxFrames}
           setAdaptiveMaxFrames={setAdaptiveMaxFrames}
-          onManageNavigate={onManageNavigate}
           onReadinessChange={onReadinessChange}
         />
       </TabsContent>

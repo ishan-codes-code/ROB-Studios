@@ -53,3 +53,31 @@ test('workspace project id reaches the project configuration selectors', () => {
   assert.ok(configCall, 'ConfigurationContent is rendered');
   assert.match(configCall[1], /projectId=\{project\.id\}/);
 });
+
+test('project configuration opens its relevant managers in a dialog', () => {
+  const source = fs.readFileSync(
+    path.join(here, '../src/app/sections/workspace/ProjectConfiguration.jsx'),
+    'utf8',
+  );
+  assert.match(source, /import ApiKeysSection from/);
+  assert.match(source, /import GamesPromptsSection from/);
+  assert.match(source, /<Dialog\s+open=\{manager !== null\}/);
+  assert.match(source, /<ApiKeysSection embedded \/>/);
+  assert.match(source, /<GamesPromptsSection embedded \/>/);
+  assert.match(source, /const closeManager = useCallback/);
+  assert.match(source, /load\(\);/);
+});
+
+test('API configuration creation uses a dialog on its standalone page', () => {
+  const source = fs.readFileSync(
+    path.join(here, '../src/app/sections/ApiKeysSection.jsx'),
+    'utf8',
+  );
+  assert.match(source, /open=\{adding\}/);
+  assert.match(source, /embedded && adding \? addCard/);
+  assert.match(source, /!embedded \? \(/);
+  assert.match(source, /<DialogTitle className="text-\[15px\] tracking-tight">New API configuration/);
+  assert.match(source, /<DialogFooter className="gap-2 sm:flex-row">/);
+  assert.match(source, /aria-labelledby="provider-choice-label"/);
+  assert.match(source, /Encrypted on this device/);
+});

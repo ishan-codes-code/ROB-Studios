@@ -41,7 +41,7 @@ function Field({ label, hint, children }) {
 
 const blankPreset = { name: "", personality: "", tone: "energetic", language: "English", instructions: "" };
 
-export default function GamesPromptsSection({ onBackToEditor }) {
+export default function GamesPromptsSection({ onBackToEditor, embedded = false }) {
   const [profiles, setProfiles] = useState([]);
   const [presets, setPresets] = useState([]);
   const [selectedProfileId, setSelectedProfileId] = useState("free-fire-default");
@@ -270,20 +270,22 @@ export default function GamesPromptsSection({ onBackToEditor }) {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-8">
-      <div className="flex min-w-0 flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">Games &amp; Prompts</h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
-            Free Fire profiles and commentary presets. Style preferences guide wording only —
-            observation schemas, evidence gates, and factuality checks stay protected.
-          </p>
+      {!embedded || onBackToEditor ? (
+        <div className="flex min-w-0 flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">Games &amp; Prompts</h1>
+            <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+              Free Fire profiles and commentary presets. Style preferences guide wording only —
+              observation schemas, evidence gates, and factuality checks stay protected.
+            </p>
+          </div>
+          {onBackToEditor ? (
+            <Button variant="outline" size="sm" onClick={onBackToEditor}>
+              <ArrowLeft data-icon="inline-start" /> Back to editor
+            </Button>
+          ) : null}
         </div>
-        {onBackToEditor ? (
-          <Button variant="outline" size="sm" onClick={onBackToEditor}>
-            <ArrowLeft data-icon="inline-start" /> Back to editor
-          </Button>
-        ) : null}
-      </div>
+      ) : null}
 
       {loading ? (
         <p className="flex items-center gap-2 text-[13px] text-muted-foreground">

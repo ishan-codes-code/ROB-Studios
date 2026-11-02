@@ -18,11 +18,20 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.jsx";
 
 const PROVIDER_META = {
   meta: { displayName: "Meta Model API" },
@@ -63,7 +72,7 @@ function Field({ label, children, hint }) {
 const inputClassName =
   "h-9 rounded-md border border-input bg-background px-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
-export default function ApiKeysSection({ onBackToEditor }) {
+export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
   const [credentials, setCredentials] = useState([]);
   const [secureStorage, setSecureStorage] = useState(true);
   const [migration, setMigration] = useState(null);
@@ -292,23 +301,140 @@ export default function ApiKeysSection({ onBackToEditor }) {
 
   const selected = detail ?? credentials.find((entry) => entry.id === selectedId) ?? null;
 
+  const addFormId = "api-configuration-create-form";
+  const canSave = !busy && form.name.trim() && form.key && (provider !== "meta" || form.model);
+  const submitAdd = (event) => {
+    event.preventDefault();
+    createConfiguration();
+  };
+  const cancelAction = (
+    <Button type="button" size="sm" variant="outline" onClick={() => setAdding(false)} disabled={!!busy}>
+      Cancel
+    </Button>
+  );
+  const saveAction = (
+    <Button type="submit" size="sm" disabled={!canSave}>
+      {busy === "create" ? <LoaderCircle data-icon="inline-start" className="animate-spin" /> : null}
+      Save configuration
+    </Button>
+  );
+  const addFields = (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
+        <span id="provider-choice-label" className="text-[12px] font-medium text-foreground">Provider</span>
+        <div role="group" aria-labelledby="provider-choice-label" className="grid grid-cols-2 gap-2">
+          {[
+            { id: "meta", description: "Connect to curated Meta models." },
+            { id: "baseten", description: "Run Muse Spark on Baseten." },
+          ].map(({ id, description }) => (
+            <Button
+              key={id}
+              type="button"
+              variant={provider === id ? "secondary" : "outline"}
+              aria-pressed={provider === id}
+              onClick={() => setProvider(id)}
+              className="h-auto min-h-20 min-w-0 flex-col items-stretch gap-2 whitespace-normal rounded-md px-3 py-3 text-left"
+            >
+              <span className="flex w-full items-center justify-between gap-2">
+                <span className="truncate text-[13px] font-medium">{providerLabel(id)}</span>
+                {provider === id ? <Check className="size-4 shrink-0 text-foreground" aria-hidden /> : null}
+              </span>
+              <span className="text-[11px] font-normal leading-relaxed text-muted-foreground">{description}</span>
+            </Button>
+          ))}
+        </div>
+      </div>
+      <Field label="Configuration name" hint="A label to recognize this key on this device.">
+        <input
+          id="api-configuration-name"
+          className={`${inputClassName} h-10`}
+          value={form.name}
+          maxLength={80}
+          placeholder="e.g. Meta Personal"
+          autoComplete="off"
+          onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+        />
+      </Field>
+      <Field label="API key" hint="Encrypted on this device and never shown again.">
+        <input
+          id="api-configuration-key"
+          type="password"
+          autoComplete="new-password"
+          className={`${inputClassName} h-10 font-mono`}
+          value={form.key}
+          placeholder="Paste the provider key"
+          onChange={(event) => setForm((current) => ({ ...current, key: event.target.value }))}
+        />
+      </Field>
+      {provider === "meta" ? (
+        <Field label="Model" hint="Choose the model used for image analysis.">
+          <select
+            id="api-configuration-model"
+            className={`${inputClassName} h-10`}
+            value={form.model}
+            onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))}
+          >
+            <option value="">Select a model...</option>
+            {models.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.id}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[13px] font-medium text-foreground">Model</span>
+          <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5">
+            <code className="truncate font-mono text-[11px] text-foreground">meta-models/muse-spark-open</code>
+            <Badge variant="outline" className="shrink-0">Pinned</Badge>
+          </div>
+          <span className="text-[12px] text-muted-foreground">This model is fixed for Baseten.</span>
+        </div>
+      )}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Could not save configuration</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+    </div>
+  );
+  const addCard = (
+    <Card className="gap-0">
+      <CardHeader>
+        <CardTitle>Add API configuration</CardTitle>
+        <CardDescription>Choose a provider, then save its key securely.</CardDescription>
+      </CardHeader>
+      <form id={addFormId} onSubmit={submitAdd}>
+        <CardContent className="flex flex-col gap-4">{addFields}</CardContent>
+        <CardFooter className="justify-end gap-2 border-t border-border pt-4">
+          {cancelAction}
+          {saveAction}
+        </CardFooter>
+      </form>
+    </Card>
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-8">
       <div className="flex min-w-0 flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">API Keys</h1>
-          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
-            Named provider configurations for Meta and Baseten. Keys stay encrypted on this device
-            and never reach the interface — only presence and verification status are shown.
-          </p>
-        </div>
+        {!embedded ? (
+          <div className="min-w-0">
+            <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">API Keys</h1>
+            <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+              Named provider configurations for Meta and Baseten. Keys stay encrypted on this device
+              and never reach the interface — only presence and verification status are shown.
+            </p>
+          </div>
+        ) : null}
         <div className="flex shrink-0 items-center gap-2">
           {onBackToEditor ? (
             <Button variant="outline" size="sm" onClick={onBackToEditor}>
               <ArrowLeft data-icon="inline-start" /> Back to editor
             </Button>
           ) : null}
-          <Button size="sm" onClick={startAdd} disabled={adding || loading}>
+          <Button size="sm" onClick={startAdd} disabled={adding || loading || !!busy}>
             <Plus data-icon="inline-start" /> Add configuration
           </Button>
         </div>
@@ -331,86 +457,44 @@ export default function ApiKeysSection({ onBackToEditor }) {
         </Alert>
       ) : null}
 
-      {adding ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Add API configuration</CardTitle>
-            <CardDescription>
-              Pick a provider, name the configuration, paste its key, and choose a supported model.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5" role="group" aria-label="Provider">
-              <span className="text-[13px] font-medium text-foreground">Provider</span>
-              <div className="flex flex-wrap gap-2">
-                {["meta", "baseten"].map((id) => (
-                  <Button
-                    key={id}
-                    type="button"
-                    size="sm"
-                    variant={provider === id ? "default" : "outline"}
-                    aria-pressed={provider === id}
-                    onClick={() => setProvider(id)}
-                  >
-                    {providerLabel(id)}
-                  </Button>
-                ))}
+      {embedded && adding ? addCard : null}
+      {!embedded ? (
+        <Dialog open={adding} onOpenChange={(open) => {
+          if (open) setAdding(true);
+          else if (!busy) setAdding(false);
+        }}>
+          <DialogContent
+            showCloseButton={!busy}
+            className="flex max-h-[calc(100vh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[34rem]"
+          >
+            <DialogHeader className="gap-3 border-b border-border px-6 py-5 pr-14 text-left">
+              <div className="flex items-start gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
+                  <KeyRound className="size-4 text-muted-foreground" aria-hidden />
+                </span>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <DialogTitle className="text-[15px] tracking-tight">New API configuration</DialogTitle>
+                  <DialogDescription className="text-[12px] leading-relaxed">
+                    Save a provider key for image analysis. You can verify it after creation.
+                  </DialogDescription>
+                </div>
               </div>
-            </div>
-            <Field label="Configuration name" hint="Free-form label, e.g. “Meta Personal”.">
-              <input
-                className={inputClassName}
-                value={form.name}
-                maxLength={80}
-                placeholder="Meta Personal"
-                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-              />
-            </Field>
-            <Field label="API key" hint="Write-only. Stored encrypted; never displayed again.">
-              <input
-                type="password"
-                autoComplete="new-password"
-                className={inputClassName}
-                value={form.key}
-                placeholder="Paste the provider key"
-                onChange={(event) => setForm((current) => ({ ...current, key: event.target.value }))}
-              />
-            </Field>
-            {provider === "meta" ? (
-              <Field label="Model" hint="Only curated vision-capable Meta models are offered.">
-                <select
-                  className={inputClassName}
-                  value={form.model}
-                  onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))}
-                >
-                  <option value="">Select a model…</option>
-                  {models.map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                      {entry.id}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            ) : (
-              <p className="text-[12px] leading-relaxed text-muted-foreground">
-                Model is fixed to <span className="font-mono">meta-models/muse-spark-open</span> for Baseten.
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                disabled={!!busy || !form.name.trim() || !form.key || (provider === "meta" && !form.model)}
-                onClick={createConfiguration}
-              >
-                {busy === "create" ? <LoaderCircle data-icon="inline-start" className="animate-spin" /> : null}
-                Save securely
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setAdding(false)} disabled={!!busy}>
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </DialogHeader>
+            <form id={addFormId} onSubmit={submitAdd} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{addFields}</div>
+              <div className="flex flex-col gap-3 border-t border-border bg-card px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <ShieldCheck className="size-4 shrink-0" aria-hidden />
+                  Encrypted on this device
+                </p>
+                <DialogFooter className="gap-2 sm:flex-row">
+                  {cancelAction}
+                  {saveAction}
+                </DialogFooter>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       <Card>
@@ -570,7 +654,7 @@ export default function ApiKeysSection({ onBackToEditor }) {
           <Check className="mt-0.5 size-4 shrink-0" /> {notice}
         </p>
       ) : null}
-      {error ? (
+      {error && !adding ? (
         <Alert variant="destructive">
           <AlertTitle>Something went wrong</AlertTitle>
           <AlertDescription>{error}</AlertDescription>

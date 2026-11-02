@@ -18,7 +18,7 @@ import ProjectWorkspaceLayout from "./workspace/ProjectWorkspaceLayout.jsx";
  * runs project-bound so artifacts can never leak across projects.
  * Audio lanes are honest empty states until extraction/TTS land.
  */
-export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLoaded, onBack, onManageNavigate }) {
+export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLoaded, onBack }) {
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -304,7 +304,6 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       onStart={handleStart}
       onCancel={handleCancel}
       onStop={handleStop}
-      onManageNavigate={onManageNavigate}
       onReadinessChange={handleReadinessChange}
     />
   ) : (
