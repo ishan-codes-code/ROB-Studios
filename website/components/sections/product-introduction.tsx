@@ -5,7 +5,7 @@ export default function ProductIntroduction() {
       aria-labelledby="introduction-title"
       className="story-section introduction-section scroll-mt-8"
     >
-      <div className="section-shell introduction-grid">
+      <div className="section-shell introduction-grid scene-surface">
         <p className="section-index">The signal in the spectacle</p>
         <div className="introduction-copy">
           <h2 id="introduction-title" className="display-heading">

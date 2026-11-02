@@ -20,7 +20,7 @@ const horizons = [
 export default function FutureSection() {
   return (
     <section aria-labelledby="future-title" className="story-section future-section">
-      <div className="section-shell future-layout">
+      <div className="section-shell future-layout scene-surface">
         <div className="future-intro">
           <p className="section-index">In development</p>
           <h2 id="future-title" className="section-heading mt-5">

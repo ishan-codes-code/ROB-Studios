@@ -42,7 +42,7 @@ export default function CapabilitiesSection() {
       aria-labelledby="capabilities-title"
       className="story-section capabilities-section"
     >
-      <div className="section-shell">
+      <div className="section-shell scene-surface">
         <div className="section-heading-row">
           <div>
             <p className="section-index">What the engine is learning</p>

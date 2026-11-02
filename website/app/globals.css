@@ -177,6 +177,23 @@ body {
   padding-inline: max(1.5rem, env(safe-area-inset-left)) max(1.5rem, env(safe-area-inset-right));
 }
 
+/* The sticky section owns layout. This opaque inner surface is the only
+   hero element GSAP transforms during the Hero -> Introduction transition. */
+.hero-scene-surface {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #080808;
+  padding-inline: max(1.5rem, env(safe-area-inset-left)) max(1.5rem, env(safe-area-inset-right));
+}
+
+.scene-surface {
+  will-change: transform, opacity;
+}
+
 .panel-stack[data-stacking="enabled"] > [data-sticky="true"] {
   position: sticky;
   top: 0;

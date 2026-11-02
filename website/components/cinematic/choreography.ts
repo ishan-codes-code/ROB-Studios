@@ -17,6 +17,10 @@ type SceneConditions = {
 
 const ENTER = "play none none reverse";
 const EASE = "power3.out";
+// A scene completes its recession after this fraction of one viewport has
+// entered the following panel. Increase for a slower handoff (for example,
+// 0.5) or decrease for a sharper jump.
+const SCENE_HANDOFF_SCROLL_THRESHOLD = 0.34;
 
 let pluginRegistered = false;
 
@@ -78,9 +82,6 @@ export function setupCinematicScenes(root: HTMLElement): () => void {
       };
 
       // ---- Hero: load entrance (GlitchText line untouched) ----
-      const heroSection = first(".hero-section");
-      const heroContent = first(".hero-section .max-w-6xl");
-      const heroFlow = first(".hero-flow");
       gsap
         .timeline({ defaults: { ease: EASE } })
         .from(select(".hero-kicker"), { y: 16, autoAlpha: 0, duration: 0.8 }, 0.15)
@@ -92,33 +93,41 @@ export function setupCinematicScenes(root: HTMLElement): () => void {
         .from(select(".hero-title + p"), { y: 24, autoAlpha: 0, duration: 0.9 }, 0.5)
         .from(select(".hero-explore"), { y: 12, autoAlpha: 0, duration: 0.7 }, 0.7);
 
-      // ---- Hero: scroll-linked exit while the introduction covers it ----
-      if (heroSection && heroContent) {
-        gsap.to(heroContent, {
-          y: isDesktop ? -90 : -56,
-          scale: isDesktop ? 0.97 : 1,
-          autoAlpha: 0,
-          ease: "none",
-          transformOrigin: "center top",
-          scrollTrigger: {
-            trigger: heroSection,
-            start: "top top",
-            end: "bottom top",
-            scrub: isDesktop ? 0.6 : 0.4,
-          },
+      // ---- Scene handoffs: every following panel pushes its predecessor
+      // back as it begins to overlap. The panels themselves never transform;
+      // CSS sticky remains the only owner of their physical placement.
+      if (isDesktop) {
+        const panels = Array.from(root.children).filter(
+          (child): child is HTMLElement => child instanceof HTMLElement,
+        );
+        const scenes = panels.map((panel) => {
+          const surface = panel.querySelector(":scope > .scene-surface");
+          return surface instanceof HTMLElement ? surface : null;
         });
-      }
-      if (heroSection && heroFlow) {
-        gsap.to(heroFlow, {
-          yPercent: isDesktop ? 14 : 8,
-          opacity: 0.35,
-          ease: "none",
-          scrollTrigger: {
-            trigger: heroSection,
-            start: "top top",
-            end: "bottom top",
-            scrub: isDesktop ? 0.6 : 0.4,
-          },
+
+        scenes.slice(0, -1).forEach((outgoingScene, index) => {
+          const incomingPanel = panels[index + 1];
+          if (!outgoingScene || !incomingPanel) return;
+
+          const isHero = index === 0;
+          gsap.to(outgoingScene, {
+            scale: isHero ? 0.9 : 0.94,
+            y: isHero ? -32 : -20,
+            opacity: isHero ? 0.3 : 0.48,
+            ease: "none",
+            transformOrigin: "center center",
+            scrollTrigger: {
+              trigger: incomingPanel,
+              start: "top bottom",
+              end: () =>
+                `+=${Math.round(
+                  window.innerHeight * SCENE_HANDOFF_SCROLL_THRESHOLD,
+                )}`,
+              scrub: true,
+              invalidateOnRefresh: true,
+              refreshPriority: index,
+            },
+          });
         });
       }
 

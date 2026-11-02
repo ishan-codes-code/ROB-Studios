@@ -12,7 +12,7 @@ export default function WorkflowSection() {
       aria-labelledby="workflow-title"
       className="story-section workflow-section"
     >
-      <div className="section-shell">
+      <div className="section-shell scene-surface">
         <div className="workflow-heading">
           <p className="section-index">A story, assembled</p>
           <h2 id="workflow-title" className="section-heading mt-5">
