@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 from openai import APIError, OpenAI
@@ -31,6 +32,43 @@ def normalize_model(model: str) -> str:
     if clean == LEGACY_MODEL:
         return MODEL
     return clean
+
+
+def _provider_body_text(exc: Exception, api_key: str, limit: int = 300) -> str:
+    """Sanitized provider response body for diagnostics (never secrets).
+
+    The SDK surfaces terse ``message`` values (e.g. "Error code: 403")
+    while the actionable reason sits in the response ``body``. Prefer
+    the body, redacted and truncated, and fall back to the message.
+    """
+    body = getattr(exc, "body", None)
+    if body is None:
+        return ""
+    text = ""
+    if isinstance(body, dict):
+        for key in ("message", "error", "detail"):
+            value = body.get(key)
+            if isinstance(value, str) and value.strip():
+                text = value.strip()
+                break
+            if isinstance(value, dict):
+                nested = value.get("message")
+                if isinstance(nested, str) and nested.strip():
+                    text = nested.strip()
+                    break
+        if not text:
+            try:
+                text = json.dumps(body, separators=(",", ":"), default=str)
+            except Exception:
+                text = str(body)
+    elif isinstance(body, str):
+        text = body
+    else:
+        text = str(body)
+    text = " ".join(text.split())
+    if len(text) > limit:
+        text = text[:limit] + "...(truncated)"
+    return redact_secret(text, api_key)
 
 # Shared verification fixture (see vision/verify.py): a deterministic PNG
 # plus a prompt that requires looking at the image. Kept importable here
@@ -241,7 +279,12 @@ class BasetenAdapter(VisionProviderAdapter):
             if not isinstance(status_code, int):
                 status_code = None
         status = f"HTTP {status_code}" if status_code else "request error"
-        detail = getattr(exc, "message", None) or str(exc)
+        # Prefer the provider response body over the terse SDK message
+        # (e.g. a bare "Error code: 403" hides the real reason). A 403
+        # stays an auth/permission failure; it is never reclassified
+        # as an empty model response.
+        detail = (_provider_body_text(exc, self.api_key)
+                  or getattr(exc, "message", None) or str(exc))
         if exc.__cause__:
             detail = f"{detail} Cause: {exc.__cause__}"
         message = f"Baseten API {status}: {redact_secret(detail, self.api_key)}"

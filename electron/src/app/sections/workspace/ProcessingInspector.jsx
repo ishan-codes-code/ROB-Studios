@@ -369,6 +369,7 @@ export default function ProcessingInspector({
       </TabsContent>
       <TabsContent value="configuration" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none">
         <ConfigurationContent
+          projectId={project.id}
           runMode={runMode}
           setRunMode={setRunMode}
           visionConfigured={visionConfigured}

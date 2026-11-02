@@ -43,3 +43,13 @@ for (const relative of COMPONENTS) {
     assert.deepEqual(checkFile(relative), []);
   });
 }
+
+test('workspace project id reaches the project configuration selectors', () => {
+  const source = fs.readFileSync(
+    path.join(here, '../src/app/sections/workspace/ProcessingInspector.jsx'),
+    'utf8',
+  );
+  const configCall = source.match(/<ConfigurationContent\s+([\s\S]*?)\/>/);
+  assert.ok(configCall, 'ConfigurationContent is rendered');
+  assert.match(configCall[1], /projectId=\{project\.id\}/);
+});

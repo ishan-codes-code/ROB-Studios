@@ -377,7 +377,13 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
         preset,
         warnings: [credentialWarning, profileWarning, presetWarning].filter(Boolean),
       };
-    } catch (err) { return safe(err); }
+    } catch (err) {
+      // Development diagnosis: the renderer keeps a generic message, but
+      // the safe reason (ids and validation failures only, never secrets)
+      // is logged here.
+      try { console.error('[project-config-get] failed:', err?.message ?? err); } catch { /* never break IPC */ }
+      return safe(err);
+    }
   });
   ipcMain.handle('project-config-set', async (_event, projectId, configuration) => {
     try {
@@ -391,7 +397,10 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       if (configuration.commentaryPresetId !== undefined) getCommentaryPreset(userDataPath(), configuration.commentaryPresetId);
       const project = updateProject(userDataPath(), projectId, { configuration });
       return { ok: true, configuration: project.configuration };
-    } catch (err) { return safe(err); }
+    } catch (err) {
+      try { console.error('[project-config-set] failed:', err?.message ?? err); } catch { /* never break IPC */ }
+      return safe(err);
+    }
   });
   ipcMain.handle('provider-models', async (_event, providerId) => {
     try {

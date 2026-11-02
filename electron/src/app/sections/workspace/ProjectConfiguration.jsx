@@ -32,15 +32,17 @@ export default function ProjectConfiguration({ projectId, onManageNavigate, onRe
         window.api.listCredentials().catch(() => null),
         window.api.listGameProfiles().catch(() => null),
       ]);
+      // Populate the selectors from whatever loaded: a configuration
+      // failure must not leave every dropdown permanently empty.
+      const items = credRes?.ok ? (credRes.credentials ?? []) : [];
+      setCredentials(items);
+      const profileItems = profileRes?.ok ? (profileRes.profiles ?? []) : [];
+      setProfiles(profileItems);
       if (!configRes?.ok) throw new Error("Could not load the project configuration.");
       setConfiguration(configRes.configuration);
       setCredential(configRes.credential);
       setWarnings(configRes.warnings ?? []);
       onReadinessChange?.(configRes.credential?.verified === true);
-      const items = credRes?.ok ? (credRes.credentials ?? []) : [];
-      setCredentials(items);
-      const profileItems = profileRes?.ok ? (profileRes.profiles ?? []) : [];
-      setProfiles(profileItems);
       const presetRes = await window.api
         .listPresets(null)
         .catch(() => null);

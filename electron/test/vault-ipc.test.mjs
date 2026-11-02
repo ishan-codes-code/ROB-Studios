@@ -141,6 +141,55 @@ test('structured provider failures reach the renderer without secrets', async (t
   assert.equal(listed.credentials[0].verification.status, 'unverified');
 });
 
+test('editor loads legacy partial configuration with defaults', async (t) => {
+  const { dir, handlers } = setup(t);
+  const created = await handlers['credential-create']({}, {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'editor-key-1',
+  });
+  assert.equal(created.ok, true);
+  const project = createProject(dir, { name: 'Editor', sourcePath: seedVideo(t) });
+  // Older project.json files may carry only a credential reference.
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  raw.configuration = { credentialId: created.credential.id };
+  fs.writeFileSync(rawPath, JSON.stringify(raw));
+  const got = await handlers['project-config-get']({}, project.id);
+  assert.equal(got.ok, true);
+  assert.equal(got.configuration.credentialId, created.credential.id);
+  assert.equal(got.configuration.gameProfileId, 'free-fire-default');
+  assert.equal(got.configuration.commentaryPresetId, 'default-energetic');
+  assert.equal(got.credential.id, created.credential.id);
+  assert.equal(got.credential.verified, false);
+  assert.equal(got.profile.id, 'free-fire-default');
+  assert.equal(got.preset.id, 'default-energetic');
+  // Unverified credentials are listed: nothing hides them from the editor.
+  const listed = await handlers['credential-list']();
+  assert.equal(listed.credentials.length, 1);
+  assert.equal(listed.credentials[0].verification.status, 'unverified');
+});
+
+test('missing credential reference warns and allows choosing another', async (t) => {
+  const { dir, handlers } = setup(t);
+  const created = await handlers['credential-create']({}, {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'editor-key-2',
+  });
+  const project = createProject(dir, { name: 'Dangling', sourcePath: seedVideo(t) });
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  raw.configuration = { credentialId: 'cred-does-not-exist' };
+  fs.writeFileSync(rawPath, JSON.stringify(raw));
+  const got = await handlers['project-config-get']({}, project.id);
+  assert.equal(got.ok, true);
+  assert.equal(got.credential, null);
+  assert.ok(got.warnings.some((w) => w.includes('missing or unreadable')));
+  // The user can recover by selecting the real credential.
+  const set = await handlers['project-config-set']({}, project.id, { credentialId: created.credential.id });
+  assert.equal(set.ok, true);
+  assert.equal(set.configuration.credentialId, created.credential.id);
+  const reread = await handlers['project-config-get']({}, project.id);
+  assert.equal(reread.credential.id, created.credential.id);
+});
+
 test('key rotation during verification refuses to mark verified', async (t) => {
   const dirHolder = {};
   const { dir, handlers } = setup(t, {

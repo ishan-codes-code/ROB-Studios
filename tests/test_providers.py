@@ -259,6 +259,84 @@ class BasetenAdapterTests(unittest.TestCase):
         with self.assertRaises(ObservationError):
             adapter.verify_image()
 
+    def _wire_adapter(self, key, handler):
+        """Real SDK client over a mocked transport: no network, real wire."""
+        import httpx2 as httpx
+        from openai import OpenAI
+
+        transport = httpx.MockTransport(handler)
+        client = OpenAI(
+            api_key=key,
+            base_url="https://inference.baseten.co/v1",
+            http_client=httpx.Client(transport=transport),
+            max_retries=0,
+        )
+        return BasetenAdapter(
+            model="meta-models/muse-spark-open", api_key=key, client=client)
+
+    def test_verify_image_sends_reasoning_effort_on_wire(self):
+        import httpx2 as httpx
+
+        seen = {}
+
+        def handler(request):
+            seen["body"] = json.loads(request.content.decode("utf-8"))
+            return httpx.Response(200, json={
+                "id": "chatcmpl-verify",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "meta-models/muse-spark-open",
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Red"},
+                    "finish_reason": "stop",
+                }],
+            })
+
+        adapter = self._wire_adapter("k", handler)
+        adapter.verify_image()
+        self.assertEqual(seen["body"]["model"], "meta-models/muse-spark-open")
+        self.assertEqual(seen["body"]["max_tokens"], 512)
+        self.assertEqual(seen["body"]["reasoning_effort"], "low")
+        content = seen["body"]["messages"][0]["content"]
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertTrue(
+            content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
+
+    def test_403_keeps_provider_code_and_body_text(self):
+        import httpx2 as httpx
+
+        def handler(request):
+            return httpx.Response(403, json={
+                "message": "Model access forbidden for this key",
+                "type": "forbidden",
+            })
+
+        adapter = self._wire_adapter("secret-key-9", handler)
+        with self.assertRaises(VisionAPIError) as ctx:
+            adapter.verify_image()
+        # 403 is an auth/permission failure, never an empty response.
+        self.assertEqual(ctx.exception.code, "auth")
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertEqual(ctx.exception.provider, "baseten")
+        self.assertIn("Model access forbidden for this key", str(ctx.exception))
+        self.assertNotIn("secret-key-9", str(ctx.exception))
+
+    def test_403_body_redacts_embedded_secrets(self):
+        import httpx2 as httpx
+
+        def handler(request):
+            return httpx.Response(403, json={
+                "message": "key secret-key-9 is not entitled for this model",
+            })
+
+        adapter = self._wire_adapter("secret-key-9", handler)
+        with self.assertRaises(VisionAPIError) as ctx:
+            adapter.verify_image()
+        self.assertEqual(ctx.exception.code, "auth")
+        self.assertNotIn("secret-key-9", str(ctx.exception))
+        self.assertIn("[REDACTED]", str(ctx.exception))
+
     def test_legacy_model_id_is_normalized(self):
         from ai_commentator.vision.providers import baseten as baseten_module
 

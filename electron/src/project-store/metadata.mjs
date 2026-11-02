@@ -47,7 +47,16 @@ function validateName(name) {
 
 function validateConfiguration(value) {
   if (!value || typeof value !== 'object') throw new Error('Invalid project configuration.');
-  const { credentialId = null, gameProfileId, commentaryPresetId } = value;
+  // Older projects may store a partial configuration object (e.g. only
+  // credentialId). Missing game/prompt selections fall back to the
+  // built-in defaults at read time instead of failing the whole
+  // project load; the stored file is only rewritten on the next
+  // explicit configuration save.
+  const {
+    credentialId = null,
+    gameProfileId = DEFAULT_GAME_PROFILE_ID,
+    commentaryPresetId = DEFAULT_COMMENTARY_PRESET_ID,
+  } = value;
   if (credentialId !== null && (typeof credentialId !== 'string' || !ID_PATTERN.test(credentialId))) {
     throw new Error('Invalid project configuration.');
   }

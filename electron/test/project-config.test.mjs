@@ -48,6 +48,23 @@ test('new projects carry default configuration; legacy projects default on read'
   assert.equal(reread.configuration.gameProfileId, 'free-fire-default');
 });
 
+test('partial stored configuration defaults on read without rewriting', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'Legacy', sourcePath: seedVideo(t) });
+  // Simulate an older project.json carrying only a credential reference.
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  raw.configuration = { credentialId: null };
+  fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+  const reread = getProject(dir, project.id);
+  assert.equal(reread.configuration.credentialId, null);
+  assert.equal(reread.configuration.gameProfileId, 'free-fire-default');
+  assert.equal(reread.configuration.commentaryPresetId, 'default-energetic');
+  // Loading must not silently overwrite the stored selections.
+  const stored = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  assert.deepEqual(stored.configuration, { credentialId: null });
+});
+
 test('configuration patches merge and validate fields', async (t) => {
   const dir = tempDir(t);
   const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
