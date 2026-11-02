@@ -83,14 +83,11 @@ function validateVerification(value, where) {
     if (!Number.isInteger(value.verifiedCredentialVersion) || value.verifiedCredentialVersion < 1) {
       throw new Error(`Invalid verified credential version (${where}).`);
     }
-    if (typeof value.verifiedModel !== 'string' || value.verifiedModel === '') {
-      throw new Error(`Invalid verified model (${where}).`);
-    }
     return {
       status: 'verified',
       verifiedAt: value.verifiedAt,
       verifiedCredentialVersion: value.verifiedCredentialVersion,
-      verifiedModel: value.verifiedModel,
+      verifiedModel: value.verifiedModel ?? null,
     };
   }
   return { ...unverifiedState() };
@@ -110,6 +107,12 @@ function validateRecord(value) {
     }
   }
   let verification = validateVerification(value.verification, value.id);
+  const purpose = getProvider(provider).purpose ?? 'vision';
+  if (verification.status === 'verified'
+    && (purpose === 'tts' ? verification.verifiedModel !== null
+      : typeof verification.verifiedModel !== 'string' || verification.verifiedModel === '')) {
+    throw new Error('Invalid verification target.');
+  }
   if (verification.status === 'verified' && verification.verifiedModel !== model) {
     // The resolved model no longer matches the tested one (e.g. a retired
     // model identifier was normalized): the old success cannot vouch for
@@ -120,6 +123,7 @@ function validateRecord(value) {
     id: value.id,
     name,
     provider,
+    purpose,
     model,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -232,6 +236,7 @@ export function toPublicRecord(record, keyAvailable) {
     name: record.name,
     provider: record.provider,
     providerDisplayName: getProvider(record.provider).displayName,
+    purpose: getProvider(record.provider).purpose ?? 'vision',
     model: record.model,
     credentialVersion: record.credentialVersion,
     createdAt: record.createdAt,
@@ -387,8 +392,10 @@ export function markCredentialVerified(userDataPath, safeStorage, id, model) {
   validateId(id);
   const vault = loadVault(userDataPath);
   const record = findRecordOrThrow(vault.credentials, id);
-  if (typeof model !== 'string' || model !== record.model) {
-    throw new Error('Verification model does not match the saved model.');
+  if (record.purpose === 'tts'
+    ? model !== null
+    : (typeof model !== 'string' || model !== record.model)) {
+    throw new Error('Verification target does not match the saved configuration.');
   }
   if (!probeKeyAvailable(userDataPath, safeStorage, id)) {
     throw new Error('Secure API credential is unavailable. Check secure storage.');

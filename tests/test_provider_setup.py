@@ -1,6 +1,7 @@
 """Provider setup boundary tests use fake adapters; no network calls."""
 import sys
 import unittest
+import types
 from pathlib import Path
 from unittest import mock
 
@@ -170,11 +171,88 @@ class StructuredFailureTests(unittest.TestCase):
             code = provider_setup.main()
         self.assertEqual(code, 1)
         payload = json_module.loads(out.getvalue())
-        self.assertEqual(payload["code"], "auth")
+        self.assertEqual(payload["code"], "auth", payload)
         self.assertEqual(payload["status"], 401)
         self.assertEqual(payload["error"], "Authentication failed. Check the API key.")
         self.assertEqual(payload["operation"], "verify-vision")
         self.assertNotIn("sk-test-secret-xyz", json_module.dumps(payload))
+
+
+class GeminiTtsSetupTests(unittest.TestCase):
+    def sdk_modules(self, get_side_effect=None):
+        calls = []
+
+        class Models:
+            def get(self, *, model):
+                calls.append(model)
+                if get_side_effect:
+                    raise get_side_effect
+                return object()
+
+        class Client:
+            def __init__(self, *, api_key, http_options):
+                calls.append((api_key, http_options.timeout))
+                self.models = Models()
+
+        genai = types.SimpleNamespace(Client=Client)
+        types_module = types.SimpleNamespace(
+            HttpOptions=lambda **kwargs: types.SimpleNamespace(**kwargs))
+        google = types.ModuleType("google")
+        google.genai = genai
+        genai.types = types_module
+        return calls, {"google": google, "google.genai": genai,
+                       "google.genai.types": types_module}
+
+    def test_success_checks_tts_metadata_without_generation(self):
+        calls, modules = self.sdk_modules()
+        with (mock.patch.dict("os.environ", {"AI_COMMENTATOR_PROVIDER_API_KEY": "key-abc"}),
+              mock.patch.dict(sys.modules, modules)):
+            result = provider_setup.run("verify-tts-auth", "", "", "google-gemini-tts")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["capability"], "authentication-and-model-metadata")
+        self.assertEqual(calls, [("key-abc", 10000), "gemini-3.8-flash-tts"])
+
+    def test_api_failures_map_to_safe_categories(self):
+        from tts_provider_setup import GeminiSetupError
+
+        cases = [
+            ("auth", RuntimeError("unused")),
+            ("permission", RuntimeError("unused")),
+            ("quota", RuntimeError("unused")),
+            ("network", ConnectionError("secret key in raw error")),
+            ("timeout", TimeoutError("secret key in raw error")),
+        ]
+        statuses = {"auth": 401, "permission": 403, "quota": 429}
+        for expected, original in cases:
+            if expected in statuses:
+                original.code = statuses[expected]
+            _, modules = self.sdk_modules(original)
+            with (self.subTest(category=expected),
+                  mock.patch.dict("os.environ", {"AI_COMMENTATOR_PROVIDER_API_KEY": "secret key"}),
+                  mock.patch.dict(sys.modules, modules)):
+                with self.assertRaises(GeminiSetupError) as raised:
+                    provider_setup.run("verify-tts-auth", "", "", "google-gemini-tts")
+                self.assertEqual(raised.exception.code, expected)
+                payload = provider_setup.failure_result(
+                    "verify-tts-auth", "google-gemini-tts", raised.exception)
+                self.assertNotIn("secret key", str(payload))
+
+    def test_invalid_key_and_permission_errors_have_actionable_machine_output(self):
+        import io
+        import json as json_module
+
+        _, modules = self.sdk_modules(RuntimeError("raw API key=secret-key"))
+        modules["google.genai"].Client = lambda **kwargs: (_ for _ in ()).throw(
+            type("ApiError", (Exception,), {"code": 401})("raw API key=secret-key"))
+        argv = ["provider_setup.py", "verify-tts-auth", "--provider", "google-gemini-tts"]
+        with (mock.patch.dict("os.environ", {"AI_COMMENTATOR_PROVIDER_API_KEY": "secret-key"}),
+              mock.patch.dict(sys.modules, modules), mock.patch("sys.argv", argv),
+              mock.patch("sys.stdout", new_callable=io.StringIO) as out):
+            code = provider_setup.main()
+        payload = json_module.loads(out.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual(payload["code"], "auth", repr(payload))
+        self.assertNotIn("secret-key", out.getvalue())
 
 
 if __name__ == "__main__":

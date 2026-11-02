@@ -6,7 +6,7 @@ import path from 'node:path';
 import { registerSettingsIpc } from '../src/main/ipc/settings.js';
 import { createCredential as vaultCreate, setCredentialKey, setCredentialModel } from '../src/credentials-store.mjs';
 import { createGameProfile, createCommentaryPreset } from '../src/game-store.mjs';
-import { createProject } from '../src/project-store.mjs';
+import { createProject, updateProject } from '../src/project-store.mjs';
 
 const storage = () => ({
   isEncryptionAvailable: () => true,
@@ -76,6 +76,42 @@ test('vault IPC never leaks secrets in outputs or errors', async (t) => {
   const bad = await handlers['credential-set-key']({}, created.credential.id, '');
   assert.equal(bad.ok, false);
   assert.equal(JSON.stringify(bad).includes('super-secret-key'), false);
+});
+
+test('Gemini TTS verification uses its provider operation and stores no key in IPC', async (t) => {
+  const calls = [];
+  const { handlers } = setup(t, {
+    spawnSetup: async (input) => {
+      calls.push(input);
+      return { ok: true, connected: true, ttsModelMetadataAvailable: true };
+    },
+  });
+  const created = await handlers['credential-create']({}, {
+    name: 'Gemini TTS', provider: 'google-gemini-tts', model: null, key: 'google-private-key',
+  });
+  assert.equal(created.ok, true);
+  assert.equal(created.credential.model, null);
+  const result = await handlers['credential-verify']({}, created.credential.id);
+  assert.equal(result.ok, true);
+  assert.equal(result.credential.verification.status, 'verified');
+  assert.equal(calls[0].operation, 'verify-tts-auth');
+  assert.equal(calls[0].model, null);
+  assert.equal(calls[0].key, 'google-private-key');
+  assert.equal(JSON.stringify(result).includes('google-private-key'), false);
+});
+
+test('Gemini TTS credentials cannot be assigned as project Vision credentials and deletion respects references', async (t) => {
+  const { dir, handlers } = setup(t);
+  const created = await handlers['credential-create']({}, {
+    name: 'Gemini TTS', provider: 'google-gemini-tts', model: null, key: 'tts-key',
+  });
+  const project = createProject(dir, { name: 'Project', sourcePath: seedVideo(t) });
+  const rejected = await handlers['project-config-set']({}, project.id, { credentialId: created.credential.id });
+  assert.equal(rejected.ok, false);
+  updateProject(dir, project.id, { configuration: { credentialId: created.credential.id } });
+  const blocked = await handlers['credential-remove']({}, created.credential.id);
+  assert.equal(blocked.ok, false);
+  assert.deepEqual(blocked.referencedBy, ['Project']);
 });
 
 test('credential in use by a project cannot be deleted', async (t) => {

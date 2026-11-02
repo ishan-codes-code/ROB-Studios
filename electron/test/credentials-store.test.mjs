@@ -176,3 +176,19 @@ test('verification requires matching model and readable key', async (t) => {
   assert.equal(verified.verification.verifiedCredentialVersion, 1);
   assert.ok(Date.parse(verified.verification.verifiedAt) > 0);
 });
+
+test('TTS credentials use a null model, encrypted key, and credential-scoped verification', async (t) => {
+  const dir = tempDir(t);
+  const created = createCredential(dir, storage(), {
+    name: 'Gemini TTS', provider: 'google-gemini-tts', model: null, key: 'tts-secret',
+  });
+  assert.equal(created.purpose, 'tts');
+  assert.equal(created.model, null);
+  assert.equal(created.verification.status, 'unverified');
+  assert.equal(JSON.stringify(created).includes('tts-secret'), false);
+  const verified = markCredentialVerified(dir, storage(), created.id, null);
+  assert.equal(verified.verification.status, 'verified');
+  assert.equal(verified.verification.verifiedModel, null);
+  const rotated = setCredentialKey(dir, storage(), created.id, 'tts-secret-2');
+  assert.equal(rotated.verification.status, 'unverified');
+});

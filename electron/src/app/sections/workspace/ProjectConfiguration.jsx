@@ -44,7 +44,9 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
       ]);
       // Populate the selectors from whatever loaded: a configuration
       // failure must not leave every dropdown permanently empty.
-      const items = credRes?.ok ? (credRes.credentials ?? []) : [];
+      const items = credRes?.ok
+        ? (credRes.credentials ?? []).filter((entry) => entry.purpose !== "tts")
+        : [];
       setCredentials(items);
       const profileItems = profileRes?.ok ? (profileRes.profiles ?? []) : [];
       setProfiles(profileItems);

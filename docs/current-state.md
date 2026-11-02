@@ -1,5 +1,21 @@
 # Current state
 
+## Gemini TTS API configuration (credential setup milestone)
+
+The API Keys page includes a distinct Google Gemini TTS provider. TTS
+credentials use the existing Electron `safeStorage` vault and atomic
+ciphertext writes, with a `tts` purpose and no model field; they cannot be
+selected for project Vision processing. The renderer receives only sanitized
+credential metadata. Key replacement resets its verification state, and
+project reference protection continues to apply to deletion.
+
+TTS connection verification runs as a separate Python setup operation using
+the official `google-genai` SDK. It requests metadata for the fixed current
+Gemini 3.8 Flash TTS model with a 10-second SDK timeout and performs no speech
+generation. A success confirms API authentication and access to that model's
+metadata only; it cannot establish inference entitlement without generating
+speech. No live Google requests were made during implementation tests.
+
 ## Provider vault, multi-provider vision & configuration studio (M6, on current branch, uncommitted)
 
 Two curated providers (`meta` via Responses API `/responses`, `baseten`

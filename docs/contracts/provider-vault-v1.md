@@ -1,8 +1,9 @@
 # Provider vault v1
 
 Named, encrypted, multi-credential provider storage owned by the Electron
-main process. Exactly two providers exist (MVP): `meta` (Meta Model API)
-and `baseten` (Baseten). There are no generic endpoints, no user-editable
+main process. The curated catalogue supports `meta` (Meta Model API),
+`baseten` (Baseten), and `google-gemini-tts` (Google Gemini TTS). There
+are no generic endpoints, no user-editable
 base URLs, and no arbitrary model IDs — see
 `electron/src/provider-catalog.mjs` for the curated catalogue.
 
@@ -21,6 +22,7 @@ base URLs, and no arbitrary model IDs — see
   "id": "cred-9f3a2b1c4d5e6f70",
   "name": "Meta Personal",
   "provider": "meta",
+  "purpose": "vision",
   "model": "muse-spark-1.3",
   "credentialVersion": 2,
   "createdAt": "2026-11-02T10:00:00.000Z",
@@ -34,19 +36,27 @@ base URLs, and no arbitrary model IDs — see
 }
 ```
 
+Google Gemini TTS records use `purpose: "tts"` and `model: null`; no fake
+Vision model is stored. Their verification records use a null
+`verifiedModel` and remain scoped to the exact credential version. Existing
+Meta/Baseten records without `purpose` are interpreted as Vision records.
+TTS records cannot be selected for project Vision processing.
+
 `credentialVersion` increments on every key replacement.
-`verification.status` is `verified` only after an explicit,
-user-initiated image-input check for that exact
-credential-version/model pair. Changing the key or the model resets the
-record to `unverified`. Verification is never inferred from catalogue
-membership and never runs in the background or at launch.
+For Vision credentials, `verification.status` is `verified` only after an
+explicit user-initiated image-input check for that exact credential-version/
+model pair. For TTS credentials, it is verified only after the separate
+Google authentication and TTS model-metadata check succeeds. That check does
+not generate speech and does not prove inference entitlement. Changing a key
+or Vision model resets verification. Verification is never inferred from
+catalogue membership and never runs in the background or at launch.
 
 ## Operations (main-process IPC)
 
 Create, list, rename, set-key, set-model, test-connection,
-verify-image, delete. The renderer receives only the public shape plus
-`keyAvailable` (whether the ciphertext exists and decrypts) and the
-provider display name. There is no read/reveal operation: key entry is
+verify-image / verify-TTS-authentication, delete. The renderer receives
+only the public shape plus `keyAvailable` (whether the ciphertext exists
+and decrypts), purpose, and provider display name. There is no read/reveal operation: key entry is
 write-only, and saved keys render as "Credential stored securely" (or
 "Key unreadable" when decryption fails).
 

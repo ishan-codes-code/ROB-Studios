@@ -35,3 +35,13 @@ test('Meta catalogue is unchanged', async () => {
   assert.equal(PROVIDERS.baseten.fixedModel, true);
   assert.equal(PROVIDERS.meta.fixedModel, false);
 });
+
+test('Google Gemini TTS is a separate provider without fake Vision model metadata', () => {
+  const tts = validateProviderModel('google-gemini-tts', null);
+  assert.deepEqual(tts, { provider: 'google-gemini-tts', model: null });
+  assert.equal(PROVIDERS['google-gemini-tts'].purpose, 'tts');
+  assert.deepEqual(getProviderModels('google-gemini-tts'), []);
+  assert.throws(() => validateProviderModel('google-gemini-tts', 'gemini-3.8-flash-tts'), /do not use a Vision model/);
+  assert.throws(() => validateProviderModel('google-gemini-tts', ''), /do not use a Vision model/);
+  assert.throws(() => validateProviderModel('unknown', null), /Unsupported provider/);
+});

@@ -5,6 +5,7 @@
 
 export const PROVIDER_META = 'meta';
 export const PROVIDER_BASETEN = 'baseten';
+export const PROVIDER_GEMINI_TTS = 'google-gemini-tts';
 
 // Current documented Baseten model string (meta-oss-cookbook muse-spark
 // hosted baseten guide). Previously pinned identifier, kept only as a
@@ -44,6 +45,13 @@ export const PROVIDERS = Object.freeze({
       }),
     ]),
   }),
+  [PROVIDER_GEMINI_TTS]: Object.freeze({
+    id: PROVIDER_GEMINI_TTS,
+    displayName: 'Google Gemini TTS',
+    purpose: 'tts',
+    model: null,
+    models: Object.freeze([]),
+  }),
 });
 
 export const SUPPORTED_PROVIDERS = Object.freeze(
@@ -72,6 +80,12 @@ export function isSupportedModel(providerId, modelId) {
 
 export function validateProviderModel(providerId, modelId) {
   const entry = getProvider(providerId);
+  if (entry.purpose === 'tts') {
+    if (modelId !== null && modelId !== undefined) {
+      throw new Error('TTS configurations do not use a Vision model.');
+    }
+    return { provider: entry.id, model: null };
+  }
   if (typeof modelId !== 'string' || modelId.trim() === '') {
     throw new Error('Vision model is required.');
   }

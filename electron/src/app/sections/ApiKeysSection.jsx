@@ -36,6 +36,7 @@ import {
 const PROVIDER_META = {
   meta: { displayName: "Meta Model API" },
   baseten: { displayName: "Baseten" },
+  "google-gemini-tts": { displayName: "Google Gemini TTS" },
 };
 
 function providerLabel(id) {
@@ -46,10 +47,17 @@ function statusBadge(credential) {
   if (!credential.keyAvailable) {
     return <Badge variant="destructive">Key unreadable</Badge>;
   }
-  if (credential.verification?.status === "verified") {
-    return <Badge variant="secondary">Vision verified</Badge>;
+  if (credential.verificationFailed) {
+    return <Badge variant="destructive">Verification failed</Badge>;
   }
-  return <Badge variant="outline">Unverified</Badge>;
+  if (credential.verification?.status === "verified") {
+    return <Badge variant="secondary">{credential.purpose === "tts" ? "TTS access checked" : "Vision verified"}</Badge>;
+  }
+  return <Badge variant="outline">Saved, not tested</Badge>;
+}
+
+function credentialTarget(credential) {
+  return credential.purpose === "tts" ? "TTS API key" : credential.model;
 }
 
 function formatTimestamp(value) {
@@ -78,6 +86,7 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
   const [migration, setMigration] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
+  const [verificationFailures, setVerificationFailures] = useState([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
@@ -136,6 +145,8 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
     [credentials],
   );
 
+  const selected = detail ?? credentials.find((entry) => entry.id === selectedId) ?? null;
+
   const startAdd = useCallback(async () => {
     setAdding(true);
     setError("");
@@ -157,7 +168,8 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
     try {
       const catalog = await window.api.providerModels(provider);
       const available = catalog?.models ?? (provider === "meta" ? models : [{ id: "meta-models/muse-spark-open" }]);
-      const model = provider === "baseten" ? "meta-models/muse-spark-open" : form.model;
+      const model = provider === "baseten" ? "meta-models/muse-spark-open"
+        : provider === "google-gemini-tts" ? null : form.model;
       if (provider === "meta" && !available.some((entry) => entry.id === model)) {
         throw new Error("Select a supported Meta model.");
       }
@@ -168,7 +180,9 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
         key: form.key,
       });
       if (!result?.ok) throw new Error("Could not save the API configuration.");
-      setNotice(`Saved “${result.credential.name}”. Test the connection, then verify image support before paid runs.`);
+      setNotice(provider === "google-gemini-tts"
+          ? `Saved “${result.credential.name}”. Test the connection to check Gemini TTS model access.`
+          : `Saved “${result.credential.name}”. Test the connection, then verify image support before paid runs.`);
       setAdding(false);
       setForm({ name: "", key: "", model: "" });
       await reload();
@@ -187,8 +201,12 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
       setBusy(kind);
       setError("");
       setNotice("");
+      setVerificationFailures((current) => current.filter((id) => id !== selectedId));
       try {
-        const action = kind === "connection" ? window.api.testCredential : window.api.verifyCredential;
+        const ttsCredential = selected?.purpose === "tts";
+        const action = kind === "connection" && !ttsCredential
+          ? window.api.testCredential
+          : window.api.verifyCredential;
         const result = await action(selectedId);
         // Surface the main-process diagnosis (already secret-free) instead
         // of a generic message; the buttons below stay enabled for retry.
@@ -200,7 +218,10 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
             : "";
           throw new Error(`${result?.error ?? "Provider request failed. Check the key, model, and provider compatibility."}${detail}`);
         }
-        if (kind === "verify") {
+        if (ttsCredential) {
+          setNotice("Google API key authenticated and Gemini TTS model metadata is available. Speech generation access was not tested.");
+          setDetail(result.credential);
+        } else if (kind === "verify") {
           setNotice("Image input verified for the selected key and model.");
           setDetail(result.credential);
         } else {
@@ -208,12 +229,13 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
         }
         await reload();
       } catch (err) {
+        setVerificationFailures((current) => current.includes(selectedId) ? current : [...current, selectedId]);
         setError(err?.message ?? "Provider request failed. Check the key, model, and provider compatibility.");
       } finally {
         setBusy("");
       }
     },
-    [reload, selectedId],
+    [reload, selected, selectedId],
   );
 
   const replaceKey = useCallback(async () => {
@@ -224,8 +246,11 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
     try {
       const result = await window.api.setCredentialKey(selectedId, editKey);
       if (!result?.ok) throw new Error("Could not replace the API key.");
-      setNotice("Key replaced. Image verification was reset — verify again before paid runs.");
+      setNotice(selected?.purpose === "tts"
+          ? "Key replaced. TTS access check was reset — test the connection again."
+          : "Key replaced. Image verification was reset — verify again before paid runs.");
       setEditKey("");
+      setVerificationFailures((current) => current.filter((id) => id !== selectedId));
       setDetail(result.credential);
       await reload();
     } catch (err) {
@@ -233,7 +258,7 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
     } finally {
       setBusy("");
     }
-  }, [editKey, reload, selectedId]);
+  }, [editKey, reload, selected, selectedId]);
 
   const changeModel = useCallback(
     async (model) => {
@@ -288,6 +313,7 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
         throw new Error("Could not delete the configuration.");
       }
       setNotice("Configuration deleted.");
+      setVerificationFailures((current) => current.filter((id) => id !== selectedId));
       setSelectedId(null);
       setDetail(null);
       setConfirmDelete(false);
@@ -298,8 +324,6 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
       setBusy("");
     }
   }, [reload, selectedId]);
-
-  const selected = detail ?? credentials.find((entry) => entry.id === selectedId) ?? null;
 
   const addFormId = "api-configuration-create-form";
   const canSave = !busy && form.name.trim() && form.key && (provider !== "meta" || form.model);
@@ -322,10 +346,11 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <span id="provider-choice-label" className="text-[12px] font-medium text-foreground">Provider</span>
-        <div role="group" aria-labelledby="provider-choice-label" className="grid grid-cols-2 gap-2">
+        <div role="group" aria-labelledby="provider-choice-label" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {[
             { id: "meta", description: "Connect to curated Meta models." },
             { id: "baseten", description: "Run Muse Spark on Baseten." },
+            { id: "google-gemini-tts", description: "Configure Google Gemini text-to-speech access." },
           ].map(({ id, description }) => (
             <Button
               key={id}
@@ -382,6 +407,10 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
             ))}
           </select>
         </Field>
+      ) : provider === "google-gemini-tts" ? (
+        <p className="text-[12px] leading-relaxed text-muted-foreground">
+          This configuration is for speech access only. No model selection or speech generation is performed here.
+        </p>
       ) : (
         <div className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium text-foreground">Model</span>
@@ -423,7 +452,7 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
           <div className="min-w-0">
             <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">API Keys</h1>
             <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
-              Named provider configurations for Meta and Baseten. Keys stay encrypted on this device
+              Named configurations for Meta Vision, Baseten Vision, and Google Gemini TTS. Keys stay encrypted on this device
               and never reach the interface — only presence and verification status are shown.
             </p>
           </div>
@@ -475,7 +504,7 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
                 <div className="flex min-w-0 flex-col gap-1">
                   <DialogTitle className="text-[15px] tracking-tight">New API configuration</DialogTitle>
                   <DialogDescription className="text-[12px] leading-relaxed">
-                    Save a provider key for image analysis. You can verify it after creation.
+                    Save a provider key for Vision analysis or Gemini TTS access. You can test it after creation.
                   </DialogDescription>
                 </div>
               </div>
@@ -515,8 +544,8 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
             <div className="flex flex-col items-start gap-2 rounded-sm border border-border bg-background px-3 py-4">
               <p className="text-[13px] font-medium text-foreground">No API configurations</p>
               <p className="max-w-md text-[12px] leading-relaxed text-muted-foreground">
-                Add a Meta or Baseten configuration to enable paid vision analysis. Until then,
-                offline frame extraction remains available.
+                Add a Meta or Baseten configuration for paid Vision analysis, or Google Gemini TTS
+                for speech access. Offline frame extraction remains available without Vision setup.
               </p>
             </div>
           ) : (
@@ -539,10 +568,10 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
                         {entry.name}
                       </span>
                       <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
-                        {providerLabel(entry.provider)} · {entry.model}
+                        {providerLabel(entry.provider)} · {credentialTarget(entry)}
                       </span>
                     </span>
-                    {statusBadge(entry)}
+                    {statusBadge({ ...entry, verificationFailed: verificationFailures.includes(entry.id) })}
                   </button>
                 </li>
               ))}
@@ -556,12 +585,12 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
           <CardHeader>
             <CardTitle>{selected.name}</CardTitle>
             <CardDescription>
-              {providerLabel(selected.provider)} · <span className="font-mono">{selected.model}</span>
+              {providerLabel(selected.provider)} · <span className="font-mono">{credentialTarget(selected)}</span>
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
-              {statusBadge(selected)}
+              {statusBadge({ ...selected, verificationFailed: verificationFailures.includes(selected.id) })}
               <span className="text-[12px] text-muted-foreground">
                 {selected.keyAvailable ? "Credential stored securely" : "Stored key cannot be read"}
                 {" · "}verified {formatTimestamp(selected.verification?.verifiedAt)}
@@ -570,19 +599,27 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
             <Separator />
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" disabled={!!busy} onClick={() => runCheck("connection")}>
-                <Wifi data-icon="inline-start" /> Test connection
+                {busy === "connection" ? <LoaderCircle data-icon="inline-start" className="animate-spin" /> : <Wifi data-icon="inline-start" />}
+                {busy === "connection" && selected.purpose === "tts" ? "Verifying…" : "Test connection"}
               </Button>
-              <Button size="sm" variant="outline" disabled={!!busy} onClick={() => runCheck("verify")}>
+              {selected.purpose !== "tts" ? <Button size="sm" variant="outline" disabled={!!busy} onClick={() => runCheck("verify")}>
                 <ShieldCheck data-icon="inline-start" /> Verify image support
-              </Button>
+              </Button> : null}
             </div>
             <p className="text-[12px] leading-relaxed text-muted-foreground">
+              {selected.purpose === "tts" ? (
+                "Checks Google API authentication and access to Gemini TTS model metadata. It does not generate speech or confirm inference entitlement."
+              ) : (
+                <>
               Verification sends one minimal image request with this exact key and model and can
               incur provider charges. It is never run automatically and is invalidated whenever
               the key or model changes.
+                </>
+              )}
             </p>
             <Separator />
             <DetailNameRow name={selected.name} busy={busy} onRename={rename} />
+            {selected.purpose === "tts" ? null : <>
             <Field label="Model" hint="Changing the model resets image verification.">
               <select
                 className={inputClassName}
@@ -602,6 +639,7 @@ export default function ApiKeysSection({ onBackToEditor, embedded = false }) {
                 ))}
               </select>
             </Field>
+            </>}
             <Field label="Replace API key" hint="Write-only. Replacing the key resets image verification.">
               <div className="flex gap-2">
                 <input

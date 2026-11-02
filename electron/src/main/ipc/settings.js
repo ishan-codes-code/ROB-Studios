@@ -119,8 +119,11 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       return { ok: false, error: 'Secure API credential is unavailable. Check secure storage.', code: 'config', tested: null };
     }
     const baseUrl = getProviderBaseUrl(snapshot.provider);
+    const setupOperation = operation === 'verify-vision' && snapshot.record.purpose === 'tts'
+      ? 'verify-tts-auth'
+      : operation;
     const result = await spawnSetup({
-      operation,
+      operation: setupOperation,
       provider: { id: snapshot.provider, baseUrl },
       model: snapshot.model,
       // Key travels process-locally to the setup child only; never to IPC.
@@ -270,7 +273,10 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
         || fresh.record.credentialVersion !== tested.credentialVersion) {
         return { ok: false, error: 'The configuration changed during verification. Review the current values and verify again.', code: 'stale' };
       }
-      const credential = markCredentialVerified(userDataPath(), safeStorage, id, fresh.record.model);
+      const credential = markCredentialVerified(
+        userDataPath(), safeStorage, id,
+        fresh.record.purpose === 'tts' ? null : fresh.record.model,
+      );
       return { ok: true, credential };
     } catch (err) { return safe(err); }
   });
@@ -341,6 +347,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       if (config.credentialId !== null) {
         try {
           const resolved = getCredentialForRun(userDataPath(), safeStorage, config.credentialId);
+          if (resolved.record.purpose !== 'vision') throw new Error('Configuration is not a Vision credential.');
           credential = {
             id: resolved.record.id,
             name: resolved.record.name,
@@ -391,7 +398,8 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       if (!configuration || typeof configuration !== 'object') throw new Error('Invalid project configuration.');
       if (configuration.credentialId !== undefined && configuration.credentialId !== null) {
         // Validates existence + readability without exposing the secret.
-        getCredentialForRun(userDataPath(), safeStorage, configuration.credentialId);
+        const resolved = getCredentialForRun(userDataPath(), safeStorage, configuration.credentialId);
+        if (resolved.record.purpose !== 'vision') throw new Error('Choose a Vision API configuration for this project.');
       }
       if (configuration.gameProfileId !== undefined) getGameProfile(userDataPath(), configuration.gameProfileId);
       if (configuration.commentaryPresetId !== undefined) getCommentaryPreset(userDataPath(), configuration.commentaryPresetId);

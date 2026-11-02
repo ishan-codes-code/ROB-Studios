@@ -81,3 +81,19 @@ test('API configuration creation uses a dialog on its standalone page', () => {
   assert.match(source, /aria-labelledby="provider-choice-label"/);
   assert.match(source, /Encrypted on this device/);
 });
+
+test('Gemini TTS wizard submits a model-free credential and checks it through verification', () => {
+  const source = fs.readFileSync(
+    path.join(here, '../src/app/sections/ApiKeysSection.jsx'),
+    'utf8',
+  );
+  assert.match(source, /id: "google-gemini-tts"/);
+  assert.match(source, /provider === "google-gemini-tts" \? null : form\.model/);
+  assert.match(source, /key: form\.key/);
+  assert.match(source, /const ttsCredential = selected\?\.purpose === "tts"/);
+  assert.match(source, /: window\.api\.verifyCredential/);
+  assert.match(source, /Verification failed/);
+  assert.match(source, /busy === "connection" && selected\.purpose === "tts" \? "Verifying/);
+  assert.match(source, /Saved, not tested/);
+  assert.match(source, /TTS model metadata is available/);
+});

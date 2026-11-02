@@ -54,6 +54,9 @@ export function resolveProjectRunConfig(userDataPath, safeStorage, projectId) {
       'The selected API configuration is missing or unreadable. Choose another configuration.',
     );
   }
+  if (resolved.record.purpose !== 'vision') {
+    throw new Error('The selected API configuration is not a Vision credential. Choose a Vision configuration.');
+  }
   const verified = isCredentialVerifiedForRun(resolved.record);
   let preferences;
   try {

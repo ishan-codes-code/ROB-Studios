@@ -25,15 +25,18 @@ from ai_commentator.vision.providers.registry import (
     get_provider_models,
     validate_provider_model,
 )
+from tts_provider_setup import verify_tts_api_key
 
 USER_MESSAGES = {
     "auth": "Authentication failed. Check the API key.",
+    "permission": "The key is valid but cannot access this Gemini TTS model.",
+    "quota": "Gemini API quota or rate limit reached. Check your Google AI Studio limits.",
     "model": "The selected model does not support image input.",
     "image": "The provider rejected the image format.",
     "bad_request": "The provider rejected the request. Check the model and key.",
     "rate_limit": "Rate limit reached. Try again later.",
-    "timeout": "The provider request timed out.",
-    "network": "Could not reach the provider. Check the network connection.",
+    "timeout": "The Google API request timed out.",
+    "network": "Could not reach Google. Check the network connection.",
     "bad_response": "The provider returned an empty or invalid response.",
     "output_exhausted": "The model used up its output budget before answering. Try again.",
     "provider_error": "Provider request failed. Check the key, model, and provider compatibility.",
@@ -101,6 +104,8 @@ def run(operation, base_url=None, model="", provider="baseten"):
             "models": [{"id": name, "vision": "unverified"} for name in names],
         }
     if operation not in ("connection", "verify-vision"):
+        if operation == "verify-tts-auth" and provider == "google-gemini-tts":
+            return verify_tts_api_key(_key())
         raise ValueError("Unsupported provider operation.")
     provider, clean_model = validate_provider_model(
         provider, model or get_provider_models(provider)[0]
@@ -130,7 +135,7 @@ def run(operation, base_url=None, model="", provider="baseten"):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("operation",
-                        choices=("connection", "models", "verify-vision"))
+                        choices=("connection", "models", "verify-vision", "verify-tts-auth"))
     parser.add_argument("--base-url", default="")
     parser.add_argument("--model", default="")
     parser.add_argument("--provider", default="baseten")
