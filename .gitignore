@@ -62,5 +62,3 @@ Thumbs.db
 *.tgz
 
 
-# Website (temporarily excluded from Git)
-website/
