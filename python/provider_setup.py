@@ -1,59 +1,84 @@
-"""One-shot, main-process-invoked provider setup operations (JSON stdout)."""
+"""One-shot, main-process-invoked provider setup operations (JSON stdout).
+
+Provider-aware: ``--provider meta|baseten`` (default ``baseten``) with a
+curated model catalogue per provider — no generic model discovery and no
+arbitrary base URLs. ``models`` returns the catalogue (every model marked
+``unverified`` until the user runs ``verify-vision``). ``connection``
+and ``verify-vision`` perform real, minimal provider requests through
+the matching adapter; ``verify-vision`` sends a small image request and
+may incur provider charges. Provider exception bodies are never
+forwarded; no secrets are ever printed.
+"""
 import argparse
 import json
 import os
 import sys
 
-from openai import OpenAI
+from ai_commentator.vision.providers.registry import (
+    PROVIDER_BASETEN,
+    get_provider_models,
+    validate_provider_model,
+)
 
 
-def run(operation, base_url, model):
+def _key() -> str:
     key = os.environ.get("AI_COMMENTATOR_PROVIDER_API_KEY", "")
     if not key:
         raise ValueError("Provider credential is missing.")
-    client = OpenAI(api_key=key, base_url=base_url, timeout=20.0, max_retries=0)
-    try:
-        if operation == "models":
-            response = client.models.list()
-            models = []
-            for item in getattr(response, "data", [])[:500]:
-                name = getattr(item, "id", None)
-                if isinstance(name, str) and name and len(name) <= 200:
-                    models.append({"id": name, "vision": "unverified"})
-            return {"ok": True, "models": models}
-        if operation == "connection":
-            client.models.list()
-            return {"ok": True, "connected": True}
-        if operation == "verify-vision":
-            # A tiny valid inline image intentionally tests image input. This
-            # is an explicit provider request and may incur provider charges.
-            response = client.chat.completions.create(
-                model=model,
-                max_tokens=8,
-                messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Reply with the word OK."},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0ioAAAAASUVORK5CYII="}},
-                ]}],
-            )
-            if not getattr(response, "choices", None):
-                raise ValueError("Provider returned no completion for the vision check.")
-            return {"ok": True, "visionVerified": True}
+    return key
+
+
+def run(operation, base_url=None, model="", provider="baseten"):
+    provider = (provider or "").strip() or PROVIDER_BASETEN
+    if operation == "models":
+        names = get_provider_models(provider)
+        if model:
+            validate_provider_model(provider, model)
+        return {
+            "ok": True,
+            "provider": provider,
+            "models": [{"id": name, "vision": "unverified"} for name in names],
+        }
+    if operation not in ("connection", "verify-vision"):
         raise ValueError("Unsupported provider operation.")
+    provider, clean_model = validate_provider_model(
+        provider, model or get_provider_models(provider)[0]
+    )
+    key = _key()
+    if provider == "meta":
+        from ai_commentator.vision.providers.meta import MetaAdapter
+
+        adapter = MetaAdapter(model=clean_model, api_key=key, timeout=20.0)
+    else:
+        from ai_commentator.vision.providers.baseten import BasetenAdapter
+
+        adapter = BasetenAdapter(model=clean_model, api_key=key, timeout=20.0)
+    try:
+        if operation == "connection":
+            adapter.verify_connection()
+            return {"ok": True, "provider": provider, "connected": True}
+        adapter.verify_image()
+        return {"ok": True, "provider": provider, "visionVerified": True}
     finally:
-        client.close()
+        try:
+            adapter.close()
+        except Exception:
+            pass
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("connection", "models", "verify-vision"))
-    parser.add_argument("--base-url", required=True)
+    parser.add_argument("operation",
+                        choices=("connection", "models", "verify-vision"))
+    parser.add_argument("--base-url", default="")
     parser.add_argument("--model", default="")
+    parser.add_argument("--provider", default="baseten")
     args = parser.parse_args()
     try:
-        result = run(args.operation, args.base_url, args.model)
+        result = run(args.operation, args.base_url, args.model, args.provider)
     except Exception:
         # Provider exception bodies can contain headers or credentials.
-        result = {"ok": False, "error": "Provider request failed. Check the URL, key, model, and provider compatibility."}
+        result = {"ok": False, "error": "Provider request failed. Check the key, model, and provider compatibility."}
         print(json.dumps(result), flush=True)
         return 1
     print(json.dumps(result), flush=True)

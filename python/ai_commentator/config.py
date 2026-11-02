@@ -22,6 +22,11 @@ VISION_FRAME_PATH = FRAMES_DIR / "frame_00000.jpg"
 INTERVAL = 3
 BASETEN_BASE_URL = os.environ.get("BASETEN_BASE_URL", "https://inference.baseten.co/v1")
 BASETEN_MODEL = os.environ.get("BASETEN_MODEL", "meta-models/muse-spark-open-1026")
+PROVIDER_META = "meta"
+PROVIDER_BASETEN = "baseten"
+SUPPORTED_PROVIDERS = (PROVIDER_META, PROVIDER_BASETEN)
+META_API_BASE_URL = "https://api.meta.ai/v1"
+META_MODELS = ("muse-spark-1.3", "muse-wonder-1.0")
 
 
 def user_prompt_preferences():
@@ -40,6 +45,20 @@ def user_prompt_preferences():
         }
     except (ValueError, TypeError, AttributeError):
         return {"personality": "", "tone": "", "language": "", "instructions": "", "game_context": ""}
+
+
+def provider_runtime_config():
+    """Resolve ``(provider, model, api_key)`` for the active run.
+
+    Prefers AI_COMMENTATOR_PROVIDER/MODEL/API_KEY; falls back to the
+    legacy Baseten BASETEN_MODEL/BASETEN_API_KEY pair (Baseten-typed,
+    never cross-provider guessing). Raises RuntimeError without a key
+    and ValueError for unsupported provider/model pairs.
+    """
+    from .vision.providers.registry import resolve_provider_config
+
+    resolved = resolve_provider_config()
+    return resolved["provider"], resolved["model"], resolved["api_key"]
 
 
 def stylistic_prompt_suffix():

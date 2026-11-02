@@ -95,14 +95,22 @@ otherwise.
   review, packaged-build (`npm run package` + smoke) verification.
 - Acceptance: packaged app renders the shell; worker lifecycle intact.
 
-## Stage 4 — Configuration and first-launch setup (M5)
+## Stage 4 — Configuration studio (M5/M6, implemented)
 
 - Depends on: Stage 0 shell and the Electron/Python worker integration.
-- Settings owns provider, game, and commentary preferences and reuses one
-  persistence/IPC surface for first launch and later edits.
-- Key input is write-only; only credential metadata returns to the renderer.
-- Acceptance: provider checks distinguish discovered from image-verified
-  models; incomplete setup leaves offline extraction available; saved prompt
+- Workspace / Configuration sidebar groups: Dashboard, AI Analysis,
+  Commentary, Audio; API Keys, Games & Prompts, Preferences.
+- API Keys page manages named Meta/Baseten configurations (add,
+  rename, replace key, change model, test connection, verify image
+  support with a paid-request warning, delete with project-reference
+  guard). Key input is write-only; only sanitized metadata returns.
+- Games & Prompts page manages Free Fire profiles and commentary
+  presets with an effective-style preview; built-ins are immutable.
+- Editor Configure tab selects (never manages) the three project
+  configurations, with manage-links that preserve the open project.
+- Acceptance: verification states (saved vs tested vs verified) are
+  visually distinct; missing/unverified references warn in place;
+  incomplete setup leaves offline extraction available; style
   preferences cannot disable schema or factuality validation.
 
 ## Explicit exclusions (all stages above)

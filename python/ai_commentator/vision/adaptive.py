@@ -74,6 +74,23 @@ class StopToken:
         return self._event.is_set()
 
 
+def _resolve_live_credentials():
+    """Return ``(provider, model, api_key)`` for a live adaptive run.
+
+    Prefers the explicit AI_COMMENTATOR_* contract; falls back to the
+    legacy Baseten BASETEN_* pair (Baseten-typed). Raises RuntimeError
+    without a key (legacy message kept) and ValueError for unsupported
+    provider/model pairs.
+    """
+    from .providers.registry import resolve_provider_config
+
+    try:
+        resolved = resolve_provider_config()
+    except RuntimeError:
+        raise RuntimeError("BASETEN_API_KEY is not set in the environment.")
+    return resolved["provider"], resolved["model"], resolved["api_key"]
+
+
 def parse_max_frames_argument(value):
     """Validate an ``--adaptive-max-frames`` value: 1..HARD_MAX int."""
     if isinstance(value, bool):
@@ -214,14 +231,21 @@ def run_adaptive_vision(
         return finish("failed", termination, error)
 
     if client is None:
-        api_key = os.environ.get("BASETEN_API_KEY")
-        if not api_key:
-            raise RuntimeError("BASETEN_API_KEY is not set in the environment.")
-        owned_client = OpenAI(
-            api_key=api_key,
-            base_url=BASETEN_BASE_URL,
-            timeout=ADAPTIVE_REQUEST_TIMEOUT_S,
-        )
+        provider, model, api_key = _resolve_live_credentials()
+        if provider == "meta":
+            from .providers.meta import MetaAdapter
+
+            owned_client = MetaAdapter(
+                model=model,
+                api_key=api_key,
+                timeout=ADAPTIVE_REQUEST_TIMEOUT_S,
+            )
+        else:
+            owned_client = OpenAI(
+                api_key=api_key,
+                base_url=BASETEN_BASE_URL,
+                timeout=ADAPTIVE_REQUEST_TIMEOUT_S,
+            )
         vision_client = owned_client
     else:
         api_key = None

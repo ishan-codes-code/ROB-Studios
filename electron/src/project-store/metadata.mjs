@@ -2,13 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { validateVideoInput } from '../worker-protocol.mjs';
+import {
+  DEFAULT_COMMENTARY_PRESET_ID,
+  DEFAULT_GAME_PROFILE_ID,
+} from '../game-store.mjs';
 
 export const SCHEMA_VERSION = 1;
 export const PROJECTS_DIR_NAME = 'projects';
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_NAME_LENGTH = 100;
-const PATCHABLE_FIELDS = new Set(['processingStatus', 'lastOpenedAt']);
+const CONFIGURATION_FIELDS = new Set(['credentialId', 'gameProfileId', 'commentaryPresetId']);
+const PATCHABLE_FIELDS = new Set(['processingStatus', 'lastOpenedAt', 'configuration']);
 const PROCESSING_STATUSES = new Set(['idle', 'processing', 'done', 'stopped', 'error', 'cancelled', 'interrupted']);
 
 export function getProjectsRoot(userDataPath) {
@@ -40,6 +45,29 @@ function validateName(name) {
   return trimmed;
 }
 
+function validateConfiguration(value) {
+  if (!value || typeof value !== 'object') throw new Error('Invalid project configuration.');
+  const { credentialId = null, gameProfileId, commentaryPresetId } = value;
+  if (credentialId !== null && (typeof credentialId !== 'string' || !ID_PATTERN.test(credentialId))) {
+    throw new Error('Invalid project configuration.');
+  }
+  if (typeof gameProfileId !== 'string' || !ID_PATTERN.test(gameProfileId)) {
+    throw new Error('Invalid project configuration.');
+  }
+  if (typeof commentaryPresetId !== 'string' || !ID_PATTERN.test(commentaryPresetId)) {
+    throw new Error('Invalid project configuration.');
+  }
+  return { credentialId, gameProfileId, commentaryPresetId };
+}
+
+export function defaultProjectConfiguration() {
+  return {
+    credentialId: null,
+    gameProfileId: DEFAULT_GAME_PROFILE_ID,
+    commentaryPresetId: DEFAULT_COMMENTARY_PRESET_ID,
+  };
+}
+
 function validateMetadata(value) {
   if (!value || typeof value !== 'object') throw new Error('Invalid project metadata.');
   assertId(value.id);
@@ -50,6 +78,7 @@ function validateMetadata(value) {
   }
   if (!value.sourceVideo || typeof value.sourceVideo.path !== 'string' || typeof value.sourceVideo.sizeBytes !== 'number') throw new Error('Invalid project source video.');
   if (!PROCESSING_STATUSES.has(value.processingStatus)) throw new Error('Invalid processing status.');
+  value.configuration = validateConfiguration(value.configuration ?? defaultProjectConfiguration());
   return value;
 }
 
@@ -69,6 +98,7 @@ function toPublicMetadata(meta) {
     lastOpenedAt: meta.lastOpenedAt,
     sourceVideo: { path: meta.sourceVideo.path, sizeBytes: meta.sourceVideo.sizeBytes },
     processingStatus: meta.processingStatus, schemaVersion: meta.schemaVersion,
+    configuration: { ...meta.configuration },
   };
 }
 
@@ -127,6 +157,7 @@ export function createProject(userDataPath, { name, sourcePath } = {}) {
     const metadata = {
       schemaVersion: SCHEMA_VERSION, id, name: cleanName, createdAt: now, updatedAt: now, lastOpenedAt: now,
       sourceVideo: { path: path.join(finalDir, 'source', `gameplay${ext}`), sizeBytes: copied.size }, processingStatus: 'idle',
+      configuration: defaultProjectConfiguration(),
     };
     writeAtomic(path.join(stagingDir, 'project.json'), JSON.stringify(metadata, null, 2));
     fs.renameSync(stagingDir, finalDir);
@@ -141,6 +172,14 @@ export function updateProject(userDataPath, id, patch = {}) {
   const next = { ...meta, sourceVideo: { ...meta.sourceVideo } };
   for (const [key, value] of Object.entries(patch)) {
     if (!PATCHABLE_FIELDS.has(key)) throw new Error(`Project field '${key}' cannot be updated.`);
+    if (key === 'configuration') {
+      if (!value || typeof value !== 'object') throw new Error('Invalid project configuration.');
+      for (const field of Object.keys(value)) {
+        if (!CONFIGURATION_FIELDS.has(field)) throw new Error(`Project field '${field}' cannot be updated.`);
+      }
+      next.configuration = validateConfiguration({ ...meta.configuration, ...value });
+      continue;
+    }
     if (key === 'processingStatus' && !PROCESSING_STATUSES.has(value)) throw new Error('Invalid processing status.');
     if (key === 'lastOpenedAt' && (typeof value !== 'string' || Number.isNaN(Date.parse(value)))) throw new Error('Invalid timestamp.');
     next[key] = value;

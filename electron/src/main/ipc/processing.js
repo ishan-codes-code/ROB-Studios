@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { getProjectOutputDir, getProject as getStoredProject, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
 import { buildWorkerArgv, isVisionConfigured, resolvePythonExecutable, resolveWorkerScript, validateVideoInput } from '../../worker-protocol.mjs';
+import { resolveProjectRunConfig, stripHostSecrets } from '../run-config.mjs';
 import { loadSettings } from '../../settings-store.mjs';
 
 export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow }) {
@@ -81,7 +82,27 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     const hasStoredCredential = (() => { try { return fs.existsSync(path.join(app.getPath('userData'), 'provider-key.enc')); } catch { return false; } })();
     const legacyCredential = typeof process.env.BASETEN_API_KEY === 'string' ? process.env.BASETEN_API_KEY : '';
     const paidRequested = !opts.skipVision || opts.withScript || opts.adaptive;
-    if (paidRequested && !hasStoredCredential && !legacyCredential) {
+    // Project-scoped runs resolve the project's selected API credential,
+    // game profile, and commentary preset. This resolution is the run
+    // snapshot: UI edits afterwards cannot change this job. Offline runs
+    // proceed without a key; paid runs require a verified configuration
+    // and never fall back to another key.
+    let runConfig = null;
+    let runConfigError = null;
+    if (opts.projectId !== undefined) {
+      try {
+        runConfig = resolveProjectRunConfig(app.getPath('userData'), safeStorage, opts.projectId);
+      } catch (err) {
+        runConfigError = err?.message ?? 'The project configuration could not be resolved.';
+      }
+    }
+    if (runConfigError !== null && paidRequested) {
+      return { ok: false, error: runConfigError };
+    }
+    if (runConfig !== null && paidRequested && !runConfig.verified) {
+      return { ok: false, error: 'The selected API configuration is not verified for image input. Open API Keys and run image verification.' };
+    }
+    if (paidRequested && runConfig === null && !hasStoredCredential && !legacyCredential) {
       return {
         ok: false,
         error: 'AI analysis needs an API key. Open Settings to configure a provider, or choose offline extraction.',
@@ -94,6 +115,23 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       return { ok: false, error: err?.message ?? 'Invalid run options.' };
     }
     stoppedSeenForActiveRun = false;
+    let workerEnv;
+    if (runConfig !== null) {
+      workerEnv = stripHostSecrets(process.env);
+      workerEnv.AI_COMMENTATOR_PROVIDER = runConfig.provider;
+      workerEnv.AI_COMMENTATOR_MODEL = runConfig.model;
+      workerEnv.AI_COMMENTATOR_API_KEY = runConfig.apiKey;
+      workerEnv.AI_COMMENTATOR_SETTINGS_JSON = JSON.stringify(runConfig.preferences);
+      // Legacy mirrors for worker fallback compatibility. The explicit
+      // AI_COMMENTATOR_* contract above always wins; BASETEN endpoint
+      // mirrors are set only for Baseten runs so a Meta key can never
+      // be presented as a Baseten endpoint.
+      workerEnv.BASETEN_API_KEY = runConfig.apiKey;
+      if (runConfig.provider === 'baseten') {
+        workerEnv.BASETEN_BASE_URL = runConfig.baseUrl;
+        workerEnv.BASETEN_MODEL = runConfig.model;
+      }
+    } else {
     let credential = '';
     try {
       if (hasStoredCredential && safeStorage?.isEncryptionAvailable?.()) {
@@ -102,19 +140,18 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     } catch { credential = ''; }
     if (!credential) credential = legacyCredential;
     if (paidRequested && !credential) {
-      return { ok: false, error: 'Secure API credential is unavailable. Check Settings and secure storage.' };
+      return { ok: false, error: 'Secure API credential is unavailable. Check API Keys and secure storage.' };
     }
     if (paidRequested && hasStoredCredential && userSettings && !userSettings.provider.modelVisionVerified) {
-      return { ok: false, error: 'The selected model has not been verified for image input. Open Settings and run Verify image support.' };
+      return { ok: false, error: 'The selected model has not been verified for image input. Open API Keys and run Verify image support.' };
     }
-    const workerEnv = { ...process.env };
-    delete workerEnv.BASETEN_API_KEY;
-    delete workerEnv.AI_COMMENTATOR_PROVIDER_API_KEY;
+    workerEnv = stripHostSecrets(process.env);
     if (credential) workerEnv.BASETEN_API_KEY = credential;
     if (userSettings) {
       workerEnv.BASETEN_BASE_URL = userSettings.provider.baseUrl;
       workerEnv.BASETEN_MODEL = userSettings.provider.model;
       workerEnv.AI_COMMENTATOR_SETTINGS_JSON = JSON.stringify(userSettings);
+    }
     }
     const startedJob = workerManager.start({
       executable,

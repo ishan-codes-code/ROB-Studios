@@ -231,10 +231,28 @@ acceptance criteria, and what is explicitly out of scope.
 - **Goal:** user-managed OpenAI-compatible provider credentials and model,
   Free Fire context, commentary style, and first-launch setup.
 - **Dependencies:** native Electron/Python integration (milestone 11).
-- **Status:** implementation underway. The current source adds validated
+- **Status:** complete and extended by M6 below. The M5 source added validated
   global settings persistence, Electron `safeStorage` credential handling,
   provider connection/model/image checks, child-environment configuration,
   Settings UI, and onboarding. See `docs/current-state.md` for verified
   implementation and test status.
 - **Out of scope:** multiple active providers, accounts/sync, non-Free Fire
   game integrations, and provider-specific APIs beyond the compatible API.
+
+## M6. Provider vault, multi-provider vision & configuration studio
+
+- **Goal:** curated Meta + Baseten provider adapters, a multi-credential
+  encrypted vault, Free Fire game profiles and commentary presets,
+  per-project configuration with run-time resolution, and a polished
+  desktop management UI (API Keys, Games & Prompts, Preferences,
+  editor Configure tab).
+- **Dependencies:** M5 settings/credentials; milestone 11 native
+  Electron/Python integration.
+- **Status:** implementation complete on the current branch (uncommitted).
+  Python suite 381 tests OK and Electron suite 138 tests pass offline;
+  renderer production build succeeds. Provider connection and image
+  verification have not been live-tested (mocked tests only; no paid
+  calls were made).
+- **Out of scope:** generic OpenAI-compatible providers, arbitrary
+  base URLs and model IDs, multiple games, TTS, OBS integration,
+  live capture, cloud backend, database, accounts, sync, Docker.

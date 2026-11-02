@@ -45,3 +45,17 @@ Defined contracts:
   8b): natural paraphrase with deterministic grounding checks, explicit
   success/silence/error statuses, chronological segments with derived
   timestamps, and no template fallback.
+
+- [provider-vault-v1.md](provider-vault-v1.md) — named, encrypted,
+  multi-credential provider storage owned by the Electron main
+  process: one ciphertext per credential, a non-secret versioned
+  index, key-versioned image verification, and one-way legacy
+  migration.
+- [project-configuration-v1.md](project-configuration-v1.md) —
+  per-project configuration references (credential, game profile,
+  commentary preset), the global Free Fire game library with
+  immutable built-ins, and the run snapshot rule.
+- [worker-runtime-config.md](worker-runtime-config.md) — the
+  per-run child environment contract (`AI_COMMENTATOR_*` explicit,
+  legacy `BASETEN_*` fallback) that replaced the single-provider
+  assumption without changing the NDJSON protocol.

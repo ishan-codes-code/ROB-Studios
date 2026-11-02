@@ -47,13 +47,21 @@ const workerManager = createWorkerManager();
 let mainWindow = null;
 const processingState = { activeProjectId: null, appQuitting: false };
 
-function spawnSetup({ operation, provider, key }) {
+function spawnSetup({ operation, provider, model, key }) {
   const root = repoRoot();
   const { executable } = resolvePythonExecutable(root);
   if (!executable) return Promise.resolve({ ok: false, error: 'Python virtual environment is not configured.' });
   return new Promise((resolve) => {
+  // New vault callers pass an explicit provider id; the legacy
+  // settings caller passes the stored provider object (treated as
+  // Baseten-typed for backward compatibility).
+  const providerId = typeof provider === 'string'
+    ? provider
+    : (provider?.id ?? 'baseten');
+  const baseUrl = typeof provider === 'string' ? '' : (provider?.baseUrl ?? '');
+  const modelId = model ?? provider?.model ?? '';
     const child = spawn(executable, [path.join(root, 'python', 'provider_setup.py'), operation,
-      '--base-url', provider.baseUrl, '--model', provider.model], {
+      '--base-url', baseUrl, '--model', modelId, '--provider', providerId], {
       stdio: ['ignore', 'pipe', 'ignore'],
       env: { PATH: process.env.PATH ?? '', SYSTEMROOT: process.env.SYSTEMROOT ?? '',
         AI_COMMENTATOR_PROVIDER_API_KEY: key },

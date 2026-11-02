@@ -100,6 +100,10 @@ def extract_response_text(response) -> str:
     return text
 
 
+def _is_provider_adapter(client) -> bool:
+    return hasattr(client, "request_observation_text") and hasattr(client, "request_adaptive_text")
+
+
 def request_observation_text(
     client,
     timestamp: int,
@@ -111,6 +115,8 @@ def request_observation_text(
     Provider failures raise VisionAPIError with the secret redacted; empty
     completions raise ObservationError.
     """
+    if _is_provider_adapter(client):
+        return client.request_observation_text(timestamp, image_data_url)
     try:
         raw_response = client.chat.completions.with_raw_response.create(
             model=BASETEN_MODEL,
@@ -300,6 +306,10 @@ def request_adaptive_text(
     the SDK's per-request timeout mechanism. No retries: callers must not
     reissue the request to repair malformed output.
     """
+    if _is_provider_adapter(client):
+        return client.request_adaptive_text(
+            timestamp, image_data_url, previous=previous
+        )
     try:
         raw_response = client.chat.completions.with_raw_response.create(
             model=BASETEN_MODEL,

@@ -1,5 +1,45 @@
 # Current state
 
+## Provider vault, multi-provider vision & configuration studio (M6, on current branch, uncommitted)
+
+Two curated providers (`meta` via Responses API `/responses`, `baseten`
+via OpenAI-compatible Chat Completions with the pinned
+`meta-models/muse-spark-open-1026`) sit behind an explicit adapter
+boundary under `python/ai_commentator/vision/providers/` (registry +
+curated catalogue, no discovery, no arbitrary URLs). Batch, adaptive,
+writer, and script stages resolve the adapter from the explicit
+`AI_COMMENTATOR_PROVIDER/MODEL/API_KEY` environment with a
+Baseten-typed legacy fallback; observation validation, sampling,
+evidence gating, and the NDJSON/stop protocols are unchanged.
+Mocked tests cover both adapters (request shapes, extraction, error
+mapping, secret redaction, catalogue validation). No live paid
+provider verification was performed; the exact Meta `input_image`
+member shape is isolated behind the Meta adapter (see ADR 0008).
+
+Electron owns a multi-credential vault (`provider-vault.json` +
+`credentials/<id>.enc`, safeStorage, atomic writes, no plaintext
+fallback), a Free Fire game library with immutable built-ins, and
+per-project configuration references (`project.json` `configuration`).
+The renderer has a grouped sidebar (Workspace / Configuration), an
+API Keys management page (add, rename, replace key, change model,
+test connection, verify image support, delete with project-reference
+guard), a Games & Prompts page (profiles, presets, preview, immutable
+built-ins), a Preferences page, and an editor Configure tab with the
+three selectors plus manage-links that preserve the open project.
+Paid runs resolve only the selected credential and require image
+verification; nothing silently falls back. Legacy M5 installs migrate
+once (credential, game/preset records, key archive) or report a
+reconfiguration notice.
+
+Verification: Python suite 381 tests OK (offline, fakes only);
+Electron suite 138 tests pass, 0 fail (offline, `node:test`);
+renderer production build (`vite build` with
+`vite.renderer.config.mjs`) succeeds. Provider setup checks and
+image verification have not been live-tested; verification requests
+may incur provider charges. Windows SIGTERM fallback remains
+unexercised.
+
+
 ## Adaptive sampling workspace (M4.2-A/B, on `feature/adaptive-sampling-engine`, uncommitted)
 
 Electron can stop a live adaptive Python worker through a versioned

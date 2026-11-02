@@ -40,6 +40,11 @@ described later in this document:
   selection, and frame-related argument parsing. `vision/client.py` owns
   image validation/encoding and the provider request adapter.
   `vision/observations.py` owns observation parsing and validation.
+  `vision/providers/` owns the explicit provider boundary
+  (`base` interface, `meta` Responses adapter, `baseten` Chat
+  Completions adapter, `registry` catalogue + environment resolver);
+  `vision/client.py` keeps its function signatures and routes
+  adapters while raw SDK clients keep the legacy path.
   `vision/batch.py` owns migration, single-frame execution, and batch
   orchestration. `vision/sampling.py` owns speed validation, the
   deterministic scheduler, and response-wrapper parsing;
@@ -65,7 +70,17 @@ described later in this document:
   and their respective IPC handlers. Project storage is split into metadata,
   artifacts, and media modules, with `src/project-store.mjs` preserving the
   former import path. `preload.js` remains the narrow renderer bridge.
-- **Application settings (M5):** `src/settings-store.mjs` validates and
+- **Configuration (M5/M6):** `src/settings-store.mjs` keeps validated
+  non-secret app preferences under `userData`; `src/provider-catalog.mjs`
+  pins the two supported providers; `src/credentials-store.mjs` owns the
+  encrypted multi-credential vault; `src/game-store.mjs` owns Free Fire
+  profiles and commentary presets; `src/vault-migration.mjs` migrates
+  legacy M5 state once. `src/main/ipc/settings.js` owns all
+  configuration IPC; `src/main/run-config.mjs` resolves a project's
+  references into the per-run worker snapshot (provider, model, key,
+  preferences). `python/provider_setup.py` performs user-initiated
+  per-provider connection and image-capability checks against the
+  curated catalogue — no generic discovery.
   atomically writes non-secret global settings under `userData`;
   `src/main/ipc/settings.js` owns settings/provider IPC. Provider keys are
   encrypted by Electron `safeStorage` into a separate file and are never
@@ -188,5 +203,7 @@ stages are paid and conditional); TTS, playback, and OBS remain planned.
   each boundary before application logic uses it.
 - Electron security boundary: the renderer reaches the main process only
   through the audited `preload.js` bridge (`processVideo`,
-  `cancelProcessing`, `requestStop`, worker and project IPC); API keys and
+  `cancelProcessing`, `requestStop`, worker, project/artifact,
+  settings, credential, game-library, and project-config IPC);
+  API keys and
   interpreter paths never cross into the renderer.

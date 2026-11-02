@@ -1,55 +1,100 @@
-"""Provider setup boundary tests use a fake SDK client; no network calls."""
-import importlib.util
-from pathlib import Path
-from types import SimpleNamespace
+"""Provider setup boundary tests use fake adapters; no network calls."""
+import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "python" / "provider_setup.py"
-spec = importlib.util.spec_from_file_location("provider_setup", MODULE_PATH)
-provider_setup = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(provider_setup)
+import provider_setup
 
 
-class FakeModels:
-    def __init__(self):
-        self.calls = 0
+class FakeAdapter:
+    instances = []
 
-    def list(self):
-        self.calls += 1
-        return SimpleNamespace(data=[SimpleNamespace(id="vision-candidate"), SimpleNamespace(id="text-only")])
+    def __init__(self, *args, **kwargs):
+        self.calls = []
+        self.closed = False
+        FakeAdapter.instances.append(self)
+
+    def verify_connection(self):
+        self.calls.append("connection")
+
+    def verify_image(self):
+        self.calls.append("verify-image")
+
+    def close(self):
+        self.closed = True
 
 
 class ProviderSetupTests(unittest.TestCase):
     def setUp(self):
-        self.models = FakeModels()
-        self.client = SimpleNamespace(models=self.models, chat=SimpleNamespace(completions=SimpleNamespace(create=mock.Mock(return_value=SimpleNamespace(choices=[object()])))), close=mock.Mock())
+        FakeAdapter.instances = []
 
-    def test_model_discovery_marks_every_model_unverified(self):
-        with mock.patch.dict("os.environ", {"AI_COMMENTATOR_PROVIDER_API_KEY": "test-key"}), mock.patch.object(provider_setup, "OpenAI", return_value=self.client):
-            result = provider_setup.run("models", "https://example.com/v1", "")
-        self.assertEqual(result["models"], [{"id": "vision-candidate", "vision": "unverified"}, {"id": "text-only", "vision": "unverified"}])
-        self.client.close.assert_called_once()
+    def test_models_returns_curated_catalogue_without_key(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            result = provider_setup.run("models", "", "", "meta")
+        self.assertEqual(result, {
+            "ok": True,
+            "provider": "meta",
+            "models": [
+                {"id": "muse-spark-1.3", "vision": "unverified"},
+                {"id": "muse-wonder-1.0", "vision": "unverified"},
+            ],
+        })
+        with mock.patch.dict("os.environ", {}, clear=True):
+            result = provider_setup.run("models", "", "")
+        self.assertEqual(result["provider"], "baseten")
+        self.assertEqual(result["models"], [
+            {"id": "meta-models/muse-spark-open-1026", "vision": "unverified"},
+        ])
 
-    def test_connection_tests_models_endpoint(self):
-        with mock.patch.dict("os.environ", {"AI_COMMENTATOR_PROVIDER_API_KEY": "test-key"}), mock.patch.object(provider_setup, "OpenAI", return_value=self.client):
-            self.assertEqual(provider_setup.run("connection", "https://example.com/v1", ""), {"ok": True, "connected": True})
-        self.assertEqual(self.models.calls, 1)
+    def test_models_rejects_unknown_provider(self):
+        with self.assertRaises(ValueError):
+            provider_setup.run("models", "", "", "openai")
 
-    def test_vision_verification_sends_an_image(self):
-        with mock.patch.dict("os.environ", {"AI_COMMENTATOR_PROVIDER_API_KEY": "test-key"}), mock.patch.object(provider_setup, "OpenAI", return_value=self.client):
-            result = provider_setup.run("verify-vision", "https://example.com/v1", "vision-model")
-        self.assertEqual(result, {"ok": True, "visionVerified": True})
-        message = self.client.chat.completions.create.call_args.kwargs["messages"][0]
-        self.assertEqual(message["content"][1]["type"], "image_url")
-        self.client.close.assert_called_once()
+    def test_connection_uses_matching_adapter(self):
+        with (mock.patch.dict("os.environ",
+                              {"AI_COMMENTATOR_PROVIDER_API_KEY": "k"}),
+              mock.patch("ai_commentator.vision.providers.meta.MetaAdapter",
+                         FakeAdapter),
+              mock.patch("ai_commentator.vision.providers.baseten.BasetenAdapter",
+                         FakeAdapter)):
+            result = provider_setup.run(
+                "connection", "", "muse-spark-1.3", "meta")
+        self.assertEqual(result,
+                         {"ok": True, "provider": "meta", "connected": True})
+        self.assertEqual(FakeAdapter.instances[0].calls, ["connection"])
+        self.assertTrue(FakeAdapter.instances[0].closed)
 
-    def test_missing_credential_fails_without_client_creation(self):
-        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(provider_setup, "OpenAI") as client:
+    def test_verify_vision_uses_image_check(self):
+        with (mock.patch.dict("os.environ",
+                              {"AI_COMMENTATOR_PROVIDER_API_KEY": "k"}),
+              mock.patch("ai_commentator.vision.providers.baseten.BasetenAdapter",
+                         FakeAdapter)):
+            result = provider_setup.run(
+                "verify-vision", "",
+                "meta-models/muse-spark-open-1026", "baseten")
+        self.assertEqual(result,
+                         {"ok": True, "provider": "baseten",
+                          "visionVerified": True})
+        self.assertEqual(FakeAdapter.instances[0].calls, ["verify-image"])
+
+    def test_cross_provider_model_rejected(self):
+        with mock.patch.dict("os.environ",
+                             {"AI_COMMENTATOR_PROVIDER_API_KEY": "k"}):
+            with self.assertRaises(ValueError):
+                provider_setup.run("connection", "", "muse-spark-1.3", "baseten")
+
+    def test_missing_credential_fails_without_adapter(self):
+        with (mock.patch.dict("os.environ", {}, clear=True),
+              mock.patch("ai_commentator.vision.providers.baseten.BasetenAdapter",
+                         FakeAdapter)):
             with self.assertRaisesRegex(ValueError, "credential is missing"):
-                provider_setup.run("connection", "https://example.com/v1", "")
-        client.assert_not_called()
+                provider_setup.run(
+                    "connection", "",
+                    "meta-models/muse-spark-open-1026", "baseten")
+        self.assertEqual(FakeAdapter.instances, [])
 
 
 if __name__ == "__main__":
