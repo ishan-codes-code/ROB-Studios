@@ -100,6 +100,29 @@ test('Gemini TTS verification uses its provider operation and stores no key in I
   assert.equal(JSON.stringify(result).includes('google-private-key'), false);
 });
 
+test('failed re-verification clears persisted success so the list cannot show stale verified status', async (t) => {
+  let fail = false;
+  const { handlers } = setup(t, {
+    spawnSetup: async () => {
+      if (fail) throw new Error('subprocess failed with private-key');
+      return { ok: true, connected: true, ttsModelMetadataAvailable: true };
+    },
+  });
+  const created = await handlers['credential-create']({}, {
+    name: 'Gemini TTS', provider: 'google-gemini-tts', model: null, key: 'private-key',
+  });
+  const verified = await handlers['credential-verify']({}, created.credential.id);
+  assert.equal(verified.credential.verification.status, 'verified');
+
+  fail = true;
+  const failed = await handlers['credential-verify']({}, created.credential.id);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.code, 'setup');
+  assert.equal(JSON.stringify(failed).includes('private-key'), false);
+  const listed = await handlers['credential-list']();
+  assert.equal(listed.credentials[0].verification.status, 'unverified');
+});
+
 test('Gemini TTS credentials cannot be assigned as project Vision credentials and deletion respects references', async (t) => {
   const { dir, handlers } = setup(t);
   const created = await handlers['credential-create']({}, {

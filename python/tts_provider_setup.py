@@ -21,10 +21,18 @@ def _category(exc: BaseException) -> str:
     except (TypeError, ValueError):
         status = None
     name = type(exc).__name__.lower()
-    if status in (400, 401, 403):
-        return "permission" if status == 403 else "auth"
+    if status == 401:
+        return "auth"
+    if status in (403, 404):
+        return "permission"
     if status == 429:
         return "quota"
+    if status in (408, 504):
+        return "timeout"
+    if status == 400:
+        return "bad_request"
+    if status is not None and 500 <= status < 600:
+        return "network"
     if "timeout" in name or isinstance(exc, TimeoutError):
         return "timeout"
     if isinstance(exc, (ConnectionError, socket.gaierror, urllib.error.URLError)) or any(

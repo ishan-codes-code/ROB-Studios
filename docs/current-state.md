@@ -14,7 +14,9 @@ the official `google-genai` SDK. It requests metadata for the fixed current
 Gemini 3.8 Flash TTS model with a 10-second SDK timeout and performs no speech
 generation. A success confirms API authentication and access to that model's
 metadata only; it cannot establish inference entitlement without generating
-speech. No live Google requests were made during implementation tests.
+speech. A failed recheck of the unchanged credential clears its prior verified
+status so the list cannot present an old success as current. No live Google
+requests were made during implementation tests.
 
 ## Provider vault, multi-provider vision & configuration studio (M6, on current branch, uncommitted)
 

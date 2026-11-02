@@ -237,6 +237,55 @@ class GeminiTtsSetupTests(unittest.TestCase):
                     "verify-tts-auth", "google-gemini-tts", raised.exception)
                 self.assertNotIn("secret key", str(payload))
 
+    def test_google_genai_api_errors_use_sdk_status_codes_and_redact_details(self):
+        import json
+        from tts_provider_setup import GeminiSetupError
+
+        # google.genai.errors.APIError exposes `code` and `status`; these
+        # shaped exceptions match the SDK's public exception contract.
+        class APIError(Exception):
+            def __init__(self, code, response_json):
+                self.code = code
+                self.status = response_json["error"]["status"]
+                self.details = response_json
+                super().__init__(f"{code} {self.status}: {response_json}")
+
+        cases = [
+            (400, "INVALID_ARGUMENT", "bad_request"),
+            (401, "UNAUTHENTICATED", "auth"),
+            (403, "PERMISSION_DENIED", "permission"),
+            (404, "NOT_FOUND", "permission"),
+            (429, "RESOURCE_EXHAUSTED", "quota"),
+            (503, "UNAVAILABLE", "network"),
+        ]
+        for status, api_status, expected in cases:
+            error = APIError(status, {"error": {
+                "status": api_status, "message": "API key=secret-sdk-key"}})
+            _, modules = self.sdk_modules(error)
+            with (self.subTest(status=status),
+                  mock.patch.dict("os.environ", {"AI_COMMENTATOR_PROVIDER_API_KEY": "secret-sdk-key"}),
+                  mock.patch.dict(sys.modules, modules)):
+                with self.assertRaises(GeminiSetupError) as raised:
+                    provider_setup.run("verify-tts-auth", "", "", "google-gemini-tts")
+                self.assertEqual(raised.exception.code, expected)
+                payload = provider_setup.failure_result(
+                    "verify-tts-auth", "google-gemini-tts", raised.exception)
+                self.assertNotIn("secret-sdk-key", json.dumps(payload))
+
+    def test_google_sdk_transport_timeout_maps_without_raw_exception(self):
+        from tts_provider_setup import GeminiSetupError
+
+        class ConnectTimeout(Exception):
+            pass
+
+        _, modules = self.sdk_modules(ConnectTimeout("request timed out with secret"))
+        with (mock.patch.dict("os.environ", {"AI_COMMENTATOR_PROVIDER_API_KEY": "secret"}),
+              mock.patch.dict(sys.modules, modules)):
+            with self.assertRaises(GeminiSetupError) as raised:
+                provider_setup.run("verify-tts-auth", "", "", "google-gemini-tts")
+        self.assertEqual(raised.exception.code, "timeout")
+        self.assertNotIn("secret", str(raised.exception))
+
     def test_invalid_key_and_permission_errors_have_actionable_machine_output(self):
         import io
         import json as json_module

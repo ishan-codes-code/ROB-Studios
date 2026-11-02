@@ -9,6 +9,7 @@ import {
   setCredentialModel as vaultSetModel,
   deleteCredential as vaultDelete,
   markCredentialVerified,
+  markCredentialUnverified,
   getCredentialForRun,
   isCredentialVerifiedForRun,
 } from '../../credentials-store.mjs';
@@ -122,13 +123,24 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     const setupOperation = operation === 'verify-vision' && snapshot.record.purpose === 'tts'
       ? 'verify-tts-auth'
       : operation;
-    const result = await spawnSetup({
-      operation: setupOperation,
-      provider: { id: snapshot.provider, baseUrl },
-      model: snapshot.model,
-      // Key travels process-locally to the setup child only; never to IPC.
-      key: snapshot.apiKey,
-    });
+    let result;
+    try {
+      result = await spawnSetup({
+        operation: setupOperation,
+        provider: { id: snapshot.provider, baseUrl },
+        model: snapshot.model,
+        // Key travels process-locally to the setup child only; never to IPC.
+        key: snapshot.apiKey,
+      });
+    } catch {
+      // Preserve a checked snapshot for the verify handler's stale-safe
+      // invalidation, while keeping subprocess exceptions out of IPC/logs.
+      result = {
+        ok: false,
+        error: 'Provider verification process failed. Try again.',
+        code: 'setup',
+      };
+    }
     const tested = {
       id: snapshot.record.id,
       provider: snapshot.provider,
@@ -254,6 +266,21 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       if (typeof id !== 'string' || id === '') throw new Error('Invalid credential id.');
       const result = await runCredentialCheck(id, 'verify-vision');
       if (!result?.ok) {
+        // A failed recheck must not leave an older success displayed as the
+        // current status. Only clear the record if the tested snapshot still
+        // matches; concurrent key/model edits already invalidate it safely.
+        const tested = result?.tested;
+        if (tested) {
+          try {
+            const fresh = getCredentialForRun(userDataPath(), safeStorage, id);
+            if (fresh.record.id === tested.id
+              && fresh.record.provider === tested.provider
+              && fresh.record.model === tested.model
+              && fresh.record.credentialVersion === tested.credentialVersion) {
+              markCredentialUnverified(userDataPath(), safeStorage, id);
+            }
+          } catch { /* preserve the safe failure response */ }
+        }
         return { ok: false, error: result?.error ?? 'Settings operation failed.', code: result?.code ?? 'unknown', detail: result?.detail ?? null };
       }
       // Stale guard: only the exact tested configuration (id, provider,

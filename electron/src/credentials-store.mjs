@@ -414,6 +414,23 @@ export function markCredentialVerified(userDataPath, safeStorage, id, model) {
   return toPublicRecord(next, true);
 }
 
+export function markCredentialUnverified(userDataPath, safeStorage, id) {
+  assertSafeStorage(safeStorage);
+  validateId(id);
+  const vault = loadVault(userDataPath);
+  const record = findRecordOrThrow(vault.credentials, id);
+  if (record.verification.status === 'unverified') {
+    return toPublicRecord(record, probeKeyAvailable(userDataPath, safeStorage, id));
+  }
+  const next = {
+    ...record,
+    verification: { ...unverifiedState() },
+    updatedAt: nowIso(),
+  };
+  saveVault(userDataPath, vault.credentials.map((entry) => (entry.id === id ? next : entry)));
+  return toPublicRecord(next, probeKeyAvailable(userDataPath, safeStorage, id));
+}
+
 export function isCredentialVerifiedForRun(record) {
   return record.verification.status === 'verified'
     && record.verification.verifiedModel === record.model
