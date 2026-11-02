@@ -276,6 +276,183 @@ class MetaAdapterTests(unittest.TestCase):
             adapter.verify_image()
 
 
+class VerifyFixtureTests(unittest.TestCase):
+    def test_fixture_is_a_deterministic_png(self):
+        from ai_commentator.vision import verify as verify_module
+
+        png = verify_module.build_verify_png()
+        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(verify_module.build_verify_png(), png)
+        url = verify_module.build_verify_data_url()
+        self.assertTrue(url.startswith("data:image/png;base64,"))
+        import base64
+        raw = base64.b64decode(url.split(",", 1)[1])
+        self.assertTrue(raw.startswith(b"\x89PNG"))
+        self.assertGreater(len(raw), 100)
+        self.assertIn("color", verify_module.VERIFY_PROMPT.lower())
+
+    def test_validate_verify_text_rejects_silence(self):
+        from ai_commentator.vision.verify import validate_verify_text
+
+        self.assertEqual(validate_verify_text("  Red  ", "Meta"), "Red")
+        with self.assertRaises(ObservationError):
+            validate_verify_text("   ", "Meta")
+        with self.assertRaises(ObservationError):
+            validate_verify_text("", "Baseten")
+        with self.assertRaises(ObservationError):
+            validate_verify_text(None, "Baseten")
+
+
+class ProviderErrorTaxonomyTests(unittest.TestCase):
+    def test_baseten_status_codes_map_to_categories(self):
+        from openai import (
+            AuthenticationError,
+            BadRequestError,
+            InternalServerError,
+            NotFoundError,
+            RateLimitError,
+        )
+
+        cases = [
+            (AuthenticationError, "auth", 401),
+            (NotFoundError, "model", 404),
+            (BadRequestError, "bad_request", 400),
+            (RateLimitError, "rate_limit", 429),
+            (InternalServerError, "provider_error", 500),
+        ]
+        for cls, code, status in cases:
+            with self.subTest(cls=cls.__name__):
+                adapter = BasetenAdapter(
+                    model="meta-models/muse-spark-open-1026",
+                    api_key="k", client=FailingApiClient(cls, status=status))
+                with self.assertRaises(VisionAPIError) as ctx:
+                    adapter.verify_connection()
+                self.assertEqual(ctx.exception.code, code)
+                self.assertEqual(ctx.exception.status, status)
+                self.assertEqual(ctx.exception.provider, "baseten")
+
+    def test_baseten_timeout_and_connection_map(self):
+        from openai import APIConnectionError, APITimeoutError
+
+        adapter = BasetenAdapter(
+            model="meta-models/muse-spark-open-1026",
+            api_key="k", client=FailingApiClient(APITimeoutError))
+        with self.assertRaises(VisionAPIError) as ctx:
+            adapter.verify_connection()
+        self.assertEqual(ctx.exception.code, "timeout")
+
+        adapter = BasetenAdapter(
+            model="meta-models/muse-spark-open-1026",
+            api_key="k", client=FailingApiClient(APIConnectionError))
+        with self.assertRaises(VisionAPIError) as ctx:
+            adapter.verify_connection()
+        self.assertEqual(ctx.exception.code, "network")
+
+    def test_baseten_verify_image_asks_about_content(self):
+        fake = FakeOpenAIClient(content="Red")
+        adapter = BasetenAdapter(
+            model="meta-models/muse-spark-open-1026",
+            api_key="k", client=fake)
+        adapter.verify_image()
+        prompt = fake.calls[0]["messages"][0]["content"][0]["text"]
+        self.assertIn("color", prompt.lower())
+        image = fake.calls[0]["messages"][0]["content"][1]["image_url"]["url"]
+        self.assertTrue(image.startswith("data:image/png;base64,"))
+        self.assertGreater(len(image), 200)
+
+    def test_baseten_verify_image_rejects_empty_answer(self):
+        fake = FakeOpenAIClient(content="  ")
+        adapter = BasetenAdapter(
+            model="meta-models/muse-spark-open-1026",
+            api_key="k", client=fake)
+        with self.assertRaises(ObservationError):
+            adapter.verify_image()
+
+    def test_meta_http_status_maps_to_categories(self):
+        import urllib.error
+
+        cases = [(401, "auth"), (403, "auth"), (404, "model"),
+                 (400, "bad_request"), (429, "rate_limit"), (500, "provider_error")]
+        for status, code in cases:
+            with self.subTest(status=status):
+                adapter = MetaAdapter(model="muse-spark-1.3", api_key="k")
+                err = urllib.error.HTTPError(
+                    "https://api.meta.ai/v1/responses", status, "Err",
+                    {}, __import__("io").BytesIO(b"bad"))
+                self.addCleanup(err.close)
+                with mock.patch.object(meta_module.urllib.request, "urlopen",
+                                       side_effect=err):
+                    with self.assertRaises(VisionAPIError) as ctx:
+                        adapter.verify_connection()
+                self.assertEqual(ctx.exception.code, code)
+                self.assertEqual(ctx.exception.status, status)
+                self.assertEqual(ctx.exception.provider, "meta")
+
+    def test_meta_transport_failures_map(self):
+        import urllib.error
+
+        adapter = MetaAdapter(model="muse-spark-1.3", api_key="k")
+        with mock.patch.object(meta_module.urllib.request, "urlopen",
+                               side_effect=urllib.error.URLError("dns fail")):
+            with self.assertRaises(VisionAPIError) as ctx:
+                adapter.verify_connection()
+        self.assertEqual(ctx.exception.code, "network")
+
+        with mock.patch.object(meta_module.urllib.request, "urlopen",
+                               side_effect=TimeoutError("slow")):
+            with self.assertRaises(VisionAPIError) as ctx:
+                adapter.verify_connection()
+        self.assertEqual(ctx.exception.code, "timeout")
+
+    def test_meta_verify_image_proves_content_not_just_http(self):
+        adapter = MetaAdapter(model="muse-spark-1.3", api_key="k")
+        seen = {}
+
+        def fake_urlopen(request, timeout=None):
+            body = __import__("json").loads(request.data.decode("utf-8"))
+            seen["text"] = body["input"][0]["content"][0]["text"]
+            seen["image"] = body["input"][0]["content"][1]["image_url"]
+            return FakeHTTPResponse(make_response_payload("   "))
+
+        with mock.patch.object(meta_module.urllib.request, "urlopen",
+                               side_effect=fake_urlopen):
+            with self.assertRaises(ObservationError):
+                adapter.verify_image()
+        self.assertIn("color", seen["text"].lower())
+        self.assertTrue(seen["image"].startswith("data:image/png;base64,"))
+
+
+class FailingApiClient:
+    """Injectable client whose models.list raises a given API error."""
+
+    def __init__(self, error_cls, status=None):
+        self._error_cls = error_cls
+        self._status = status
+        self.calls = []
+        self.closed = False
+
+    @property
+    def models(self):
+        error_cls = self._error_cls
+        status = self._status
+
+        class Raiser:
+            def list(self, *args, **kwargs):
+                if status is not None:
+                    response = mock.Mock()
+                    response.status_code = status
+                    raise error_cls(
+                        message="boom", response=response, body=None)
+                request = mock.Mock()
+                request.method = "GET"
+                raise error_cls(message="boom", request=request, body=None)
+
+        return Raiser()
+
+    def close(self):
+        self.closed = True
+
+
 class RegistryTests(unittest.TestCase):
     def test_catalogue_contents(self):
         self.assertEqual(tuple(get_provider_models("meta")),

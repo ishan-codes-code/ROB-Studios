@@ -28,7 +28,12 @@ import urllib.error
 import urllib.request
 
 from ...errors import ObservationError, VisionAPIError
-from .base import VisionProviderAdapter, redact_secret
+from .base import (
+    VisionProviderAdapter,
+    classify_exception,
+    classify_status,
+    redact_secret,
+)
 
 PROVIDER_ID = "meta"
 BASE_URL = "https://api.meta.ai/v1"
@@ -39,11 +44,13 @@ RESPONSES_PATH = "/responses"
 # explicit image-input verification per saved credential+model.
 MODELS = ("muse-spark-1.3", "muse-wonder-1.0")
 
-# Tiny valid PNG used for explicit image-input verification.
-VERIFY_IMAGE_DATA_URL = (
-    "data:image/png;base64,"
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
-    "/x8AAwMCAO+j0ioAAAAASUVORK5CYII="
+# Shared verification fixture (see vision/verify.py): a deterministic
+# PNG plus a prompt that requires looking at the image. Imported
+# here so the name stays importable for compatibility.
+from ..verify import (
+    VERIFY_IMAGE_DATA_URL,
+    VERIFY_PROMPT,
+    validate_verify_text,
 )
 
 
@@ -72,15 +79,24 @@ def _post_json(url: str, payload: dict, api_key: str,
             raw = ""
         raise VisionAPIError(
             f"Meta API HTTP {exc.code}: "
-            f"{redact_secret(raw[:2000] or str(exc), api_key)}"
+            f"{redact_secret(raw[:2000] or str(exc), api_key)}",
+            code=classify_status(exc.code),
+            status=exc.code,
+            provider="meta",
         ) from None
     except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", None)
+        timeout_like = isinstance(reason, TimeoutError) or "timed out" in str(reason).lower()
         raise VisionAPIError(
-            f"Meta API request error: {redact_secret(str(exc), api_key)}"
+            f"Meta API request error: {redact_secret(str(exc), api_key)}",
+            code="timeout" if timeout_like else "network",
+            provider="meta",
         ) from None
     except TimeoutError as exc:
         raise VisionAPIError(
-            f"Meta API request error: {redact_secret(f'timed out: {exc}', api_key)}"
+            f"Meta API request error: {redact_secret(f'timed out: {exc}', api_key)}",
+            code="timeout",
+            provider="meta",
         ) from None
     if not raw.strip():
         raise ObservationError("Meta returned no text content.")
@@ -190,7 +206,9 @@ class MetaAdapter(VisionProviderAdapter):
             raise
         except Exception as exc:
             raise VisionAPIError(
-                f"Meta API request error: {redact_secret(str(exc), self.api_key)}"
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
             ) from None
 
     def request_adaptive_text(self, timestamp, image_data_url: str,
@@ -206,7 +224,9 @@ class MetaAdapter(VisionProviderAdapter):
             raise
         except Exception as exc:
             raise VisionAPIError(
-                f"Meta API request error: {redact_secret(str(exc), self.api_key)}"
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
             ) from None
 
     def request_text(self, prompt: str) -> str:
@@ -229,7 +249,9 @@ class MetaAdapter(VisionProviderAdapter):
             raise
         except Exception as exc:
             raise VisionAPIError(
-                f"Meta API request error: {redact_secret(str(exc), self.api_key)}"
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
             ) from None
 
     def verify_connection(self) -> None:
@@ -261,7 +283,11 @@ class MetaAdapter(VisionProviderAdapter):
         try:
             self.model = target
             # Minimal valid image request; may incur provider charges.
-            self._send_prompt("Reply with the word OK.",
-                              VERIFY_IMAGE_DATA_URL, max_tokens=8)
+            # The prompt asks about visible content so success proves
+            # the model received image input: HTTP 200 alone is not
+            # enough, the reply must be meaningful text.
+            text = self._send_prompt(VERIFY_PROMPT,
+                                     VERIFY_IMAGE_DATA_URL, max_tokens=32)
+            validate_verify_text(text, "Meta")
         finally:
             self.model = original

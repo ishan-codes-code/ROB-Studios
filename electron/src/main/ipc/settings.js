@@ -109,19 +109,48 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
   }
 
   async function runCredentialCheck(id, operation) {
-    const { record } = getCredentialForRun(userDataPath(), safeStorage, id);
-    const baseUrl = getProviderBaseUrl(record.provider);
+    // Read the credential once: the snapshot pins the exact configuration
+    // under test (id, provider, model, version) so a mid-flight key or
+    // model change cannot mark the wrong configuration as verified.
+    let snapshot;
+    try {
+      snapshot = getCredentialForRun(userDataPath(), safeStorage, id);
+    } catch {
+      return { ok: false, error: 'Secure API credential is unavailable. Check secure storage.', code: 'config', tested: null };
+    }
+    const baseUrl = getProviderBaseUrl(snapshot.provider);
     const result = await spawnSetup({
       operation,
-      provider: { id: record.provider, baseUrl },
-      model: record.model,
+      provider: { id: snapshot.provider, baseUrl },
+      model: snapshot.model,
       // Key travels process-locally to the setup child only; never to IPC.
-      key: getCredentialForRun(userDataPath(), safeStorage, id).apiKey,
+      key: snapshot.apiKey,
     });
+    const tested = {
+      id: snapshot.record.id,
+      provider: snapshot.provider,
+      model: snapshot.model,
+      credentialVersion: snapshot.record.credentialVersion,
+    };
     if (!result || typeof result !== 'object' || result.ok !== true) {
-      return { ok: false, error: 'Provider request failed. Check the key, model, and provider compatibility.' };
+      const failure = {
+        ok: false,
+        error: (result && typeof result.error === 'string' && result.error)
+          || 'Provider request failed. Check the key, model, and provider compatibility.',
+        code: (result && typeof result.code === 'string' && result.code) || 'unknown',
+        tested,
+      };
+      // Development diagnostics: structured and secret-free (never the key).
+      try {
+        console.error(
+          `[provider-setup] ${operation} failed for provider=${snapshot.provider} model=${snapshot.model}:`,
+          `code=${failure.code}`,
+          result && typeof result.status === 'number' ? `status=${result.status}` : 'status=n/a',
+        );
+      } catch { /* logging must never break the IPC response */ }
+      return failure;
     }
-    return result;
+    return { ...result, tested };
   }
 
   ipcMain.handle('settings-load', async () => {
@@ -206,7 +235,9 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     try {
       if (typeof id !== 'string' || id === '') throw new Error('Invalid credential id.');
       const result = await runCredentialCheck(id, 'connection');
-      if (!result?.ok) return { ok: false, error: 'Settings operation failed.' };
+      if (!result?.ok) {
+        return { ok: false, error: result?.error ?? 'Settings operation failed.', code: result?.code ?? 'unknown' };
+      }
       return { ok: true, connected: true };
     } catch (err) { return safe(err); }
   });
@@ -214,9 +245,27 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     try {
       if (typeof id !== 'string' || id === '') throw new Error('Invalid credential id.');
       const result = await runCredentialCheck(id, 'verify-vision');
-      if (!result?.ok) return { ok: false, error: 'Settings operation failed.' };
-      const { record } = getCredentialForRun(userDataPath(), safeStorage, id);
-      const credential = markCredentialVerified(userDataPath(), safeStorage, id, record.model);
+      if (!result?.ok) {
+        return { ok: false, error: result?.error ?? 'Settings operation failed.', code: result?.code ?? 'unknown' };
+      }
+      // Stale guard: only the exact tested configuration (id, provider,
+      // model, credential version) may be marked verified. A key rotation
+      // or model change during the check refuses instead of mis-marking.
+      let fresh;
+      try {
+        fresh = getCredentialForRun(userDataPath(), safeStorage, id);
+      } catch {
+        return { ok: false, error: 'Secure API credential is unavailable. Check secure storage.', code: 'config' };
+      }
+      const tested = result.tested ?? null;
+      if (!tested
+        || fresh.record.id !== tested.id
+        || fresh.record.provider !== tested.provider
+        || fresh.record.model !== tested.model
+        || fresh.record.credentialVersion !== tested.credentialVersion) {
+        return { ok: false, error: 'The configuration changed during verification. Review the current values and verify again.', code: 'stale' };
+      }
+      const credential = markCredentialVerified(userDataPath(), safeStorage, id, fresh.record.model);
       return { ok: true, credential };
     } catch (err) { return safe(err); }
   });

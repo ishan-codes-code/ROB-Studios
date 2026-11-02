@@ -31,8 +31,8 @@ verification; nothing silently falls back. Legacy M5 installs migrate
 once (credential, game/preset records, key archive) or report a
 reconfiguration notice.
 
-Verification: Python suite 381 tests OK (offline, fakes only);
-Electron suite 138 tests pass, 0 fail (offline, `node:test`);
+Verification: Python suite 396 tests OK (offline, fakes only);
+Electron suite 152 tests pass, 0 fail (offline, `node:test`);
 renderer production build (`vite build` with
 `vite.renderer.config.mjs`) succeeds. Provider setup checks and
 image verification have not been live-tested; verification requests

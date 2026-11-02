@@ -181,7 +181,9 @@ export default function ApiKeysSection({ onBackToEditor }) {
       try {
         const action = kind === "connection" ? window.api.testCredential : window.api.verifyCredential;
         const result = await action(selectedId);
-        if (!result?.ok) throw new Error("Provider request failed. Check the key, model, and provider compatibility.");
+        // Surface the main-process diagnosis (already secret-free) instead
+        // of a generic message; the buttons below stay enabled for retry.
+        if (!result?.ok) throw new Error(result?.error ?? "Provider request failed. Check the key, model, and provider compatibility.");
         if (kind === "verify") {
           setNotice("Image input verified for the selected key and model.");
           setDetail(result.credential);

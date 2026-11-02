@@ -42,3 +42,16 @@ through `python/provider_setup.py` as one-shot JSON operations
 (`connection`, `models`, `verify-vision`) with `--provider`; `models`
 returns the curated catalogue (all `unverified` by design) instead of
 live discovery.
+
+## Setup failure contract
+
+Failures are structured, not generic: `{"ok": false, "error",
+  "code", "status", "provider", "operation", "detail"}` where
+  `error` is a secret-free actionable message, `code` a stable
+category (`auth`, `model`, `image`, `bad_request`, `rate_limit`,
+`timeout`, `network`, `bad_response`, `config`, `provider_error`,
+`unknown`, plus `stale` for verification raced by a mid-flight
+edit), `status` the HTTP status when known, and `detail` a
+truncated sanitized note for logs. Raw provider bodies and key
+material never cross this boundary; the Electron layers forward
+these fields instead of substituting their own generic message.

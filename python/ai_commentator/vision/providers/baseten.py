@@ -7,17 +7,24 @@ import os
 from openai import APIError, OpenAI
 
 from ...errors import ObservationError, VisionAPIError
-from .base import VisionProviderAdapter, redact_secret
+from .base import (
+    VisionProviderAdapter,
+    classify_exception,
+    classify_status,
+    redact_secret,
+)
 
 PROVIDER_ID = "baseten"
 BASE_URL = "https://inference.baseten.co/v1"
 MODEL = "meta-models/muse-spark-open-1026"
 
-# Tiny valid PNG used for explicit image-input verification.
-VERIFY_IMAGE_DATA_URL = (
-    "data:image/png;base64,"
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
-    "/x8AAwMCAO+j0ioAAAAASUVORK5CYII="
+# Shared verification fixture (see vision/verify.py): a deterministic PNG
+# plus a prompt that requires looking at the image. Kept importable here
+# for compatibility.
+from ..verify import (
+    VERIFY_IMAGE_DATA_URL,
+    VERIFY_PROMPT,
+    validate_verify_text,
 )
 
 
@@ -72,7 +79,9 @@ class BasetenAdapter(VisionProviderAdapter):
         except Exception as exc:
             raise VisionAPIError(
                 f"Baseten API request error: "
-                f"{redact_secret(str(exc), self.api_key)}"
+                f"{redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider=PROVIDER_ID,
             ) from None
         return prompts.extract_response_text(response)
 
@@ -105,7 +114,9 @@ class BasetenAdapter(VisionProviderAdapter):
         except Exception as exc:
             raise VisionAPIError(
                 f"Baseten API request error: "
-                f"{redact_secret(str(exc), self.api_key)}"
+                f"{redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider=PROVIDER_ID,
             ) from None
         return prompts.extract_response_text(response)
 
@@ -123,7 +134,9 @@ class BasetenAdapter(VisionProviderAdapter):
         except Exception as exc:
             raise WriterAPIError(
                 f"Baseten API request error: "
-                f"{redact_secret(str(exc), self.api_key)}"
+                f"{redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider=PROVIDER_ID,
             ) from None
         choices = getattr(response, "choices", None) or []
         message = getattr(choices[0], "message", None) if choices else None
@@ -140,7 +153,9 @@ class BasetenAdapter(VisionProviderAdapter):
         except Exception as exc:
             raise VisionAPIError(
                 f"Baseten API request error: "
-                f"{redact_secret(str(exc), self.api_key)}"
+                f"{redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider=PROVIDER_ID,
             ) from None
 
     def verify_image(self, model: str | None = None) -> None:
@@ -152,9 +167,9 @@ class BasetenAdapter(VisionProviderAdapter):
         try:
             response = self._client.chat.completions.create(
                 model=target,
-                max_tokens=8,
+                max_tokens=32,
                 messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Reply with the word OK."},
+                    {"type": "text", "text": VERIFY_PROMPT},
                     {"type": "image_url",
                      "image_url": {"url": VERIFY_IMAGE_DATA_URL}},
                 ]}],
@@ -164,13 +179,14 @@ class BasetenAdapter(VisionProviderAdapter):
         except Exception as exc:
             raise VisionAPIError(
                 f"Baseten API request error: "
-                f"{redact_secret(str(exc), self.api_key)}"
+                f"{redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider=PROVIDER_ID,
             ) from None
         choices = getattr(response, "choices", None) or []
         message = getattr(choices[0], "message", None) if choices else None
         text = getattr(message, "content", None)
-        if not isinstance(text, str) or not text.strip():
-            raise ObservationError("Baseten returned no text content.")
+        validate_verify_text(text, "Baseten")
 
     def close(self) -> None:
         if self._owned:
@@ -184,14 +200,21 @@ class BasetenAdapter(VisionProviderAdapter):
         from ...errors import WriterAPIError
 
         status_code = getattr(exc, "status_code", None)
+        if not isinstance(status_code, int):
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if not isinstance(status_code, int):
+                status_code = None
         status = f"HTTP {status_code}" if status_code else "request error"
         detail = getattr(exc, "message", None) or str(exc)
         if exc.__cause__:
             detail = f"{detail} Cause: {exc.__cause__}"
         message = f"Baseten API {status}: {redact_secret(detail, self.api_key)}"
+        code = classify_status(status_code if isinstance(status_code, int) else None)
         if kind == "Writer":
-            return WriterAPIError(message)
-        return VisionAPIError(message)
+            return WriterAPIError(message, code=code, status=status_code,
+                                  provider=PROVIDER_ID)
+        return VisionAPIError(message, code=code, status=status_code,
+                              provider=PROVIDER_ID)
 
 
 def build_live_adapter(api_key: str | None = None,

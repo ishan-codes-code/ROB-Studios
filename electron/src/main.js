@@ -69,14 +69,29 @@ function spawnSetup({ operation, provider, model, key }) {
     let output = '';
     let settled = false;
     const finish = (result) => { if (!settled) { settled = true; resolve(result); } };
-    const timeout = setTimeout(() => { child.kill(); finish({ ok: false, error: 'Provider request timed out.' }); }, 25000);
+    const timeout = setTimeout(() => { child.kill(); finish({ ok: false, error: 'Provider request timed out.', code: 'timeout' }); }, 25000);
     child.stdout.on('data', (chunk) => { output += String(chunk).slice(0, 32768); });
-    child.on('error', () => { clearTimeout(timeout); finish({ ok: false, error: 'Could not start provider setup check.' }); });
+    child.on('error', () => { clearTimeout(timeout); finish({ ok: false, error: 'Could not start provider setup check.', code: 'transport' }); });
     child.on('close', () => {
       clearTimeout(timeout);
       try {
         const result = JSON.parse(output.trim().split(/\r?\n/).at(-1));
-        if (!result || typeof result !== 'object' || result.ok !== true) return finish({ ok: false, error: 'Provider request failed. Check the URL, key, model, and provider compatibility.' });
+        if (!result || typeof result !== 'object' || result.ok !== true) {
+          // Preserve the setup probe's structured, secret-free failure
+          // ({error, code, status, provider, operation}) so the renderer
+          // can show an actionable message instead of a generic one.
+          if (result && typeof result === 'object' && typeof result.error === 'string') {
+            return finish({
+              ok: false,
+              error: result.error,
+              code: typeof result.code === 'string' ? result.code : 'unknown',
+              status: typeof result.status === 'number' ? result.status : null,
+              provider: typeof result.provider === 'string' ? result.provider : null,
+              operation: typeof result.operation === 'string' ? result.operation : null,
+            });
+          }
+          return finish({ ok: false, error: 'Provider request failed. Check the URL, key, model, and provider compatibility.', code: 'unknown' });
+        }
         finish(result);
       } catch { finish({ ok: false, error: 'Provider returned an invalid setup response.' }); }
     });

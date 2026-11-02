@@ -3,6 +3,37 @@
 from __future__ import annotations
 
 
+def classify_status(status: int | None) -> str:
+    """Map an HTTP status to a stable error code (no secrets involved)."""
+    if status in (401, 403):
+        return "auth"
+    if status == 404:
+        return "model"
+    if status == 400:
+        return "bad_request"
+    if status == 429:
+        return "rate_limit"
+    if isinstance(status, int) and status >= 500:
+        return "provider_error"
+    if status is None:
+        return "network"
+    return "provider_error"
+
+
+def classify_exception(exc: Exception) -> str:
+    """Classify a non-HTTP transport failure without touching secrets."""
+    name = type(exc).__name__.lower()
+    text = f"{name} {exc}".lower()
+    if "timeout" in text or "timed out" in text or "deadline" in text:
+        return "timeout"
+    if any(token in text for token in (
+        "connection", "urlerror", "socket", "dns", "unreachable",
+        "refused", "reset by peer", "network",
+    )):
+        return "network"
+    return "provider_error"
+
+
 def redact_secret(text: str, secrets: list[str] | tuple[str, ...] | str | None) -> str:
     """Replace every non-empty secret in ``text`` with ``[REDACTED]``."""
     if not isinstance(text, str):
@@ -32,6 +63,21 @@ class VisionProviderAdapter:
         self.model = model.strip()
         self.api_key = api_key
         self.timeout = float(timeout)
+
+    # -- error taxonomy --------------------------------------------------
+    # Stable failure categories shared by both adapters so the setup
+    # probe can report actionable, secret-free diagnostics.
+    ERROR_CODES = (
+        "auth",
+        "model",
+        "image",
+        "rate_limit",
+        "timeout",
+        "network",
+        "bad_response",
+        "bad_request",
+        "provider_error",
+    )
 
     # -- core vision operations -------------------------------------------
     def request_observation_text(self, timestamp, image_data_url: str) -> str:

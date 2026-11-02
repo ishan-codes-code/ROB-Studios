@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { registerSettingsIpc } from '../src/main/ipc/settings.js';
-import { createCredential as vaultCreate } from '../src/credentials-store.mjs';
+import { createCredential as vaultCreate, setCredentialKey, setCredentialModel } from '../src/credentials-store.mjs';
 import { createGameProfile, createCommentaryPreset } from '../src/game-store.mjs';
 import { createProject } from '../src/project-store.mjs';
 
@@ -109,6 +109,73 @@ test('project config resolves metadata with missing-reference warnings', async (
   assert.equal(resolved.credential.id, stored.id);
   assert.equal(resolved.credential.verified, false);
   assert.equal(resolved.warnings.length, 1);
+});
+
+test('structured provider failures reach the renderer without secrets', async (t) => {
+  const failure = {
+    ok: false,
+    error: 'Authentication failed. Check the API key.',
+    code: 'auth',
+    status: 401,
+    provider: 'meta',
+    operation: 'verify-vision',
+  };
+  const { handlers } = setup(t, { spawnSetup: async () => ({ ...failure }) });
+  const created = await handlers['credential-create']({}, {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'zz-top-secret-9',
+  });
+  assert.equal(created.ok, true);
+  const tested = await handlers['credential-test']({}, created.credential.id);
+  assert.equal(tested.ok, false);
+  assert.equal(tested.error, 'Authentication failed. Check the API key.');
+  assert.equal(tested.code, 'auth');
+  const verified = await handlers['credential-verify']({}, created.credential.id);
+  assert.equal(verified.ok, false);
+  assert.equal(verified.error, 'Authentication failed. Check the API key.');
+  assert.equal(verified.code, 'auth');
+  assert.equal(JSON.stringify({ tested, verified }).includes('zz-top-secret-9'), false);
+  const listed = await handlers['credential-list']();
+  assert.equal(listed.credentials[0].verification.status, 'unverified');
+});
+
+test('key rotation during verification refuses to mark verified', async (t) => {
+  const dirHolder = {};
+  const { dir, handlers } = setup(t, {
+    spawnSetup: async () => {
+      // Simulate the user replacing the key while the check runs.
+      setCredentialKey(dirHolder.dir, storage(), dirHolder.id, 'rotated-key');
+      return { ok: true, visionVerified: true };
+    },
+  });
+  const created = await handlers['credential-create']({}, {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'original-key',
+  });
+  dirHolder.dir = dir;
+  dirHolder.id = created.credential.id;
+  const result = await handlers['credential-verify']({}, created.credential.id);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'stale');
+  assert.match(result.error, /changed during verification/);
+  const listed = await handlers['credential-list']();
+  assert.equal(listed.credentials[0].verification.status, 'unverified');
+});
+
+test('model change during verification refuses to mark verified', async (t) => {
+  const dirHolder = {};
+  const { dir, handlers } = setup(t, {
+    spawnSetup: async () => {
+      setCredentialModel(dirHolder.dir, storage(), dirHolder.id, 'muse-wonder-1.0');
+      return { ok: true, visionVerified: true };
+    },
+  });
+  const created = await handlers['credential-create']({}, {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'k',
+  });
+  dirHolder.dir = dir;
+  dirHolder.id = created.credential.id;
+  const result = await handlers['credential-verify']({}, created.credential.id);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'stale');
 });
 
 test('game and preset IPC enforce built-in immutability and references', async (t) => {
