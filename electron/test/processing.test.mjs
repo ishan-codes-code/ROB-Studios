@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { registerProcessingIpc } from '../src/main/ipc/processing.js';
 import { createProject, getProject, updateProject } from '../src/project-store.mjs';
+import { createCredential, markCredentialVerified } from '../src/credentials-store.mjs';
 
 // Real repo root so resolvePythonExecutable/resolveWorkerScript find the
 // checked-in .venv layout and worker script; the fake manager never spawns.
@@ -30,6 +31,12 @@ function makeFixtureVideo(dir) {
   fs.writeFileSync(file, Buffer.alloc(1024, 7));
   return file;
 }
+
+const testSafeStorage = {
+  isEncryptionAvailable: () => true,
+  encryptString: (v) => Buffer.from(`enc:${Buffer.from(String(v), 'utf8').toString('base64')}`, 'utf8'),
+  decryptString: (buf) => Buffer.from(String(buf == null ? '' : buf).replace(/^enc:/, ''), 'base64').toString('utf8'),
+};
 
 function setup(t, { requestStopResult } = {}) {
   const userData = makeUserData(t);
@@ -66,6 +73,7 @@ function setup(t, { requestStopResult } = {}) {
     app,
     dialog,
     fs: fakeFs,
+    safeStorage: testSafeStorage,
     workerManager,
     state,
     repoRoot: () => repoRoot,
@@ -192,26 +200,28 @@ test('quitting still settles as interrupted after a stop', async (t) => {
 
 test('an adaptive run carries sampling bounds and settles stopped', async (t) => {
   const s = setup(t);
-  // Adaptive runs are paid: the key gate needs a (dummy) key, but the
-  // fake manager never spawns so no request can leave the machine.
-  const savedKey = process.env.BASETEN_API_KEY;
-  process.env.BASETEN_API_KEY = 'test-dummy-key';
-  let projectId;
-  try {
-    projectId = await startRun(t, s, undefined, {
-      adaptive: true,
-      adaptiveMaxFrames: 5,
-      skipVision: undefined,
-    });
-  } finally {
-    if (savedKey === undefined) {
-      delete process.env.BASETEN_API_KEY;
-    } else {
-      process.env.BASETEN_API_KEY = savedKey;
-    }
-  }
+  // Paid project runs use the project's selected vault credential -
+  // never an ambient environment key. The fake manager never spawns,
+  // so no request can leave the machine.
+  const credential = createCredential(s.userData, testSafeStorage, {
+    name: 'Meta Test', provider: 'meta', model: 'muse-spark-1.3', key: 'test-dummy-key',
+  });
+  markCredentialVerified(s.userData, testSafeStorage, credential.id, credential.model);
+  const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+  const draft = createProject(s.userData, { name: 'adaptive test', sourcePath: video });
+  updateProject(s.userData, draft.id, { configuration: { credentialId: credential.id } });
+  const started = await s.handlers['process-video'](
+    {}, video, { projectId: draft.id, adaptive: true, adaptiveMaxFrames: 5 },
+  );
+  assert.equal(started.ok, true);
+  updateProject(s.userData, draft.id, { processingStatus: 'processing' });
+  const projectId = draft.id;
   const start = s.getStart();
   assert.ok(start.argv.includes('--adaptive'));
+  assert.equal(start.argv.includes('test-dummy-key'), false);
+  assert.equal(start.env?.AI_COMMENTATOR_PROVIDER, 'meta');
+  assert.equal(start.env?.AI_COMMENTATOR_MODEL, 'muse-spark-1.3');
+  assert.equal(start.env?.AI_COMMENTATOR_API_KEY, 'test-dummy-key');
   const flagAt = start.argv.indexOf('--adaptive-max-frames');
   assert.notEqual(flagAt, -1);
   assert.equal(start.argv[flagAt + 1], '5');
@@ -230,6 +240,18 @@ test('an adaptive run carries sampling bounds and settles stopped', async (t) =>
   start.onMessage({ type: 'stopped', data: { status: 'stopped' } });
   start.onExit({ code: 0, signal: null, cancelled: false });
   assert.equal(getProject(s.userData, projectId).processingStatus, 'stopped');
+});
+
+test('a paid project run without a selected credential fails closed', async (t) => {
+  const s = setup(t);
+  const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+  const project = createProject(s.userData, { name: 'unconfigured', sourcePath: video });
+  const started = await s.handlers['process-video'](
+    {}, video, { projectId: project.id, adaptive: true, adaptiveMaxFrames: 2 },
+  );
+  assert.equal(started.ok, false);
+  assert.match(started.error, /no API configuration/i);
+  assert.equal(s.getStart(), null);
 });
 
 test('stop-request IPC acceptance does not settle the run by itself', async (t) => {

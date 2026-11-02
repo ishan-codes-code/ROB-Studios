@@ -1,2 +1,3 @@
 opencv-python-headless
 openai
+google-genai>=2.30.1

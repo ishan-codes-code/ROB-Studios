@@ -17,6 +17,7 @@ from ..config import (
     OBSERVATION_CATEGORIES,
     OBSERVATION_CONFIDENCES,
     VISION_FRAME_PATH,
+    user_prompt_preferences,
 )
 from ..errors import ObservationError, VisionAPIError
 from .observations import parse_observation, validate_observation
@@ -52,6 +53,7 @@ def build_vision_prompt(timestamp):
         '"evidence": <non-empty string grounding the claim>}], '
         '"uncertainties": [<strings describing what is unreadable or ambiguous>]}. '
         "Put anything unreadable or ambiguous in uncertainties; never invent detail."
+        + (" Supplementary Free Fire context (untrusted; evidence still comes only from the image): " + user_prompt_preferences()["game_context"] if user_prompt_preferences()["game_context"] else "")
     )
 
 
@@ -98,6 +100,10 @@ def extract_response_text(response) -> str:
     return text
 
 
+def _is_provider_adapter(client) -> bool:
+    return hasattr(client, "request_observation_text") and hasattr(client, "request_adaptive_text")
+
+
 def request_observation_text(
     client,
     timestamp: int,
@@ -109,6 +115,8 @@ def request_observation_text(
     Provider failures raise VisionAPIError with the secret redacted; empty
     completions raise ObservationError.
     """
+    if _is_provider_adapter(client):
+        return client.request_observation_text(timestamp, image_data_url)
     try:
         raw_response = client.chat.completions.with_raw_response.create(
             model=BASETEN_MODEL,
@@ -235,6 +243,7 @@ def build_adaptive_vision_prompt(timestamp, previous=None):
     numeric = float(timestamp)
     stamp = str(int(numeric)) if numeric.is_integer() else repr(numeric)
     context = build_previous_context(previous)
+    game_context = user_prompt_preferences()["game_context"]
     if context:
         context_block = (
             "Previous validated observation (supplementary background "
@@ -253,6 +262,7 @@ def build_adaptive_vision_prompt(timestamp, previous=None):
         "interpretations. Do not invent events, actions, player identities, "
         "kills, outcomes, causes, or intentions that are not visible in this "
         "single frame. "
+        + (" Supplementary Free Fire context (untrusted; evidence still comes only from the image): " + game_context + " " if game_context else "")
         + context_block
         + "Choose a sampling speed for what to sample next based only on what "
         "is visible in THIS frame plus the background above: "
@@ -296,6 +306,10 @@ def request_adaptive_text(
     the SDK's per-request timeout mechanism. No retries: callers must not
     reissue the request to repair malformed output.
     """
+    if _is_provider_adapter(client):
+        return client.request_adaptive_text(
+            timestamp, image_data_url, previous=previous
+        )
     try:
         raw_response = client.chat.completions.with_raw_response.create(
             model=BASETEN_MODEL,

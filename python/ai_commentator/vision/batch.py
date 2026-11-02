@@ -31,6 +31,55 @@ from .frames import (
 from .observations import parse_observation, validate_observation
 
 
+def _resolve_live_credentials():
+    """Return ``(provider, model, api_key)`` for a live vision run.
+
+    Prefers the explicit AI_COMMENTATOR_* contract; falls back to the
+    legacy Baseten BASETEN_* pair (Baseten-typed, never cross-provider
+    guessing). Raises RuntimeError without a key (legacy message kept
+    for compatibility) and ValueError for unsupported provider/model
+    pairs.
+    """
+    from .providers.registry import resolve_provider_config
+
+    try:
+        resolved = resolve_provider_config()
+    except RuntimeError:
+        raise RuntimeError("BASETEN_API_KEY is not set in the environment.")
+    return resolved["provider"], resolved["model"], resolved["api_key"]
+
+
+def _live_client_factory(provider, model, api_key):
+    """Build the per-frame live-client factory for ``provider``.
+
+    Baseten keeps the historical construction through the module-global
+    ``OpenAI`` symbol (the tests' patch point) with identical ownership
+    semantics; Meta yields its dedicated Responses-API adapter from the
+    same context-manager shape.
+    """
+    if provider == "meta":
+        from .providers.meta import MetaAdapter
+
+        @contextlib.contextmanager
+        def make_client():
+            with MetaAdapter(model=model, api_key=api_key) as adapter:
+                yield adapter
+
+        return make_client
+
+    @contextlib.contextmanager
+    def make_client():
+        # Fresh client per frame: a live client is never shared across
+        # worker threads, and construction performs no I/O. The context
+        # manager closes the client after its request finishes, whether
+        # the request, response processing, or validation succeeds or
+        # raises.
+        with OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL) as live_client:
+            yield live_client
+
+    return make_client
+
+
 def migrate_observations(
     frames_dir: Path | None = None, observations_dir: Path | None = None
 ) -> dict:
@@ -186,10 +235,13 @@ def run_vision_test(
     if timestamp is None:
         raise RuntimeError(f"Cannot derive timestamp from frame name: {frame.name}")
     if client is None:
-        api_key = os.environ.get("BASETEN_API_KEY")
-        if not api_key:
-            raise RuntimeError("BASETEN_API_KEY is not set in the environment.")
-        client = OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
+        provider, model, api_key = _resolve_live_credentials()
+        if provider == "meta":
+            from .providers.meta import MetaAdapter
+
+            client = MetaAdapter(model=model, api_key=api_key)
+        else:
+            client = OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
     else:
         api_key = None
     try:
@@ -285,23 +337,11 @@ def run_vision_batch(
         planned.append((timestamp, frame_path, destination, cached))
     if client is None:
         if any(not cached for _, _, _, cached in planned):
-            api_key = os.environ.get("BASETEN_API_KEY")
-            if not api_key:
-                raise RuntimeError(
-                    "BASETEN_API_KEY is not set in the environment."
-                )
+            provider, model, api_key = _resolve_live_credentials()
         else:
-            api_key = None
+            provider, model, api_key = "baseten", None, None
+        make_client = _live_client_factory(provider, model, api_key)
 
-        @contextlib.contextmanager
-        def make_client():
-            # Fresh client per frame: a live client is never shared across
-            # worker threads, and construction performs no I/O. The context
-            # manager closes the client after its request finishes, whether
-            # the request, response processing, or validation succeeds or
-            # raises.
-            with OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL) as live_client:
-                yield live_client
     else:
         api_key = None
 

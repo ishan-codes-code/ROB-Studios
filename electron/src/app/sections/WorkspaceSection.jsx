@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Button } from "@/components/ui/button.jsx";
@@ -25,6 +25,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   const [run, setRun] = useState(() => createInitialRunState());
   const [runMode, setRunMode] = useState(RUN_MODES.OFFLINE);
   const [visionConfigured, setVisionConfigured] = useState(false);
+  const [visionMissing, setVisionMissing] = useState('API key');
   const [visionChecked, setVisionChecked] = useState(false);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -64,25 +65,25 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
           );
           setLoading(false);
         }
-        // Credential presence only — the key value never reaches the
+        // Project-scoped readiness: the selected vault credential must
+        // exist and be image-verified. The key value never reaches the
         // renderer. AI analysis is offered only when it can actually run.
-        if (typeof window.api?.visionStatus === "function") {
-          try {
-            const status = await window.api.visionStatus();
-            if (alive && status && status.ok === true) {
-              const configured = status.configured === true;
-              setVisionConfigured(configured);
-              setRunMode(defaultRunMode(configured));
-            }
-          } catch {
-            // Unknown: stay offline-safe.
-          } finally {
-            if (alive) {
-              setVisionChecked(true);
+        try {
+          if (typeof window.api?.getProjectConfig === "function") {
+            const config = await window.api.getProjectConfig(projectId);
+            if (alive && config && config.ok === true) {
+              const verified = config.credential?.verified === true;
+              setVisionConfigured(verified);
+              setVisionMissing(verified ? null : "verified API configuration");
+              setRunMode(defaultRunMode(verified));
             }
           }
-        } else if (alive) {
-          setVisionChecked(true);
+        } catch {
+          // Unknown: stay offline-safe.
+        } finally {
+          if (alive) {
+            setVisionChecked(true);
+          }
         }
       } catch (err) {
         if (alive) {
@@ -142,6 +143,17 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       }
     }
   }, [run.status, project]);
+
+  const handleReadinessChange = useCallback((verified) => {
+    const ready = verified === true;
+    setVisionConfigured(ready);
+    setVisionMissing(ready ? null : "verified API configuration");
+    setRunMode((current) => {
+      if (ready) return current;
+      if (current === RUN_MODES.AI || isAdaptiveMode(current)) return RUN_MODES.OFFLINE;
+      return current;
+    });
+  }, []);
 
   const processing = run.status === "processing";
   const canStart =
@@ -278,6 +290,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       runMode={runMode}
       setRunMode={setRunMode}
       visionConfigured={visionConfigured}
+      visionMissing={visionMissing}
       visionChecked={visionChecked}
       canStart={canStart}
       starting={starting}
@@ -291,6 +304,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       onStart={handleStart}
       onCancel={handleCancel}
       onStop={handleStop}
+      onReadinessChange={handleReadinessChange}
     />
   ) : (
     <div className="flex h-full items-center justify-center px-4 text-[12px] text-muted-foreground">

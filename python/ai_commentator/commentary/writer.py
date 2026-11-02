@@ -4,7 +4,7 @@ import os
 import re
 import sys
 
-from openai import APIError
+from openai import APIError, OpenAI
 
 from ..config import (
     EVENT_NAME_RE,
@@ -15,6 +15,7 @@ from ..config import (
     WRITER_MAX_CLAIMS,
     WRITER_MAX_EVIDENCE_CHARS,
     WRITER_MAX_HISTORY_LINES,
+    stylistic_prompt_suffix,
 )
 from ..errors import ObservationError, WriterAPIError
 from ..events.detection import _feed_name_tokens
@@ -167,7 +168,27 @@ def build_writer_prompt(claims: list, history_texts: list) -> str:
     if history_texts:
         parts.append("Already said (do not repeat this information): ")
         parts.append(" | ".join(history_texts[-WRITER_MAX_HISTORY_LINES:]))
-    return "".join(parts)
+    return "".join(parts) + stylistic_prompt_suffix()
+
+
+def _resolve_live_credentials():
+    """Return ``(provider, model, api_key)`` for a live text run."""
+    from ..vision.providers.registry import resolve_provider_config
+
+    try:
+        resolved = resolve_provider_config()
+    except RuntimeError:
+        raise RuntimeError("BASETEN_API_KEY is not set in the environment.")
+    return resolved["provider"], resolved["model"], resolved["api_key"]
+
+
+def _live_text_client(provider, model, api_key):
+    """Return a context manager yielding a text-capable live client."""
+    if provider == "meta":
+        from ..vision.providers.meta import MetaAdapter
+
+        return MetaAdapter(model=model, api_key=api_key)
+    return OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
 
 
 def request_writer_text(client, prompt: str, api_key: str | None = None) -> str:
@@ -177,6 +198,8 @@ def request_writer_text(client, prompt: str, api_key: str | None = None) -> str:
     WriterAPIError with the secret redacted; empty completions raise
     ObservationError. Both drive deterministic fallback, never a crash.
     """
+    if hasattr(client, "request_text"):
+        return client.request_text(prompt)
     try:
         response = client.chat.completions.create(
             model=BASETEN_MODEL,
@@ -327,13 +350,10 @@ def run_writer_path(claims: list, history_texts: list, client) -> list:
     prompt = build_writer_prompt(prompt_claims, history_texts)
     texts: dict = {}
     if client is None:
-        api_key = os.environ.get("BASETEN_API_KEY")
-        if not api_key:
-            raise RuntimeError(
-                "BASETEN_API_KEY is not set in the environment."
-            )
+        provider, model, api_key = _resolve_live_credentials()
+        live_cm = _live_text_client(provider, model, api_key)
         try:
-            with OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL) as live_client:
+            with live_cm as live_client:
                 raw = request_writer_text(live_client, prompt, api_key=api_key)
                 texts = parse_writer_lines(raw, prompt_claims)
         except (WriterAPIError, ObservationError) as exc:

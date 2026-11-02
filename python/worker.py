@@ -222,8 +222,14 @@ def read_json_summary(path: Path) -> dict | None:
 
 
 def require_key() -> str | None:
-    if not os.environ.get("BASETEN_API_KEY"):
-        return "BASETEN_API_KEY is not set in the environment."
+    if os.environ.get("AI_COMMENTATOR_API_KEY"):
+        return None
+    if os.environ.get("BASETEN_API_KEY"):
+        return None
+    return (
+        "AI_COMMENTATOR_API_KEY is not set in the environment "
+        "(legacy BASETEN_API_KEY also absent)."
+    )
     return None
 
 
@@ -442,7 +448,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
                     directory=frames_dir,
                     observations_dir=obs_dir,
                 )
-        except RuntimeError as exc:
+        except (RuntimeError, ValueError) as exc:
             emit_error("vision_analysis", f"{exc}")
             return 1, {}
         if code != 0:

@@ -1,5 +1,63 @@
 # Current state
 
+## Gemini TTS API configuration (credential setup milestone)
+
+The API Keys page includes a distinct Google Gemini TTS provider. TTS
+credentials use the existing Electron `safeStorage` vault and atomic
+ciphertext writes, with a `tts` purpose and no model field; they cannot be
+selected for project Vision processing. The renderer receives only sanitized
+credential metadata. Key replacement resets its verification state, and
+project reference protection continues to apply to deletion.
+
+TTS connection verification runs as a separate Python setup operation using
+the official `google-genai` SDK. It requests metadata for the fixed current
+Gemini 3.8 Flash TTS model with a 10-second SDK timeout and performs no speech
+generation. A success confirms API authentication and access to that model's
+metadata only; it cannot establish inference entitlement without generating
+speech. A failed recheck of the unchanged credential clears its prior verified
+status so the list cannot present an old success as current. No live Google
+requests were made during implementation tests.
+
+## Provider vault, multi-provider vision & configuration studio (M6, on current branch, uncommitted)
+
+Two curated providers (`meta` via Responses API `/responses`, `baseten`
+via OpenAI-compatible Chat Completions with the pinned
+`meta-models/muse-spark-open`) sit behind an explicit adapter
+boundary under `python/ai_commentator/vision/providers/` (registry +
+curated catalogue, no discovery, no arbitrary URLs). Batch, adaptive,
+writer, and script stages resolve the adapter from the explicit
+`AI_COMMENTATOR_PROVIDER/MODEL/API_KEY` environment with a
+Baseten-typed legacy fallback; observation validation, sampling,
+evidence gating, and the NDJSON/stop protocols are unchanged.
+Mocked tests cover both adapters (request shapes, extraction, error
+mapping, secret redaction, catalogue validation). No live paid
+provider verification was performed; the exact Meta `input_image`
+member shape is isolated behind the Meta adapter (see ADR 0008).
+
+Electron owns a multi-credential vault (`provider-vault.json` +
+`credentials/<id>.enc`, safeStorage, atomic writes, no plaintext
+fallback), a Free Fire game library with immutable built-ins, and
+per-project configuration references (`project.json` `configuration`).
+The renderer has a grouped sidebar (Workspace / Configuration), an
+API Keys management page (add, rename, replace key, change model,
+test connection, verify image support, delete with project-reference
+guard), a Games & Prompts page (profiles, presets, preview, immutable
+built-ins), a Preferences page, and an editor Configure tab with the
+three selectors plus manage-links that preserve the open project.
+Paid runs resolve only the selected credential and require image
+verification; nothing silently falls back. Legacy M5 installs migrate
+once (credential, game/preset records, key archive) or report a
+reconfiguration notice.
+
+Verification: Python suite 396 tests OK (offline, fakes only);
+Electron suite 152 tests pass, 0 fail (offline, `node:test`);
+renderer production build (`vite build` with
+`vite.renderer.config.mjs`) succeeds. Provider setup checks and
+image verification have not been live-tested; verification requests
+may incur provider charges. Windows SIGTERM fallback remains
+unexercised.
+
+
 ## Adaptive sampling workspace (M4.2-A/B, on `feature/adaptive-sampling-engine`, uncommitted)
 
 Electron can stop a live adaptive Python worker through a versioned
@@ -30,6 +88,31 @@ signal-free and covered).
 
 ## Commentary Studio UI foundation
 
+The renderer's existing Settings navigation now contains provider, game, and
+commentary setup backed by a single global `settings.json` in Electron
+`userData`. Settings are validated and atomically replaced; API credentials
+are stored separately as Electron `safeStorage` ciphertext. The renderer only
+receives key-presence and secure-storage-availability booleans. First launch
+routes to Settings until setup is marked complete; optional setup can be
+skipped, and the same page remains available from navigation.
+
+The first provider is OpenAI-compatible, defaulting to the existing Baseten
+URL and Muse model ID. A separate Python setup command tests the connection,
+lists models (all explicitly marked unverified), and verifies image input
+with an explicit small-image request. Only selected models manually verified
+for image input are accepted for paid runs using the stored key. Provider
+configuration and bounded game/prompt preferences are passed to the Python
+worker through its child environment; the existing stdin stop protocol is
+unchanged. Style preferences are appended only to gated commentary/script
+prompts; the validated observation schema and deterministic claim/script
+validators remain authoritative.
+
+The provider setup check and model list have not been live-tested. The
+explicit image-capability check is user-triggered and may incur provider
+charges; test suites use fakes only. OS-backed secure storage is required for
+saved keys; there is no plaintext fallback. The legacy `BASETEN_API_KEY`
+process environment remains a compatibility path.
+
 The Electron renderer opens into a 900 × 650 windowed studio shell with a
 toggleable navigation sidebar and live worker-status header. An open project
 uses a bounded editor with independently toggleable processing/project
@@ -49,6 +132,35 @@ Configure, and Project information into fixed-header tabs with independently
 scrolling content; processing details remain driven by the worker view state.
 The UI palette is monochromatic with semantic status accents. Window size and
 lifecycle are unchanged. No Python engine or worker protocol behavior changed.
+
+## M5 Configuration & Setup
+
+The renderer's existing Settings navigation now contains provider, game, and
+commentary setup backed by a single global `settings.json` in Electron
+`userData`. Settings are validated and atomically replaced; API credentials
+are stored separately as Electron `safeStorage` ciphertext. The renderer only
+receives key-presence and secure-storage-availability booleans. First launch
+routes to Settings until setup is marked complete; optional setup can be
+skipped, and the same page remains available from navigation.
+
+The first provider is OpenAI-compatible, defaulting to the existing Baseten
+URL and Muse model ID. A separate Python setup command tests the connection,
+lists models (all explicitly marked unverified), and verifies image input
+with an explicit small-image request. Only selected models manually verified
+for image input are accepted for paid runs using the stored key. Provider
+configuration and bounded game/prompt preferences are passed to the Python
+worker through its child environment; the existing stdin stop protocol is
+unchanged. Style preferences guide model-worded commentary/script paths;
+schema validation and deterministic evidence/script validation remain
+authoritative.
+
+Python suite: 361 tests passed offline. The full Electron suite passed 104
+tests before the final schema-hardening/test additions; the latest focused
+settings and processing suites passed 18/18. A later full-suite rerun was
+interrupted. Renderer production build passed. Provider setup checks have not
+been live-tested. The explicit image-capability check is user-triggered and
+may incur provider charges. Secure-storage unavailability has no plaintext
+fallback. The legacy `BASETEN_API_KEY` process environment remains supported.
 
 ## Modularization status
 
@@ -287,7 +399,7 @@ environment defines `BASETEN_API_KEY`. Secret values are never recorded here.
 ## Actual model configuration
 
 - Base URL: `https://inference.baseten.co/v1` (`BASETEN_BASE_URL`).
-- Model identifier: `meta-models/muse-spark-open-1026` (`BASETEN_MODEL`).
+- Model identifier: `meta-models/muse-spark-open` (`BASETEN_MODEL`).
 - Do not change the model ID outside an explicit application task.
 
 ## Electron/Python integration status

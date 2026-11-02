@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import AppLayout from "@/layout/AppLayout.jsx";
 import AppHeader from "@/layout/AppHeader.jsx";
@@ -6,7 +6,9 @@ import Sidebar from "@/layout/Sidebar.jsx";
 import DashboardSection from "@/app/sections/DashboardSection.jsx";
 import MatchesSection from "@/app/sections/MatchesSection.jsx";
 import CommentarySection from "@/app/sections/CommentarySection.jsx";
-import SettingsSection from "@/app/sections/SettingsSection.jsx";
+import ApiKeysSection from "@/app/sections/ApiKeysSection.jsx";
+import GamesPromptsSection from "@/app/sections/GamesPromptsSection.jsx";
+import PreferencesSection from "@/app/sections/PreferencesSection.jsx";
 import WorkspaceSection from "@/app/sections/WorkspaceSection.jsx";
 import StudioPlaceholder from "@/app/sections/StudioPlaceholder.jsx";
 import { MOTION, EASING } from "@/lib/tokens.js";
@@ -15,18 +17,20 @@ const SECTION_VIEWS = {
   dashboard: DashboardSection,
   matches: MatchesSection,
   commentary: CommentarySection,
-  settings: SettingsSection,
-  prompts: StudioPlaceholder,
   audio: StudioPlaceholder,
+  "api-keys": ApiKeysSection,
+  "games-prompts": GamesPromptsSection,
+  preferences: PreferencesSection,
 };
 
 const SECTION_META = {
   dashboard: { title: "Dashboard", context: "Project library" },
   matches: { title: "AI Analysis", context: "Validated observations and events" },
   commentary: { title: "Commentary", context: "Generated lines and scripts" },
-  settings: { title: "Settings", context: "Application preferences" },
-  prompts: { title: "AI Prompts", context: "Prompt inspection is planned" },
   audio: { title: "Audio", context: "Playback lanes are not available yet" },
+  "api-keys": { title: "API Keys", context: "Saved provider configurations" },
+  "games-prompts": { title: "Games & Prompts", context: "Game profiles and commentary presets" },
+  preferences: { title: "Preferences", context: "Application preferences" },
 };
 
 export default function App() {
@@ -36,43 +40,54 @@ export default function App() {
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
 
-  const inWorkspace = workspaceId !== null;
-  const SectionView = SECTION_VIEWS[activeSection] ?? DashboardSection;
-  const meta = inWorkspace
+  useEffect(() => {
+    let alive = true;
+    window.api?.loadSettings?.().then((result) => {
+      if (alive && result?.ok && !result.settings?.onboardingCompleted) setActiveSection("api-keys");
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // The open project is preserved while visiting management pages so a
+  // "Manage …" link never loses the editor's workspace state.
+  const showingWorkspace = workspaceId !== null && activeSection === "editor";
+  const SectionView = showingWorkspace ? null : (SECTION_VIEWS[activeSection] ?? DashboardSection);
+  const meta = showingWorkspace
     ? { title: projectName ?? "Opening project…", context: "Editor" }
     : SECTION_META[activeSection] ?? SECTION_META.dashboard;
 
   const handleSelectSection = useCallback((id) => {
-    if (id === "editor") {
-      return;
-    }
-    setWorkspaceId(null);
-    setProjectName(null);
     setActiveSection(id);
   }, []);
 
   const handleBackToProjects = useCallback(() => {
     setWorkspaceId(null);
     setProjectName(null);
+    setActiveSection("dashboard");
   }, []);
 
   const handleOpenProject = useCallback((id) => {
     setProjectName(null);
     setWorkspaceId(id);
+    setActiveSection("editor");
   }, []);
 
   const handleProjectLoaded = useCallback((project) => {
     setProjectName(project.name);
   }, []);
 
+  const handleBackToEditor = useCallback(() => {
+    if (workspaceId !== null) setActiveSection("editor");
+  }, [workspaceId]);
+
   return (
     <AppLayout
       sidebar={
         <Sidebar
-          active={inWorkspace ? "editor" : activeSection}
+          active={showingWorkspace ? "editor" : activeSection}
           onSelect={handleSelectSection}
           collapsed={navigationCollapsed}
-          inWorkspace={inWorkspace}
+          inWorkspace={workspaceId !== null}
         />
       }
       header={
@@ -82,21 +97,21 @@ export default function App() {
           navigationCollapsed={navigationCollapsed}
           onToggleNavigation={() => setNavigationCollapsed((value) => !value)}
           inspectorOpen={inspectorOpen}
-          showInspectorToggle={inWorkspace}
+          showInspectorToggle={showingWorkspace}
           onToggleInspector={() => setInspectorOpen((value) => !value)}
         />
       }
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
-          key={inWorkspace ? `workspace:${workspaceId}` : activeSection}
+          key={showingWorkspace ? `workspace:${workspaceId}` : activeSection}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: MOTION.standard, ease: EASING.entrance }}
           className="h-full min-h-0 min-w-0"
         >
-          {inWorkspace ? (
+          {showingWorkspace ? (
             <WorkspaceSection
               projectId={workspaceId}
               inspectorOpen={inspectorOpen}
@@ -109,8 +124,12 @@ export default function App() {
                 {...(activeSection === "dashboard"
                   ? { onOpenProject: handleOpenProject }
                   : {})}
-                {...(["prompts", "audio"].includes(activeSection)
+                {...(activeSection === "audio"
                   ? { section: activeSection }
+                  : {})}
+                {...(workspaceId !== null &&
+                (activeSection === "api-keys" || activeSection === "games-prompts")
+                  ? { onBackToEditor: handleBackToEditor }
                   : {})}
               />
             </div>

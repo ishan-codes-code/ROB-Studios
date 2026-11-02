@@ -60,3 +60,7 @@ coverage/
 Thumbs.db
 .vscode/
 *.tgz
+
+
+# Website (temporarily excluded from Git)
+website/

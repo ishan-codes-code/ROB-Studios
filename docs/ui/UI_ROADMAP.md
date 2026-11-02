@@ -95,15 +95,35 @@ otherwise.
   review, packaged-build (`npm run package` + smoke) verification.
 - Acceptance: packaged app renders the shell; worker lifecycle intact.
 
+## Stage 4 — Configuration studio (M5/M6, implemented)
+
+- Depends on: Stage 0 shell and the Electron/Python worker integration.
+- Workspace / Configuration sidebar groups: Dashboard, AI Analysis,
+  Commentary, Audio; API Keys, Games & Prompts, Preferences.
+- API Keys page manages named Meta/Baseten configurations (add,
+  rename, replace key, change model, test connection, verify image
+  support with a paid-request warning, delete with project-reference
+  guard) and Google Gemini TTS credentials (add, rename, replace key,
+  check authentication and TTS model metadata without generation, delete
+  with project-reference guard). Key input is write-only; only sanitized
+  metadata returns. TTS verification does not prove inference entitlement.
+- Games & Prompts page manages Free Fire profiles and commentary
+  presets with an effective-style preview; built-ins are immutable.
+- Editor Configure tab selects (never manages) the three project
+  configurations, with manage-links that preserve the open project.
+- Acceptance: verification states (saved vs tested vs verified) are
+  visually distinct; missing/unverified references warn in place;
+  incomplete setup leaves offline extraction available; style
+  preferences cannot disable schema or factuality validation.
+
 ## Explicit exclusions (all stages above)
 
-- No changes to the Python engine, `python/worker.py`, the NDJSON
-  worker protocol, `main.js`, `preload.js`, `worker-protocol.mjs`,
-  `python-worker.mjs`, Electron security settings, or the Muse model
-  identifier.
+- Worker configuration and settings IPC are approved M5 extensions; the
+  existing stdin stop protocol and Muse model default remain compatible.
 - No Zustand until local state demonstrably fails; no router until
   section count or deep-linking needs it.
 - No FastAPI, Docker, databases, or backend services.
-- No TTS/audio playback, live capture, OBS integration, Free Fire
-  knowledge pack (per `docs/roadmap.md` staging).
+- No TTS speech generation/audio playback, live capture, OBS integration,
+  Free Fire knowledge pack (per `docs/roadmap.md` staging). Gemini TTS
+  credential setup is implemented; synthesis remains a future milestone.
 - No paid Baseten calls during verification.

@@ -215,6 +215,23 @@ from ai_commentator.vision.sampling import (
 )
 from openai import OpenAI
 
+from ai_commentator.config import (
+    META_API_BASE_URL,
+    META_MODELS,
+    PROVIDER_BASETEN,
+    PROVIDER_META,
+    SUPPORTED_PROVIDERS,
+    provider_runtime_config,
+)
+from ai_commentator.vision.providers import (
+    BasetenAdapter,
+    MetaAdapter,
+    create_adapter,
+    get_provider_models,
+    resolve_live_adapter,
+    resolve_provider_config,
+)
+
 
 def main(video_path: Path | None = None, frames_dir: Path | None = None):
     """Preserve the original frame-extraction entry point."""

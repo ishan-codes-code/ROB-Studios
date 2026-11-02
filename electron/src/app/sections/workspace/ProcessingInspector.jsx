@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/spinner.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import RunPanel from "@/components/RunPanel.jsx";
 import StatusIndicator from "@/primitives/StatusIndicator.jsx";
+import ProjectConfiguration from "./ProjectConfiguration.jsx";
 import { extensionOf, fileNameOf, formatBytes } from "@/lib/format.js";
 import { ADAPTIVE_DEFAULT_MAX_FRAMES, ADAPTIVE_HARD_MAX_FRAMES, RUN_MODES, VISION_FRAME_LIMIT, isAdaptiveMode, isAiMode } from "@/lib/run-options.js";
 import { stageLabel } from "@/lib/worker-view.js";
@@ -174,11 +175,13 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
   );
 }
 
-function ConfigurationContent({ runMode, setRunMode, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames }) {
+function ConfigurationContent({ projectId, runMode, setRunMode, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, onReadinessChange }) {
   const aiSelected = isAiMode(runMode);
   const adaptiveSelected = isAdaptiveMode(runMode);
   return (
-    <div className="flex min-w-0 flex-col gap-4 p-3">
+    <div className="flex min-w-0 flex-col gap-1 p-3">
+      <ProjectConfiguration projectId={projectId} onReadinessChange={onReadinessChange} />
+      <Separator />
       <section className="flex min-w-0 flex-col gap-2" aria-labelledby="processing-mode-title">
         <SectionHeading id="processing-mode-title">Processing mode</SectionHeading>
         <div className="flex min-w-0 flex-col gap-1.5" role="group" aria-label="Processing mode">
@@ -264,7 +267,7 @@ function ConfigurationContent({ runMode, setRunMode, visionConfigured, visionChe
       <section className="flex min-w-0 flex-col gap-2" aria-labelledby="provider-status-title">
         <h2 id="provider-status-title" className="text-[11px] font-medium text-muted-foreground">AI availability</h2>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[12px] text-foreground">Provider credential</span>
+          <span className="text-[12px] text-foreground">AI readiness</span>
           <Badge variant={visionConfigured ? "secondary" : "outline"}>
             {visionChecked ? (visionConfigured ? "Configured" : "Not configured") : "Checking"}
           </Badge>
@@ -273,7 +276,7 @@ function ConfigurationContent({ runMode, setRunMode, visionConfigured, visionChe
           {visionConfigured
             ? "AI analysis is available for this workspace."
             : visionChecked
-              ? "AI analysis is disabled until the provider credential is configured and the application is restarted."
+              ? `AI analysis is disabled until a verified API configuration is ready. Choose one in the Project configuration above. Offline extraction remains available.`
               : "Checking whether AI analysis is available…"}
         </p>
       </section>
@@ -323,6 +326,7 @@ export default function ProcessingInspector({
   runMode,
   setRunMode,
   visionConfigured,
+  visionMissing,
   visionChecked,
   canStart,
   starting,
@@ -336,6 +340,7 @@ export default function ProcessingInspector({
   onStart,
   onCancel,
   onStop,
+  onReadinessChange,
 }) {
   return (
     <Tabs defaultValue="processing" className="flex h-full min-h-0 min-w-0 flex-col gap-0 overflow-hidden bg-surface">
@@ -363,13 +368,16 @@ export default function ProcessingInspector({
       </TabsContent>
       <TabsContent value="configuration" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none">
         <ConfigurationContent
+          projectId={project.id}
           runMode={runMode}
           setRunMode={setRunMode}
           visionConfigured={visionConfigured}
+          visionMissing={visionMissing}
           visionChecked={visionChecked}
           canStart={canStart}
           adaptiveMaxFrames={adaptiveMaxFrames}
           setAdaptiveMaxFrames={setAdaptiveMaxFrames}
+          onReadinessChange={onReadinessChange}
         />
       </TabsContent>
       <TabsContent value="project" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none">

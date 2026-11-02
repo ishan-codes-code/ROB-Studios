@@ -2,6 +2,7 @@ import {
   AudioLines,
   AudioWaveform,
   Clapperboard,
+  KeyRound,
   MessagesSquare,
   ScanSearch,
   Settings,
@@ -10,20 +11,67 @@ import {
 import { cn } from "cn";
 import { Separator } from "@/components/ui/separator.jsx";
 
-const NAV_ITEMS = [
+const WORKSPACE_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: Clapperboard },
   { id: "matches", label: "AI Analysis", icon: ScanSearch },
   { id: "commentary", label: "Commentary", icon: MessagesSquare },
-  { id: "prompts", label: "AI Prompts", icon: Sparkles },
   { id: "audio", label: "Audio", icon: AudioWaveform },
-  { id: "settings", label: "Settings", icon: Settings },
 ];
 
-export default function Sidebar({ active, onSelect, collapsed, inWorkspace }) {
-  const items = inWorkspace
-    ? [{ id: "editor", label: "Editor", icon: Clapperboard }, ...NAV_ITEMS]
-    : NAV_ITEMS;
+const CONFIGURATION_ITEMS = [
+  { id: "api-keys", label: "API Keys", icon: KeyRound },
+  { id: "games-prompts", label: "Games & Prompts", icon: Sparkles },
+  { id: "preferences", label: "Preferences", icon: Settings },
+];
 
+function NavButton({ id, label, Icon, selected, collapsed, onSelect }) {
+  return (
+    <button
+      key={id}
+      type="button"
+      aria-label={label}
+      aria-current={selected ? "page" : undefined}
+      title={collapsed ? label : undefined}
+      onClick={() => onSelect(id)}
+      className={cn(
+        "flex shrink-0 items-center gap-2.5 rounded-sm text-[12px] transition-colors duration-150",
+        collapsed ? "size-9 justify-center px-0" : "w-full px-2.5 py-[7px] text-left",
+        "text-muted-foreground hover:bg-accent hover:text-foreground",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        selected && "bg-accent font-medium text-foreground",
+      )}
+    >
+      <Icon className="size-4 shrink-0" aria-hidden />
+      {!collapsed ? <span className="truncate">{label}</span> : null}
+    </button>
+  );
+}
+
+function NavGroup({ title, items, active, collapsed, onSelect }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      {!collapsed ? (
+        <p className="px-2.5 pb-2 pt-2 text-[10px] font-medium uppercase tracking-[0.12em] text-subtle">
+          {title}
+        </p>
+      ) : null}
+      {items.map(({ id, label, icon }) => (
+        <NavButton
+          key={id}
+          id={id}
+          label={label}
+          Icon={icon}
+          selected={id === active}
+          collapsed={collapsed}
+          onSelect={onSelect}
+        />
+      ))}
+    </div>
+  );
+}
+
+export default function Sidebar({ active, onSelect, collapsed, inWorkspace }) {
   return (
     <aside
       className={cn(
@@ -48,34 +96,30 @@ export default function Sidebar({ active, onSelect, collapsed, inWorkspace }) {
         aria-label="Studio sections"
         className={cn("flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto py-3", collapsed ? "items-center px-1" : "px-2")}
       >
-        {!collapsed ? (
-          <p className="px-2.5 pb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-subtle">
-            Workspace
-          </p>
+        {inWorkspace ? (
+          <NavButton
+            id="editor"
+            label="Editor"
+            Icon={Clapperboard}
+            selected={active === "editor"}
+            collapsed={collapsed}
+            onSelect={onSelect}
+          />
         ) : null}
-        {items.map(({ id, label, icon: Icon }) => {
-          const selected = id === active;
-          return (
-            <button
-              key={id}
-              type="button"
-              aria-label={label}
-              aria-current={selected ? "page" : undefined}
-              title={collapsed ? label : undefined}
-              onClick={() => onSelect(id)}
-              className={cn(
-                "flex shrink-0 items-center gap-2.5 rounded-sm text-[12px] transition-colors duration-150",
-                collapsed ? "size-9 justify-center px-0" : "w-full px-2.5 py-[7px] text-left",
-                "text-muted-foreground hover:bg-accent hover:text-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                selected && "bg-accent font-medium text-foreground",
-              )}
-            >
-              <Icon className="size-4 shrink-0" aria-hidden />
-              {!collapsed ? <span className="truncate">{label}</span> : null}
-            </button>
-          );
-        })}
+        <NavGroup
+          title="Workspace"
+          items={WORKSPACE_ITEMS}
+          active={active}
+          collapsed={collapsed}
+          onSelect={onSelect}
+        />
+        <NavGroup
+          title="Configuration"
+          items={CONFIGURATION_ITEMS}
+          active={active}
+          collapsed={collapsed}
+          onSelect={onSelect}
+        />
       </nav>
       <Separator />
       {!collapsed ? (
