@@ -133,11 +133,15 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       credentialVersion: snapshot.record.credentialVersion,
     };
     if (!result || typeof result !== 'object' || result.ok !== true) {
+      const detail = (result && typeof result.detail === 'string' && result.detail)
+        ? result.detail.slice(0, 500)
+        : null;
       const failure = {
         ok: false,
         error: (result && typeof result.error === 'string' && result.error)
           || 'Provider request failed. Check the key, model, and provider compatibility.',
         code: (result && typeof result.code === 'string' && result.code) || 'unknown',
+        detail,
         tested,
       };
       // Development diagnostics: structured and secret-free (never the key).
@@ -146,6 +150,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
           `[provider-setup] ${operation} failed for provider=${snapshot.provider} model=${snapshot.model}:`,
           `code=${failure.code}`,
           result && typeof result.status === 'number' ? `status=${result.status}` : 'status=n/a',
+          detail ? `detail=${detail}` : 'detail=n/a',
         );
       } catch { /* logging must never break the IPC response */ }
       return failure;
@@ -236,7 +241,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       if (typeof id !== 'string' || id === '') throw new Error('Invalid credential id.');
       const result = await runCredentialCheck(id, 'connection');
       if (!result?.ok) {
-        return { ok: false, error: result?.error ?? 'Settings operation failed.', code: result?.code ?? 'unknown' };
+        return { ok: false, error: result?.error ?? 'Settings operation failed.', code: result?.code ?? 'unknown', detail: result?.detail ?? null };
       }
       return { ok: true, connected: true };
     } catch (err) { return safe(err); }
@@ -246,7 +251,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       if (typeof id !== 'string' || id === '') throw new Error('Invalid credential id.');
       const result = await runCredentialCheck(id, 'verify-vision');
       if (!result?.ok) {
-        return { ok: false, error: result?.error ?? 'Settings operation failed.', code: result?.code ?? 'unknown' };
+        return { ok: false, error: result?.error ?? 'Settings operation failed.', code: result?.code ?? 'unknown', detail: result?.detail ?? null };
       }
       // Stale guard: only the exact tested configuration (id, provider,
       // model, credential version) may be marked verified. A key rotation

@@ -84,7 +84,7 @@ test('run resolution never substitutes another key and flags unverified', async 
   updateProject(dir, project.id, { configuration: { credentialId: 'cred-does-not-exist' } });
   assert.throws(() => resolveProjectRunConfig(dir, storage(), project.id), /missing or unreadable/);
   const credential = createCredential(dir, storage(), {
-    name: 'B', provider: 'baseten', model: 'meta-models/muse-spark-open-1026', key: 'k',
+    name: 'B', provider: 'baseten', model: 'meta-models/muse-spark-open', key: 'k',
   });
   updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
   const resolved = resolveProjectRunConfig(dir, storage(), project.id);

@@ -4,7 +4,7 @@ Two providers are supported (MVP): ``meta`` (Meta Model API, Responses
 API at ``https://api.meta.ai/v1/responses``) and ``baseten``
 (OpenAI-compatible Chat Completions at
 ``https://inference.baseten.co/v1`` with the single pinned model
-``meta-models/muse-spark-open-1026``).
+``meta-models/muse-spark-open``).
 
 The pipeline (batch, adaptive, worker) talks only to the
 :class:`VisionProviderAdapter` interface here; HTTP protocol details

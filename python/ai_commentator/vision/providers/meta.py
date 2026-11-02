@@ -11,14 +11,15 @@ The task brief pins the request shape to the documented example:
 ``{"model", "input": [{"role": "user", "content": [...]}]}`` where the
 content list carries ``{"type": "input_text", "text": ...}`` entries.
 The brief explicitly requires verifying how image content is
-represented and implementing the actual image request. The fetched
-Responses/image-understanding pages render as navigation shells in an
-offline fetch, so the exact ``input_image`` member name below is the
-documented Responses-convention shape
-(``{"type": "input_image", "image_url": <data-url>}``) isolated behind
-this adapter. If the live API rejects it, only this file changes; the
-pipeline, prompts, and validation are untouched. This uncertainty is
-recorded in the ADR and never leaks into prompts or schemas.
+represented and implementing the actual image request. The request
+shape is now confirmed against the fetched image-understanding,
+Responses, and reasoning pages: input items carry the typed
+``message`` discriminator, image content is an ``input_image`` block
+whose ``image_url`` is a plain string, and reasoning nests as
+``{"reasoning": {"effort": ...}}``. Provider-specific behavior stays
+isolated behind this adapter: the pipeline, prompts, and validation
+are untouched. Live image verification has not been performed (no
+authorized paid calls); any live rejection changes only this file.
 """
 
 from __future__ import annotations
@@ -106,8 +107,37 @@ def _post_json(url: str, payload: dict, api_key: str,
         return status, raw
 
 
+def raise_for_incomplete_output(payload) -> None:
+    """Raise a diagnosable error when the model exhausted its output budget.
+
+    Reasoning models spend ``max_output_tokens`` on private reasoning
+    before visible text: a small budget can return HTTP 200 with
+    ``status: "incomplete"`` and no content. That is budget exhaustion,
+    not an empty response, and must stay distinguishable.
+    """
+    if not isinstance(payload, dict):
+        return
+    if payload.get("status") != "incomplete":
+        return
+    details = payload.get("incomplete_details")
+    reason = details.get("reason") if isinstance(details, dict) else None
+    if reason and reason != "max_output_tokens":
+        raise VisionAPIError(
+            f"Meta returned an incomplete response ({reason}).",
+            code="bad_response",
+            provider="meta",
+        )
+    raise VisionAPIError(
+        "Meta used up its output budget before producing an answer "
+        "(reasoning consumed the budget). Try again.",
+        code="output_exhausted",
+        provider="meta",
+    )
+
+
 def extract_output_text(payload) -> str:
     """Pull assistant text out of a Responses API body (several shapes)."""
+    raise_for_incomplete_output(payload)
     if isinstance(payload, str):
         text = payload.strip()
         if not text:
@@ -170,25 +200,38 @@ class MetaAdapter(VisionProviderAdapter):
 
     # -- payload -----------------------------------------------------------
     def _observation_payload(self, prompt: str, image_data_url: str,
-                             max_tokens: int | None = None) -> dict:
+                             max_tokens: int | None = None,
+                             reasoning_effort: str | None = None) -> dict:
         content = [
             {"type": "input_text", "text": prompt},
             {"type": "input_image", "image_url": image_data_url},
         ]
         payload: dict = {
             "model": self.model,
-            "input": [{"role": "user", "content": content}],
+            # Documented Responses API shape: each input item carries the
+            # typed ``message`` discriminator
+            # (https://dev.meta.ai/docs/image-understanding).
+            "input": [{"type": "message", "role": "user",
+                       "content": content}],
             "stream": False,
         }
         if max_tokens is not None:
             payload["max_output_tokens"] = max_tokens
+        if reasoning_effort is not None:
+            # Documented Responses API control
+            # (https://dev.meta.ai/docs/reasoning). Only the small
+            # verification probes set this; the frame pipeline keeps its
+            # existing behavior.
+            payload["reasoning"] = {"effort": reasoning_effort}
         return payload
 
     def _send_prompt(self, prompt: str, image_data_url: str,
-                     max_tokens: int | None = None) -> str:
+                     max_tokens: int | None = None,
+                     reasoning_effort: str | None = None) -> str:
         _, body = _post_json(
             self.responses_url,
-            self._observation_payload(prompt, image_data_url, max_tokens),
+            self._observation_payload(prompt, image_data_url, max_tokens,
+                                      reasoning_effort),
             self.api_key,
             self.timeout,
         )
@@ -234,7 +277,7 @@ class MetaAdapter(VisionProviderAdapter):
         payload: dict = {
             "model": self.model,
             "input": [
-                {"role": "user",
+                {"type": "message", "role": "user",
                  "content": [{"type": "input_text", "text": prompt}]}
             ],
             "stream": False,
@@ -257,15 +300,19 @@ class MetaAdapter(VisionProviderAdapter):
     def verify_connection(self) -> None:
         # No unauthenticated/meta-models endpoint is assumed: the cheapest
         # authenticated check is a minimal text-only Responses call.
+        # Muse Spark/Wonder always reason first and reasoning tokens count
+        # toward the output budget, so the probe uses minimal effort with
+        # headroom instead of a bare 8-token budget.
         payload: dict = {
             "model": self.model,
             "input": [
-                {"role": "user",
+                {"type": "message", "role": "user",
                  "content": [{"type": "input_text",
                               "text": "Reply with the word OK."}]}
             ],
             "stream": False,
-            "max_output_tokens": 8,
+            "max_output_tokens": 64,
+            "reasoning": {"effort": "minimal"},
         }
         _, body = _post_json(
             self.responses_url, payload, self.api_key, min(self.timeout, 20.0)
@@ -285,9 +332,16 @@ class MetaAdapter(VisionProviderAdapter):
             # Minimal valid image request; may incur provider charges.
             # The prompt asks about visible content so success proves
             # the model received image input: HTTP 200 alone is not
-            # enough, the reply must be meaningful text.
+            # enough, the reply must be meaningful text. Muse Spark is a
+            # reasoning model, so the probe requests minimal effort with
+            # a 512-token budget: enough for a short reasoning pass plus
+            # the answer, still a cheap probe (billed on actual tokens).
+            # Budget exhaustion surfaces as ``output_exhausted``, never
+            # as a false success.
             text = self._send_prompt(VERIFY_PROMPT,
-                                     VERIFY_IMAGE_DATA_URL, max_tokens=32)
+                                     VERIFY_IMAGE_DATA_URL,
+                                     max_tokens=512,
+                                     reasoning_effort="minimal")
             validate_verify_text(text, "Meta")
         finally:
             self.model = original

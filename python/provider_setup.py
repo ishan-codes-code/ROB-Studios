@@ -35,6 +35,7 @@ USER_MESSAGES = {
     "timeout": "The provider request timed out.",
     "network": "Could not reach the provider. Check the network connection.",
     "bad_response": "The provider returned an empty or invalid response.",
+    "output_exhausted": "The model used up its output budget before answering. Try again.",
     "provider_error": "Provider request failed. Check the key, model, and provider compatibility.",
     "unknown": "Provider request failed. Check the key, model, and provider compatibility.",
 }

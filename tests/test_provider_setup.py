@@ -46,7 +46,7 @@ class ProviderSetupTests(unittest.TestCase):
             result = provider_setup.run("models", "", "")
         self.assertEqual(result["provider"], "baseten")
         self.assertEqual(result["models"], [
-            {"id": "meta-models/muse-spark-open-1026", "vision": "unverified"},
+            {"id": "meta-models/muse-spark-open", "vision": "unverified"},
         ])
 
     def test_models_rejects_unknown_provider(self):
@@ -74,7 +74,7 @@ class ProviderSetupTests(unittest.TestCase):
                          FakeAdapter)):
             result = provider_setup.run(
                 "verify-vision", "",
-                "meta-models/muse-spark-open-1026", "baseten")
+                "meta-models/muse-spark-open", "baseten")
         self.assertEqual(result,
                          {"ok": True, "provider": "baseten",
                           "visionVerified": True})
@@ -93,7 +93,7 @@ class ProviderSetupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "credential is missing"):
                 provider_setup.run(
                     "connection", "",
-                    "meta-models/muse-spark-open-1026", "baseten")
+                    "meta-models/muse-spark-open", "baseten")
         self.assertEqual(FakeAdapter.instances, [])
 
 
@@ -133,6 +133,15 @@ class StructuredFailureTests(unittest.TestCase):
         self.assertEqual(result["code"], "unknown")
         self.assertIn("Check the key, model", result["error"])
         self.assertEqual(result["status"], None)
+
+    def test_output_exhausted_has_actionable_message(self):
+        from ai_commentator.errors import VisionAPIError
+
+        exc = VisionAPIError("Baseten used up its output budget",
+                             code="output_exhausted", provider="baseten")
+        result = provider_setup.failure_result("verify-vision", "baseten", exc)
+        self.assertEqual(result["code"], "output_exhausted")
+        self.assertIn("output budget", result["error"])
 
     def test_detail_is_truncated_and_present(self):
         from ai_commentator.errors import VisionAPIError

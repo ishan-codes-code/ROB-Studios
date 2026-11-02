@@ -9,7 +9,7 @@ anything not conforming is rejected, never guessed.
 
 Per [Baseten's structured-outputs documentation](https://docs.baseten.co/inference/structured-outputs),
 Model APIs accept `json_schema` but **Muse Spark Open does not enforce the
-schema**. Our configured model (`meta-models/muse-spark-open-1026`) is a
+schema**. Our configured model (`meta-models/muse-spark-open`) is a
 Muse Spark Open model, so server-side enforcement is unavailable to us.
 We therefore request JSON via the prompt and validate strictly in code
 (`parse_observation` / `validate_observation` in `main.py`). If a future

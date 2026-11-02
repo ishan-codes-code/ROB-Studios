@@ -6,6 +6,21 @@
 export const PROVIDER_META = 'meta';
 export const PROVIDER_BASETEN = 'baseten';
 
+// Current documented Baseten model string (meta-oss-cookbook muse-spark
+// hosted baseten guide). Previously pinned identifier, kept only as a
+// compatibility alias: stored records and environments still carrying
+// it resolve to the current id; re-verification is still required.
+export const BASETEN_MODEL = 'meta-models/muse-spark-open';
+export const LEGACY_BASETEN_MODEL = 'meta-models/muse-spark-open-1026';
+
+export function normalizeModelId(providerId, modelId) {
+  const clean = typeof modelId === 'string' ? modelId.trim() : '';
+  if (providerId === PROVIDER_BASETEN && clean === LEGACY_BASETEN_MODEL) {
+    return BASETEN_MODEL;
+  }
+  return clean;
+}
+
 export const PROVIDERS = Object.freeze({
   [PROVIDER_META]: Object.freeze({
     id: PROVIDER_META,
@@ -24,8 +39,8 @@ export const PROVIDERS = Object.freeze({
     fixedModel: true,
     models: Object.freeze([
       Object.freeze({
-        id: 'meta-models/muse-spark-open-1026',
-        displayName: 'Muse Spark Open 1026',
+        id: BASETEN_MODEL,
+        displayName: 'Muse Spark Open',
       }),
     ]),
   }),
@@ -60,7 +75,9 @@ export function validateProviderModel(providerId, modelId) {
   if (typeof modelId !== 'string' || modelId.trim() === '') {
     throw new Error('Vision model is required.');
   }
-  const clean = modelId.trim();
+  // Previously saved Baseten configurations carry the retired pinned
+  // identifier; resolve it instead of rejecting the stored record.
+  const clean = normalizeModelId(entry.id, modelId);
   if (!entry.models.some((model) => model.id === clean)) {
     throw new Error(
       `Unsupported model '${clean}' for provider '${providerId}'.`,

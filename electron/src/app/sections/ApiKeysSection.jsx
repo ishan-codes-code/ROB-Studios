@@ -147,8 +147,8 @@ export default function ApiKeysSection({ onBackToEditor }) {
     setNotice("");
     try {
       const catalog = await window.api.providerModels(provider);
-      const available = catalog?.models ?? (provider === "meta" ? models : [{ id: "meta-models/muse-spark-open-1026" }]);
-      const model = provider === "baseten" ? "meta-models/muse-spark-open-1026" : form.model;
+      const available = catalog?.models ?? (provider === "meta" ? models : [{ id: "meta-models/muse-spark-open" }]);
+      const model = provider === "baseten" ? "meta-models/muse-spark-open" : form.model;
       if (provider === "meta" && !available.some((entry) => entry.id === model)) {
         throw new Error("Select a supported Meta model.");
       }
@@ -183,7 +183,14 @@ export default function ApiKeysSection({ onBackToEditor }) {
         const result = await action(selectedId);
         // Surface the main-process diagnosis (already secret-free) instead
         // of a generic message; the buttons below stay enabled for retry.
-        if (!result?.ok) throw new Error(result?.error ?? "Provider request failed. Check the key, model, and provider compatibility.");
+        // The sanitized detail names the concrete cause (e.g. budget
+        // exhaustion vs. empty response) without exposing secrets.
+        if (!result?.ok) {
+          const detail = typeof result?.detail === "string" && result.detail
+            ? ` (detail: ${result.detail})`
+            : "";
+          throw new Error(`${result?.error ?? "Provider request failed. Check the key, model, and provider compatibility."}${detail}`);
+        }
         if (kind === "verify") {
           setNotice("Image input verified for the selected key and model.");
           setDetail(result.credential);
@@ -386,7 +393,7 @@ export default function ApiKeysSection({ onBackToEditor }) {
               </Field>
             ) : (
               <p className="text-[12px] leading-relaxed text-muted-foreground">
-                Model is fixed to <span className="font-mono">meta-models/muse-spark-open-1026</span> for Baseten.
+                Model is fixed to <span className="font-mono">meta-models/muse-spark-open</span> for Baseten.
               </p>
             )}
             <div className="flex flex-wrap gap-2">
@@ -500,7 +507,7 @@ export default function ApiKeysSection({ onBackToEditor }) {
                 onChange={(event) => changeModel(event.target.value)}
               >
                 {(selected.provider === "baseten"
-                  ? [{ id: "meta-models/muse-spark-open-1026" }]
+                  ? [{ id: "meta-models/muse-spark-open" }]
                   : models.length > 0
                     ? models
                     : [{ id: selected.model }]

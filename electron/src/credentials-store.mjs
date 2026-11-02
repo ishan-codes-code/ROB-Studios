@@ -109,6 +109,13 @@ function validateRecord(value) {
       throw new Error('Invalid credential timestamps.');
     }
   }
+  let verification = validateVerification(value.verification, value.id);
+  if (verification.status === 'verified' && verification.verifiedModel !== model) {
+    // The resolved model no longer matches the tested one (e.g. a retired
+    // model identifier was normalized): the old success cannot vouch for
+    // the current model, so verification must run again.
+    verification = { ...unverifiedState() };
+  }
   return {
     id: value.id,
     name,
@@ -117,7 +124,7 @@ function validateRecord(value) {
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     credentialVersion: value.credentialVersion,
-    verification: validateVerification(value.verification, value.id),
+    verification,
   };
 }
 

@@ -16,7 +16,21 @@ from .base import (
 
 PROVIDER_ID = "baseten"
 BASE_URL = "https://inference.baseten.co/v1"
-MODEL = "meta-models/muse-spark-open-1026"
+# Current documented Baseten model string
+# (meta-oss-cookbook muse-spark hosted baseten guide).
+MODEL = "meta-models/muse-spark-open"
+# Previously pinned identifier, kept only as a compatibility alias:
+# saved credentials or environments still carrying it are normalized
+# to MODEL, never rejected; re-verification is still required.
+LEGACY_MODEL = "meta-models/muse-spark-open-1026"
+
+
+def normalize_model(model: str) -> str:
+    """Map the legacy pinned identifier to the current one."""
+    clean = model.strip() if isinstance(model, str) else ""
+    if clean == LEGACY_MODEL:
+        return MODEL
+    return clean
 
 # Shared verification fixture (see vision/verify.py): a deterministic PNG
 # plus a prompt that requires looking at the image. Kept importable here
@@ -36,6 +50,7 @@ class BasetenAdapter(VisionProviderAdapter):
 
     def __init__(self, model: str = MODEL, api_key: str = "", timeout: float = 60.0,
                  client=None) -> None:
+        model = normalize_model(model)
         if model != MODEL:
             raise ValueError(
                 f"Unsupported Baseten model {model!r}; only {MODEL!r} is available."
@@ -159,15 +174,23 @@ class BasetenAdapter(VisionProviderAdapter):
             ) from None
 
     def verify_image(self, model: str | None = None) -> None:
-        target = model or self.model
+        target = normalize_model(model or self.model)
         if target != MODEL:
             raise ValueError(
                 f"Unsupported Baseten model {target!r}; only {MODEL!r} is available."
             )
         try:
+            # Minimal valid image request; may incur provider
+            # charges. Muse Spark Open is a reasoning model and
+            # reasoning shares the max_tokens budget, so the probe
+            # requests low effort with a 512-token budget (billed
+            # on actual tokens). reasoning_effort is a documented
+            # top-level Baseten gateway parameter; models without
+            # reasoning support ignore it.
             response = self._client.chat.completions.create(
                 model=target,
-                max_tokens=32,
+                max_tokens=512,
+                extra_body={"reasoning_effort": "low"},
                 messages=[{"role": "user", "content": [
                     {"type": "text", "text": VERIFY_PROMPT},
                     {"type": "image_url",
@@ -184,7 +207,20 @@ class BasetenAdapter(VisionProviderAdapter):
                 provider=PROVIDER_ID,
             ) from None
         choices = getattr(response, "choices", None) or []
-        message = getattr(choices[0], "message", None) if choices else None
+        if not choices:
+            raise ObservationError("Baseten returned no choices.")
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            raise ObservationError("Baseten returned no message.")
+        if getattr(choices[0], "finish_reason", None) == "length":
+            # The output budget was spent (usually on reasoning)
+            # before any final text: exhaustion, never success.
+            raise VisionAPIError(
+                "Baseten used up its output budget before producing"
+                " an answer (reasoning consumed the budget). Try again.",
+                code="output_exhausted",
+                provider=PROVIDER_ID,
+            )
         text = getattr(message, "content", None)
         validate_verify_text(text, "Baseten")
 
@@ -221,7 +257,7 @@ def build_live_adapter(api_key: str | None = None,
                         timeout: float = 60.0) -> BasetenAdapter:
     """Build a Baseten adapter from the explicit or legacy environment."""
     key = api_key if api_key else os.environ.get("BASETEN_API_KEY", "")
-    model = os.environ.get("BASETEN_MODEL", MODEL) or MODEL
+    model = normalize_model(os.environ.get("BASETEN_MODEL", MODEL) or MODEL)
     if not key:
         raise RuntimeError("BASETEN_API_KEY is not set in the environment.")
     return BasetenAdapter(model=model, api_key=key, timeout=timeout)

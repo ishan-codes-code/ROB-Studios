@@ -76,6 +76,7 @@ class VisionProviderAdapter:
         "network",
         "bad_response",
         "bad_request",
+        "output_exhausted",
         "provider_error",
     )
 

@@ -4,7 +4,7 @@
 
 Two curated providers (`meta` via Responses API `/responses`, `baseten`
 via OpenAI-compatible Chat Completions with the pinned
-`meta-models/muse-spark-open-1026`) sit behind an explicit adapter
+`meta-models/muse-spark-open`) sit behind an explicit adapter
 boundary under `python/ai_commentator/vision/providers/` (registry +
 curated catalogue, no discovery, no arbitrary URLs). Batch, adaptive,
 writer, and script stages resolve the adapter from the explicit
@@ -381,7 +381,7 @@ environment defines `BASETEN_API_KEY`. Secret values are never recorded here.
 ## Actual model configuration
 
 - Base URL: `https://inference.baseten.co/v1` (`BASETEN_BASE_URL`).
-- Model identifier: `meta-models/muse-spark-open-1026` (`BASETEN_MODEL`).
+- Model identifier: `meta-models/muse-spark-open` (`BASETEN_MODEL`).
 - Do not change the model ID outside an explicit application task.
 
 ## Electron/Python integration status

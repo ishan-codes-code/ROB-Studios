@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import os
 
-from .baseten import BASE_URL as _BASETEN_BASE_URL, MODEL as _BASETEN_MODEL
+from .baseten import (
+    BASE_URL as _BASETEN_BASE_URL,
+    MODEL as _BASETEN_MODEL,
+    normalize_model as _normalize_baseten_model,
+)
 from .meta import BASE_URL as _META_BASE_URL, MODELS as _META_MODELS
 
 PROVIDER_META = "meta"
@@ -49,6 +53,11 @@ def validate_provider_model(provider: str, model: str) -> tuple[str, str]:
     if not isinstance(model, str) or not model.strip():
         raise ValueError("A vision model ID is required.")
     clean = model.strip()
+    if provider == PROVIDER_BASETEN:
+        # Saved credentials / environments may still carry the previous
+        # pinned identifier; normalize instead of rejecting so existing
+        # configurations keep resolving (re-verification still required).
+        clean = _normalize_baseten_model(clean)
     if clean not in PROVIDER_MODELS[provider]:
         raise ValueError(
             f"Unsupported model {model!r} for provider {provider!r}."

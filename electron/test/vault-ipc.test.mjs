@@ -70,7 +70,7 @@ test('vault IPC creates, lists, tests, verifies, and deletes', async (t) => {
 test('vault IPC never leaks secrets in outputs or errors', async (t) => {
   const { handlers } = setup(t);
   const created = await handlers['credential-create']({}, {
-    name: 'B', provider: 'baseten', model: 'meta-models/muse-spark-open-1026', key: 'super-secret-key',
+    name: 'B', provider: 'baseten', model: 'meta-models/muse-spark-open', key: 'super-secret-key',
   });
   assert.equal(JSON.stringify(created).includes('super-secret-key'), false);
   const bad = await handlers['credential-set-key']({}, created.credential.id, '');
@@ -114,11 +114,12 @@ test('project config resolves metadata with missing-reference warnings', async (
 test('structured provider failures reach the renderer without secrets', async (t) => {
   const failure = {
     ok: false,
-    error: 'Authentication failed. Check the API key.',
-    code: 'auth',
-    status: 401,
+    error: 'The model used up its output budget before answering. Try again.',
+    code: 'output_exhausted',
+    status: null,
     provider: 'meta',
     operation: 'verify-vision',
+    detail: 'Meta used up its output budget before producing an answer (reasoning consumed the budget). Try again.',
   };
   const { handlers } = setup(t, { spawnSetup: async () => ({ ...failure }) });
   const created = await handlers['credential-create']({}, {
@@ -127,12 +128,14 @@ test('structured provider failures reach the renderer without secrets', async (t
   assert.equal(created.ok, true);
   const tested = await handlers['credential-test']({}, created.credential.id);
   assert.equal(tested.ok, false);
-  assert.equal(tested.error, 'Authentication failed. Check the API key.');
-  assert.equal(tested.code, 'auth');
+  assert.equal(tested.error, 'The model used up its output budget before answering. Try again.');
+  assert.equal(tested.code, 'output_exhausted');
+  assert.equal(tested.detail, failure.detail);
   const verified = await handlers['credential-verify']({}, created.credential.id);
   assert.equal(verified.ok, false);
-  assert.equal(verified.error, 'Authentication failed. Check the API key.');
-  assert.equal(verified.code, 'auth');
+  assert.equal(verified.error, 'The model used up its output budget before answering. Try again.');
+  assert.equal(verified.code, 'output_exhausted');
+  assert.equal(verified.detail, failure.detail);
   assert.equal(JSON.stringify({ tested, verified }).includes('zz-top-secret-9'), false);
   const listed = await handlers['credential-list']();
   assert.equal(listed.credentials[0].verification.status, 'unverified');

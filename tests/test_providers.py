@@ -55,8 +55,9 @@ class FakeMessage:
 
 
 class FakeChoice:
-    def __init__(self, content):
+    def __init__(self, content, finish_reason="stop"):
         self.message = FakeMessage(content)
+        self.finish_reason = finish_reason
 
 
 class FakeCompletion:
@@ -128,12 +129,12 @@ class BasetenAdapterTests(unittest.TestCase):
     def test_text_image_payload_shape(self):
         fake = FakeOpenAIClient()
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="k", client=fake)
         text = adapter.request_observation_text(3, "data:image/jpeg;base64,AAA")
         self.assertEqual(text, TINY_OBSERVATION)
         call = fake.calls[0]
-        self.assertEqual(call["model"], "meta-models/muse-spark-open-1026")
+        self.assertEqual(call["model"], "meta-models/muse-spark-open")
         content = call["messages"][0]["content"]
         self.assertEqual(content[0]["type"], "text")
         self.assertEqual(content[1]["type"], "image_url")
@@ -148,7 +149,7 @@ class BasetenAdapterTests(unittest.TestCase):
     def test_empty_response_raises_observation_error(self):
         fake = FakeOpenAIClient(content="   ")
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="k", client=fake)
         with self.assertRaises(ObservationError):
             adapter.request_observation_text(3, "data:image/jpeg;base64,AAA")
@@ -178,7 +179,7 @@ class BasetenAdapterTests(unittest.TestCase):
                 self.chat = type("C", (), {"completions": FailingCompletions(self, "")})()
 
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="secret-key-123", client=FailingClient())
         with self.assertRaises(VisionAPIError) as ctx:
             adapter.request_observation_text(3, "data:image/jpeg;base64,AAA")
@@ -188,7 +189,7 @@ class BasetenAdapterTests(unittest.TestCase):
     def test_text_only_request(self):
         fake = FakeOpenAIClient(content='{"lines": []}')
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="k", client=fake)
         self.assertEqual(adapter.request_text("hello"), '{"lines": []}')
         self.assertEqual(fake.calls[0]["messages"],
@@ -197,10 +198,95 @@ class BasetenAdapterTests(unittest.TestCase):
     def test_injected_client_never_closed(self):
         fake = FakeOpenAIClient()
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="k", client=fake)
         adapter.close()
         self.assertFalse(fake.closed)
+
+    def test_verify_image_budget_and_reasoning(self):
+        fake = FakeOpenAIClient(content="Red")
+        adapter = BasetenAdapter(
+            model="meta-models/muse-spark-open",
+            api_key="k", client=fake)
+        adapter.verify_image()
+        call = fake.calls[0]
+        self.assertEqual(call["model"], "meta-models/muse-spark-open")
+        self.assertEqual(call["max_tokens"], 512)
+        self.assertEqual(call["extra_body"], {"reasoning_effort": "low"})
+        content = call["messages"][0]["content"]
+        self.assertEqual(content[1]["type"], "image_url")
+
+    def test_verify_image_length_finish_is_exhaustion(self):
+        class LengthClient(FakeOpenAIClient):
+            def __init__(self):
+                self.calls = []
+                self.closed = False
+                completion = type("C", (), {})()
+                completion.choices = [FakeChoice("", finish_reason="length")]
+                self.chat = type("Chat", (), {
+                    "completions": type("Comp", (), {
+                        "create": lambda _s, **kw: self.calls.append(kw) or completion,
+                    })(),
+                })()
+                self.models = type("Models", (), {"list": lambda _s=None: []})()
+
+        adapter = BasetenAdapter(
+            model="meta-models/muse-spark-open",
+            api_key="k", client=LengthClient())
+        with self.assertRaises(VisionAPIError) as ctx:
+            adapter.verify_image()
+        self.assertEqual(ctx.exception.code, "output_exhausted")
+
+    def test_verify_image_no_choices_is_bad_response(self):
+        from ai_commentator.errors import ObservationError
+
+        class EmptyClient(FakeOpenAIClient):
+            def __init__(self):
+                self.calls = []
+                self.closed = False
+                completion = type("C", (), {})()
+                completion.choices = []
+                self.chat = type("Chat", (), {
+                    "completions": type("Comp", (), {
+                        "create": lambda _s, **kw: self.calls.append(kw) or completion,
+                    })(),
+                })()
+                self.models = type("Models", (), {"list": lambda _s=None: []})()
+
+        adapter = BasetenAdapter(
+            model="meta-models/muse-spark-open",
+            api_key="k", client=EmptyClient())
+        with self.assertRaises(ObservationError):
+            adapter.verify_image()
+
+    def test_legacy_model_id_is_normalized(self):
+        from ai_commentator.vision.providers import baseten as baseten_module
+
+        fake = FakeOpenAIClient(content="Red")
+        adapter = BasetenAdapter(
+            model=baseten_module.LEGACY_MODEL,
+            api_key="k", client=fake)
+        self.assertEqual(adapter.model, baseten_module.MODEL)
+        adapter.verify_image()
+        self.assertEqual(fake.calls[0]["model"], baseten_module.MODEL)
+
+    def test_registry_normalizes_legacy_baseten_model(self):
+        from ai_commentator.vision.providers import baseten as baseten_module
+        from ai_commentator.vision.providers.registry import (
+            resolve_provider_config,
+            validate_provider_model,
+        )
+
+        provider, model = validate_provider_model(
+            "baseten", baseten_module.LEGACY_MODEL)
+        self.assertEqual((provider, model), ("baseten", baseten_module.MODEL))
+        env = {
+            "BASETEN_API_KEY": "k",
+            "BASETEN_MODEL": baseten_module.LEGACY_MODEL,
+        }
+        with mock.patch.dict("os.environ", env, clear=True):
+            config = resolve_provider_config()
+        self.assertEqual(config["model"], baseten_module.MODEL)
 
 
 class MetaAdapterTests(unittest.TestCase):
@@ -228,6 +314,7 @@ class MetaAdapterTests(unittest.TestCase):
         self.assertEqual(seen["auth"], "Bearer meta-key")
         self.assertEqual(seen["body"]["model"], "muse-spark-1.3")
         self.assertFalse(seen["body"]["stream"])
+        self.assertEqual(seen["body"]["input"][0]["type"], "message")
         content = seen["body"]["input"][0]["content"]
         self.assertEqual(content[0]["type"], "input_text")
         self.assertEqual(content[1]["type"], "input_image")
@@ -267,6 +354,7 @@ class MetaAdapterTests(unittest.TestCase):
 
         def fake_urlopen(request, timeout=None):
             body = json.loads(request.data.decode("utf-8"))
+            assert body["input"][0]["type"] == "message"
             content = body["input"][0]["content"]
             assert content[1]["type"] == "input_image"
             return FakeHTTPResponse(make_response_payload("OK"))
@@ -274,6 +362,71 @@ class MetaAdapterTests(unittest.TestCase):
         with mock.patch.object(meta_module.urllib.request, "urlopen",
                                side_effect=fake_urlopen):
             adapter.verify_image()
+
+    def test_verify_image_allows_reasoning_headroom(self):
+        adapter = MetaAdapter(model="muse-spark-1.3", api_key="k")
+
+        def fake_urlopen(request, timeout=None):
+            body = json.loads(request.data.decode("utf-8"))
+            assert body["input"][0]["type"] == "message"
+            assert body["max_output_tokens"] == 512
+            assert body["reasoning"] == {"effort": "minimal"}
+            assert body["input"][0]["content"][1] == {
+                "type": "input_image",
+                "image_url": meta_module.VERIFY_IMAGE_DATA_URL,
+            }
+            return FakeHTTPResponse(make_response_payload("Red"))
+
+        with mock.patch.object(meta_module.urllib.request, "urlopen",
+                               side_effect=fake_urlopen):
+            adapter.verify_image()
+
+    def test_verify_connection_uses_typed_message(self):
+        adapter = MetaAdapter(model="muse-spark-1.3", api_key="k")
+        seen = {}
+
+        def fake_urlopen(request, timeout=None):
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return FakeHTTPResponse(make_response_payload("OK"))
+
+        with mock.patch.object(meta_module.urllib.request, "urlopen",
+                               side_effect=fake_urlopen):
+            adapter.verify_connection()
+        self.assertEqual(seen["body"]["input"][0]["type"], "message")
+        self.assertEqual(seen["body"]["reasoning"], {"effort": "minimal"})
+
+    def test_incomplete_budget_is_not_empty_response(self):
+        exhausted = {
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+            "output": [],
+        }
+        with self.assertRaises(VisionAPIError) as ctx:
+            meta_module.extract_output_text(exhausted)
+        self.assertEqual(ctx.exception.code, "output_exhausted")
+
+    def test_incomplete_other_reason_is_bad_response(self):
+        filtered = {
+            "status": "incomplete",
+            "incomplete_details": {"reason": "content_filter"},
+            "output": [],
+        }
+        with self.assertRaises(VisionAPIError) as ctx:
+            meta_module.extract_output_text(filtered)
+        self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_verify_image_reports_budget_exhaustion(self):
+        adapter = MetaAdapter(model="muse-spark-1.3", api_key="k")
+        body = {
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+            "output": [],
+        }
+        with mock.patch.object(meta_module.urllib.request, "urlopen",
+                               return_value=FakeHTTPResponse(body)):
+            with self.assertRaises(VisionAPIError) as ctx:
+                adapter.verify_image()
+        self.assertEqual(ctx.exception.code, "output_exhausted")
 
 
 class VerifyFixtureTests(unittest.TestCase):
@@ -323,7 +476,7 @@ class ProviderErrorTaxonomyTests(unittest.TestCase):
         for cls, code, status in cases:
             with self.subTest(cls=cls.__name__):
                 adapter = BasetenAdapter(
-                    model="meta-models/muse-spark-open-1026",
+                    model="meta-models/muse-spark-open",
                     api_key="k", client=FailingApiClient(cls, status=status))
                 with self.assertRaises(VisionAPIError) as ctx:
                     adapter.verify_connection()
@@ -335,14 +488,14 @@ class ProviderErrorTaxonomyTests(unittest.TestCase):
         from openai import APIConnectionError, APITimeoutError
 
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="k", client=FailingApiClient(APITimeoutError))
         with self.assertRaises(VisionAPIError) as ctx:
             adapter.verify_connection()
         self.assertEqual(ctx.exception.code, "timeout")
 
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="k", client=FailingApiClient(APIConnectionError))
         with self.assertRaises(VisionAPIError) as ctx:
             adapter.verify_connection()
@@ -351,7 +504,7 @@ class ProviderErrorTaxonomyTests(unittest.TestCase):
     def test_baseten_verify_image_asks_about_content(self):
         fake = FakeOpenAIClient(content="Red")
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="k", client=fake)
         adapter.verify_image()
         prompt = fake.calls[0]["messages"][0]["content"][0]["text"]
@@ -363,7 +516,7 @@ class ProviderErrorTaxonomyTests(unittest.TestCase):
     def test_baseten_verify_image_rejects_empty_answer(self):
         fake = FakeOpenAIClient(content="  ")
         adapter = BasetenAdapter(
-            model="meta-models/muse-spark-open-1026",
+            model="meta-models/muse-spark-open",
             api_key="k", client=fake)
         with self.assertRaises(ObservationError):
             adapter.verify_image()
@@ -458,9 +611,9 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(tuple(get_provider_models("meta")),
                          ("muse-spark-1.3", "muse-wonder-1.0"))
         self.assertEqual(tuple(get_provider_models("baseten")),
-                         ("meta-models/muse-spark-open-1026",))
+                         ("meta-models/muse-spark-open",))
         self.assertTrue(is_supported_model("meta", "muse-spark-1.3"))
-        self.assertFalse(is_supported_model("meta", "meta-models/muse-spark-open-1026"))
+        self.assertFalse(is_supported_model("meta", "meta-models/muse-spark-open"))
         self.assertFalse(is_supported_model("baseten", "muse-spark-1.3"))
         with self.assertRaises(ValueError):
             get_provider_models("openai")
@@ -469,7 +622,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_adapter("baseten", "muse-spark-1.3", "k")
         with self.assertRaises(ValueError):
-            create_adapter("meta", "meta-models/muse-spark-open-1026", "k")
+            create_adapter("meta", "meta-models/muse-spark-open", "k")
         with self.assertRaises(ValueError):
             create_adapter("openai", "x", "k")
 
@@ -486,7 +639,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_resolve_legacy_baseten_fallback(self):
         env = {"BASETEN_API_KEY": "legacy",
-               "BASETEN_MODEL": "meta-models/muse-spark-open-1026"}
+               "BASETEN_MODEL": "meta-models/muse-spark-open"}
         with mock.patch.dict(os.environ, env, clear=True):
             resolved = resolve_provider_config()
         self.assertEqual(resolved["provider"], "baseten")

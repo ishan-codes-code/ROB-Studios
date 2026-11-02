@@ -57,7 +57,7 @@ test('multiple credentials can share one provider', async (t) => {
   const dir = tempDir(t);
   makeCredential(dir, { name: 'Meta Personal' });
   makeCredential(dir, { name: 'Meta Hackathon', model: 'muse-wonder-1.0' });
-  makeCredential(dir, { name: 'Baseten Hackathon', provider: 'baseten', model: 'meta-models/muse-spark-open-1026' });
+  makeCredential(dir, { name: 'Baseten Hackathon', provider: 'baseten', model: 'meta-models/muse-spark-open' });
   const items = listCredentials(dir, storage());
   assert.equal(items.length, 3);
 });
@@ -142,6 +142,29 @@ test('secure storage unavailable fails every operation', async (t) => {
   const down = { isEncryptionAvailable: () => false };
   assert.throws(() => listCredentials(dir, down), /unavailable/);
   assert.throws(() => createCredential(dir, down, { name: 'X', provider: 'meta', model: 'muse-spark-1.3', key: 'k' }), /unavailable/);
+});
+
+test('retired Baseten model id normalizes and requires re-verification', async (t) => {
+  const dir = tempDir(t);
+  const created = makeCredential(dir, {
+    name: 'Baseten Old', provider: 'baseten',
+    model: 'meta-models/muse-spark-open-1026', key: 'k',
+  });
+  assert.equal(created.model, 'meta-models/muse-spark-open');
+  // A vault written before the rename claims verified for the retired id.
+  const raw = JSON.parse(fs.readFileSync(path.join(dir, 'provider-vault.json'), 'utf8'));
+  raw.credentials[0].model = 'meta-models/muse-spark-open-1026';
+  raw.credentials[0].verification = {
+    status: 'verified',
+    verifiedAt: new Date().toISOString(),
+    verifiedCredentialVersion: 1,
+    verifiedModel: 'meta-models/muse-spark-open-1026',
+  };
+  fs.writeFileSync(path.join(dir, 'provider-vault.json'), JSON.stringify(raw));
+  const items = listCredentials(dir, storage());
+  assert.equal(items.length, 1);
+  assert.equal(items[0].model, 'meta-models/muse-spark-open');
+  assert.equal(items[0].verification.status, 'unverified');
 });
 
 test('verification requires matching model and readable key', async (t) => {

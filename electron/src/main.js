@@ -88,6 +88,7 @@ function spawnSetup({ operation, provider, model, key }) {
               status: typeof result.status === 'number' ? result.status : null,
               provider: typeof result.provider === 'string' ? result.provider : null,
               operation: typeof result.operation === 'string' ? result.operation : null,
+              detail: typeof result.detail === 'string' ? result.detail.slice(0, 500) : null,
             });
           }
           return finish({ ok: false, error: 'Provider request failed. Check the URL, key, model, and provider compatibility.', code: 'unknown' });
