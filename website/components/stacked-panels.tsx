@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 // Keep long or accessibility-zoomed panels in ordinary document flow.
 export default function StackedPanels({ children }: { children: ReactNode }) {
   const panelsRef = useRef<HTMLDivElement>(null);
-  const [canStack, setCanStack] = useState(false);
+  const [stackingEnabled, setStackingEnabled] = useState(false);
 
   useEffect(() => {
     const panelsRoot = panelsRef.current;
@@ -20,14 +20,18 @@ export default function StackedPanels({ children }: { children: ReactNode }) {
 
     const measure = () => {
       const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      const fits =
-        window.innerWidth > 1024 &&
-        !reducedMotion.matches &&
-        panels.every(
-          (panel) => panel.getBoundingClientRect().height <= viewportHeight + 1
-        );
+      const shouldStack = window.innerWidth > 800 && !reducedMotion.matches;
 
-      setCanStack((current) => (current === fits ? current : fits));
+      panels.forEach((panel) => {
+        const fits =
+          shouldStack &&
+          panel.getBoundingClientRect().height <= viewportHeight + 1;
+        panel.dataset.sticky = fits ? "true" : "false";
+      });
+
+      setStackingEnabled((current) =>
+        current === shouldStack ? current : shouldStack
+      );
     };
 
     const observer =
@@ -52,7 +56,7 @@ export default function StackedPanels({ children }: { children: ReactNode }) {
   return (
     <div
       className="panel-stack"
-      data-stacking={canStack ? "enabled" : "disabled"}
+      data-stacking={stackingEnabled ? "enabled" : "disabled"}
       ref={panelsRef}
     >
       {children}
