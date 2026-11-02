@@ -1,5 +1,38 @@
 # Current state
 
+## Script-to-audio generation pipeline (M6, on `feature/tts-generation`, uncommitted)
+
+`run_generate_tts` (`python/ai_commentator/tts/runner.py`) reads the
+validated `script-v1` artifact (never modifies it), synthesizes each
+segment sequentially with the shared `GeminiTTSClient` (pinned model,
+voice `Kore`, unchanged voice direction), and writes
+`output/audio/segments/<segment-id>.wav` plus the versioned `tts-v1`
+manifest (`output/audio/tts.json`, see
+`docs/contracts/tts-v1.md`). Manifest validation lives in
+`python/ai_commentator/tts/manifest.py`; WAV bytes use the new atomic
+`write_bytes_atomic` storage helper.
+
+Failure handling is per segment: failures are recorded with redacted
+diagnostics, successes are preserved, and the run exits non-zero
+unless every entry succeeded (or the script was silent). Malformed
+scripts, `error`-status scripts, and filename collisions fail before
+any paid call; reruns re-synthesize everything (explicit policy, no
+resume). The TTS key arrives only via
+`AI_COMMENTATOR_PROVIDER_API_KEY`; Electron does not yet inject a
+vault TTS credential, so Electron-spawned runs cannot reach the stage
+until project TTS settings exist.
+
+Triggers: worker `--generate-tts` stage (requires `--with-script`,
+runs after script generation, fails fast without the TTS key) and
+`python/main.py --generate-tts` CLI mode over an existing script.
+`tts_say.py` is unchanged and still works. No Electron changes; no
+playback, mixing, retry, or concurrency work.
+
+Verification: new `tests/test_tts.py` (19 tests) plus 7 new
+`tests/test_worker.py` cases (flag validation, TTS key fail-fast,
+mocked `tts` stage success/failure), all offline with mocked
+synthesis. No live Gemini calls were made.
+
 ## Gemini TTS API configuration (credential setup milestone)
 
 The API Keys page includes a distinct Google Gemini TTS provider. TTS

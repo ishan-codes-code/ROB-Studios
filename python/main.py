@@ -147,10 +147,32 @@ from ai_commentator.state.match_state import (
 from ai_commentator.state.runner import run_state_rebuild
 from ai_commentator.storage import (
     copy_verified,
+    write_bytes_atomic,
     write_json_atomic,
     write_match_state,
     write_observation_json,
 )
+from ai_commentator.tts.client import GeminiTTSClient, TtsError, classify_tts_status
+from ai_commentator.tts.config import (
+    DEFAULT_TTS_MODEL,
+    DEFAULT_TTS_VOICE,
+    DEFAULT_TTS_VOICE_DIRECTION,
+    TTS_API_KEY_ENV_VAR,
+    TTS_AUDIO_DIRNAME,
+    TTS_ENTRY_STATUSES,
+    TTS_MANIFEST_FILENAME,
+    TTS_RUN_STATUSES,
+    TTS_SCHEMA_VERSION,
+    TTS_SEGMENTS_DIRNAME,
+    generation_identity,
+    validate_tts_config,
+)
+from ai_commentator.tts.manifest import (
+    build_tts_manifest,
+    tts_run_status,
+    validate_tts_manifest,
+)
+from ai_commentator.tts.runner import run_generate_tts, sanitize_segment_filename
 from ai_commentator.vision import adaptive as _adaptive
 from ai_commentator.vision.adaptive import StopToken, parse_max_frames_argument
 from ai_commentator.vision import batch as _vision_batch

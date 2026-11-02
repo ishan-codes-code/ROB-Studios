@@ -93,6 +93,13 @@ def build_parser() -> argparse.ArgumentParser:
         "model call).",
     )
     parser.add_argument(
+        "--generate-tts",
+        action="store_true",
+        help="Also synthesize commentary audio from the generated script "
+        "with Gemini TTS (paid, one request per segment; requires "
+        "--with-script).",
+    )
+    parser.add_argument(
         "--adaptive",
         action="store_true",
         help="Sample the video adaptively: one captured frame, one vision "
@@ -152,6 +159,10 @@ def plan_stages(args):
     ]
     if getattr(args, "with_script", False):
         plan.append(("script", "run"))
+    if getattr(args, "generate_tts", False):
+        if not getattr(args, "with_script", False):
+            raise ValueError("--generate-tts requires --with-script.")
+        plan.append(("tts", "run"))
     return plan
 
 
@@ -179,6 +190,14 @@ def require_key() -> str | None:
     return None
 
 
+def require_tts_key() -> str | None:
+    if os.environ.get(engine.TTS_API_KEY_ENV_VAR):
+        return None
+    return (
+        f"{engine.TTS_API_KEY_ENV_VAR} is not set in the environment."
+    )
+
+
 def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
     """Run every stage; return (exit_code, result_data)."""
     base = (
@@ -192,6 +211,8 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
     events_path = base / "events" / engine.EVENTS_FILENAME
     commentary_path = base / "commentary" / engine.COMMENTARY_FILENAME
     script_path = base / "script" / engine.SCRIPT_FILENAME
+    audio_dir = base / engine.TTS_AUDIO_DIRNAME
+    tts_path = audio_dir / engine.TTS_MANIFEST_FILENAME
 
     plan_list = plan_stages(args)
     plan = dict(plan_list)
@@ -320,6 +341,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
                 "events": 0,
                 "commentary_lines": 0,
                 "script": "skipped",
+                "tts": "skipped",
                 "status": "stopped",
                 "termination": adaptive_result["termination"],
                 "requests": adaptive_result["requests"],
@@ -336,6 +358,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
                         else None
                     ),
                     "script": None,
+                    "tts": None,
                     "manifest": str(adaptive_result["manifest"]),
                 },
             }
@@ -428,6 +451,42 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
         script_status = str(script_doc.get("status", "unknown"))
         complete("script", {"status": script_status})
 
+    # Commentary audio (paid, opt-in): synthesize the script's segments.
+    tts_status = "skipped"
+    if getattr(args, "generate_tts", False):
+        progress("tts")
+        with contextlib.redirect_stdout(sys.stderr):
+            code = engine.run_generate_tts(
+                script_path=script_path,
+                audio_dir=audio_dir,
+            )
+        if code != 0:
+            emit_error(
+                "tts",
+                "Commentary audio generation failed; see worker stderr.",
+            )
+            return 1, {}
+        tts_doc = read_json_summary(tts_path) or {}
+        tts_status = str(tts_doc.get("status", "unknown"))
+        tts_entries = tts_doc.get("entries", [])
+        if not isinstance(tts_entries, list):
+            tts_entries = []
+        complete(
+            "tts",
+            {
+                "status": tts_status,
+                "segments": len(tts_entries),
+                "succeeded": sum(
+                    1 for e in tts_entries
+                    if isinstance(e, dict) and e.get("status") == "success"
+                ),
+                "failed": sum(
+                    1 for e in tts_entries
+                    if isinstance(e, dict) and e.get("status") == "error"
+                ),
+            },
+        )
+
     data = {
         "video": str(video),
         "output_dir": str(base),
@@ -439,6 +498,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
         "events": len(events),
         "commentary_lines": len(lines),
         "script": script_status,
+        "tts": tts_status,
         "artifacts": {
             "state": str(state_path) if state_path.is_file() else None,
             "events": str(events_path) if events_path.is_file() else None,
@@ -446,6 +506,11 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
                 str(commentary_path) if commentary_path.is_file() else None
             ),
             "script": str(script_path) if args.with_script else None,
+            "tts": (
+                str(tts_path)
+                if getattr(args, "generate_tts", False)
+                else None
+            ),
         },
     }
     return 0, data
@@ -464,6 +529,12 @@ def main(argv: list[str] | None = None) -> int:
     if problem is not None:
         emit_error("validation", problem)
         return 2
+    if getattr(args, "generate_tts", False) and not getattr(args, "with_script", False):
+        emit_error(
+            "validation",
+            "--generate-tts requires --with-script.",
+        )
+        return 2
     key_problem = require_key()
     if key_problem is not None:
         # Fail fast before any paid call: report the missing key as
@@ -474,6 +545,11 @@ def main(argv: list[str] | None = None) -> int:
         key_problem = require_key()
         if key_problem is not None:
             emit_error("script", key_problem)
+            return 1
+    if getattr(args, "generate_tts", False):
+        tts_key_problem = require_tts_key()
+        if tts_key_problem is not None:
+            emit_error("tts", tts_key_problem)
             return 1
     try:
         # Engine diagnostics print to stderr from here on; protocol

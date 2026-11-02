@@ -45,6 +45,10 @@ Defined contracts:
   8b): natural paraphrase with deterministic grounding checks, explicit
   success/silence/error statuses, chronological segments with derived
   timestamps, and no template fallback.
+- [tts-v1.md](tts-v1.md) — the commentary audio manifest (roadmap
+  milestone M6): one WAV per script segment plus explicit per-entry
+  success/skipped/error outcomes, failure isolation, atomic output
+  layout, and the rerun policy.
 
 - [provider-vault-v1.md](provider-vault-v1.md) — named, encrypted,
   multi-credential provider storage owned by the Electron main

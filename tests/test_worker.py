@@ -68,6 +68,8 @@ def seed_observations(obs_dir, timestamps=(0, 3, 6)):
 def offline_env():
     env = dict(os.environ)
     env.pop("BASETEN_API_KEY", None)
+    env.pop("AI_COMMENTATOR_API_KEY", None)
+    env.pop("AI_COMMENTATOR_PROVIDER_API_KEY", None)
     return env
 
 
@@ -229,16 +231,79 @@ class WorkerCliTests(unittest.TestCase):
         self.assertNotIn(sentinel, proc.stdout)
         self.assertNotIn(sentinel, proc.stderr)
 
+    def test_generate_tts_requires_with_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            proc = run_worker(
+                str(video),
+                "--output-dir",
+                str(root / "out"),
+                "--adaptive",
+                "--generate-tts",
+            )
+        self.assertEqual(proc.returncode, 2)
+        messages = parse_stdout_lines(proc)
+        self.assertEqual(messages[0]["type"], "error")
+        self.assertEqual(messages[0]["stage"], "validation")
+        self.assertIn("--with-script", messages[0]["message"])
+
+    def test_missing_tts_key_fails_fast_before_any_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            out = root / "out"
+            env = offline_env()
+            env["BASETEN_API_KEY"] = "unit-test-sentinel-vision-key"
+            proc = run_worker(
+                str(video),
+                "--output-dir",
+                str(out),
+                "--adaptive",
+                "--with-script",
+                "--generate-tts",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 1)
+        messages = parse_stdout_lines(proc)
+        self.assertEqual(messages[0]["type"], "error")
+        self.assertEqual(messages[0]["stage"], "tts")
+        self.assertIn("AI_COMMENTATOR_PROVIDER_API_KEY", messages[0]["message"])
+        self.assertNotIn("unit-test-sentinel-vision-key", proc.stdout)
+        self.assertNotIn("unit-test-sentinel-vision-key", proc.stderr)
+        # Fail-fast: no output tree created.
+        self.assertFalse(out.exists())
+
+    def test_never_prints_tts_secret_values(self):
+        sentinel = "unit-test-sentinel-tts-credential"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            env = offline_env()
+            env["AI_COMMENTATOR_PROVIDER_API_KEY"] = sentinel
+            proc = run_worker(
+                str(video),
+                "--output-dir",
+                str(root / "out"),
+                "--adaptive",
+                "--generate-tts",
+                env=env,
+            )
+        self.assertEqual(proc.returncode, 2)
+        self.assertNotIn(sentinel, proc.stdout)
+        self.assertNotIn(sentinel, proc.stderr)
+
 class AdaptivePlanTests(unittest.TestCase):
     """Adaptive-only planning: pure plan, honest failure, no skips."""
 
-    def flags(self, adaptive=True, with_script=False):
+    def flags(self, adaptive=True, with_script=False, generate_tts=False):
         import types
 
         return types.SimpleNamespace(
             adaptive=adaptive,
             adaptive_max_frames=None,
             with_script=with_script,
+            generate_tts=generate_tts,
         )
 
     def test_plan_is_adaptive_with_downstream(self):
@@ -262,6 +327,14 @@ class AdaptivePlanTests(unittest.TestCase):
     def test_plan_appends_script_when_requested(self):
         plan = worker.plan_stages(self.flags(with_script=True))
         self.assertEqual(plan[-1], ("script", "run"))
+
+    def test_plan_appends_tts_after_script_when_requested(self):
+        plan = worker.plan_stages(self.flags(with_script=True, generate_tts=True))
+        self.assertEqual(plan[-2:], [("script", "run"), ("tts", "run")])
+
+    def test_plan_rejects_tts_without_script(self):
+        with self.assertRaises(ValueError):
+            worker.plan_stages(self.flags(generate_tts=True))
 
     def test_corrupt_observations_fail_state_rebuild(self):
         import io as std_io
@@ -460,6 +533,187 @@ class AdaptiveRunTests(unittest.TestCase):
         self.assertEqual(messages[0]["stage"], "adaptive_vision")
         self.assertIn("BASETEN_API_KEY", messages[0]["message"])
         self.assertFalse(out.exists())
+
+
+class TtsStageTests(unittest.TestCase):
+    """Worker TTS stage: runs after script generation, never before it.
+
+    Paid calls are never made here: the vision, script, and TTS runners
+    are all mocked; only the offline downstream stages run for real."""
+
+    def run_pipeline_quiet(self, args):
+        import io as std_io
+        import json as std_json
+
+        buffer = std_io.StringIO()
+        real = worker.REAL_STDOUT
+        worker.REAL_STDOUT = buffer
+        try:
+            code, data = worker.run_pipeline(args)
+        finally:
+            worker.REAL_STDOUT = real
+        messages = [std_json.loads(line) for line in buffer.getvalue().splitlines()]
+        return code, data, messages
+
+    def tts_args(self, video, out, **overrides):
+        import types
+
+        kwargs = {
+            "video": video,
+            "output_dir": out,
+            "adaptive": True,
+            "adaptive_max_frames": None,
+            "with_script": True,
+            "generate_tts": True,
+        }
+        kwargs.update(overrides)
+        return types.SimpleNamespace(**kwargs)
+
+    def fake_adaptive(self, obs_dir):
+        def run(**kwargs):
+            seed_observations(Path(obs_dir))
+            return {
+                "status": "succeeded",
+                "termination": "complete",
+                "observations": 3,
+                "requests": 2,
+                "manifest": None,
+            }
+
+        return run
+
+    def fake_script(self, **kwargs):
+        script_path = Path(kwargs["script_path"])
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "script-v1",
+                    "status": "success",
+                    "generated_from": {
+                        "observations": ["frame_00000.json"],
+                        "match_state": "match_state.json",
+                        "events": "events.json",
+                    },
+                    "segments": [
+                        {
+                            "segment_id": "segment-001",
+                            "timestamp_seconds": 0,
+                            "text": "A commentary line with enough words to validate.",
+                            "source_claim_ids": ["clm-000000000001"],
+                        }
+                    ],
+                    "omitted": [],
+                    "error": None,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return 0
+
+    def fake_tts_success(self, **kwargs):
+        audio_dir = Path(kwargs["audio_dir"])
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        manifest = worker.engine.build_tts_manifest(
+            generation_id="ab" * 32,
+            model=worker.engine.DEFAULT_TTS_MODEL,
+            voice=worker.engine.DEFAULT_TTS_VOICE,
+            voice_direction=worker.engine.DEFAULT_TTS_VOICE_DIRECTION,
+            script_name="script.json",
+            script_status="success",
+            entries=[
+                {
+                    "segment_id": "segment-001",
+                    "timestamp_seconds": 0,
+                    "text": "A commentary line with enough words to validate.",
+                    "source_claim_ids": ["clm-000000000001"],
+                    "audio_file": "segments/segment-001.wav",
+                    "status": "success",
+                    "error": None,
+                }
+            ],
+        )
+        (audio_dir / "tts.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return 0
+
+    def test_tts_stage_completes_pipeline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            out = root / "out"
+            with (
+                mock.patch.object(
+                    worker.engine,
+                    "run_adaptive_vision",
+                    side_effect=self.fake_adaptive(out / "observations"),
+                ),
+                mock.patch.object(
+                    worker.engine, "run_generate_script", side_effect=self.fake_script
+                ),
+                mock.patch.object(
+                    worker.engine, "run_generate_tts", side_effect=self.fake_tts_success
+                ),
+            ):
+                code, data, messages = self.run_pipeline_quiet(
+                    self.tts_args(str(video), str(out))
+                )
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                data["stages"],
+                [
+                    "adaptive_vision",
+                    "state_rebuild",
+                    "event_detection",
+                    "commentary",
+                    "script",
+                    "tts",
+                ],
+            )
+            self.assertEqual(data["tts"], "success")
+            self.assertTrue(Path(data["artifacts"]["tts"]).is_file())
+            totals = {
+                message["total"]
+                for message in messages
+                if message["type"] in ("progress", "stage_completed")
+            }
+            self.assertEqual(totals, {6})
+            completed = [
+                message
+                for message in messages
+                if message["type"] == "stage_completed" and message["stage"] == "tts"
+            ]
+            self.assertEqual(len(completed), 1)
+            self.assertEqual(
+                completed[0]["detail"],
+                {"status": "success", "segments": 1, "succeeded": 1, "failed": 0},
+            )
+
+    def test_tts_failure_fails_run_without_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            out = root / "out"
+            with (
+                mock.patch.object(
+                    worker.engine,
+                    "run_adaptive_vision",
+                    side_effect=self.fake_adaptive(out / "observations"),
+                ),
+                mock.patch.object(
+                    worker.engine, "run_generate_script", side_effect=self.fake_script
+                ),
+                mock.patch.object(worker.engine, "run_generate_tts", return_value=1),
+            ):
+                code, data, messages = self.run_pipeline_quiet(
+                    self.tts_args(str(video), str(out))
+                )
+        self.assertEqual(code, 1)
+        self.assertEqual(data, {})
+        errors = [m for m in messages if m["type"] == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["stage"], "tts")
+        self.assertFalse([m for m in messages if m["type"] == "result"])
+
 
 if __name__ == "__main__":
     unittest.main()

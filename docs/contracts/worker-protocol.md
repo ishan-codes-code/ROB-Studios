@@ -10,11 +10,12 @@ and the tests together.
 ## Transport
 
 - Command: `<repo>/.venv/bin/python python/worker.py VIDEO [--output-dir DIR]
-  --adaptive [--adaptive-max-frames N] [--with-script] [--generate-tts ...]`
+  --adaptive [--adaptive-max-frames N] [--with-script] [--generate-tts]`
   (Windows interpreter: `.venv/Scripts/python.exe`).
 - The video path is a positional argument. `--adaptive` is required:
   adaptive sampling is the only supported analysis mode; `--generate-tts`
-  runs text-to-speech from an existing script (see `docs/contracts/tts-v1.md`).
+  synthesizes commentary audio from the generated script (requires
+  `--with-script`; see `docs/contracts/tts-v1.md`).
 - **stdout carries only protocol messages**: one JSON object per line,
   newline-delimited (NDJSON). Engine diagnostics and legacy `print` output
   are redirected to **stderr** so stdout stays parseable even though the
@@ -40,7 +41,9 @@ and the tests together.
   ends its reader quietly on EOF. Nothing but `stop` version 1 may
   travel this channel: no paths, no shell, no code, no secrets.
 - The worker never prints secrets. `BASETEN_API_KEY` is read from the
-  environment and its value never appears in any message.
+  environment and its value never appears in any message. The TTS
+  stage reads its own key from `AI_COMMENTATOR_PROVIDER_API_KEY`
+  (see `docs/contracts/tts-v1.md`) and fails fast when it is absent.
 
 ## Messages
 
@@ -48,7 +51,7 @@ and the tests together.
 {"type": "started", "message": "Processing video clip.mp4"}
 {"type": "progress", "stage": "adaptive_vision", "completed": 0, "total": 4, "progress": 0}
 {"type": "stage_completed", "stage": "adaptive_vision", "completed": 1, "total": 4, "detail": {"observations": 3, "requests": 2, "termination": "complete"}}
-{"type": "result", "data": {"video": "/v/clip.mp4", "output_dir": "/o", "stages": ["adaptive_vision", "state_rebuild", "event_detection", "commentary"], "skipped": [], "mode": "adaptive", "frames": 0, "observations": 3, "events": 0, "commentary_lines": 1, "script": "skipped", "artifacts": {"state": "/o/observations/match_state.json", "events": "/o/events/events.json", "commentary": "/o/commentary/commentary.json", "script": null}}}
+{"type": "result", "data": {"video": "/v/clip.mp4", "output_dir": "/o", "stages": ["adaptive_vision", "state_rebuild", "event_detection", "commentary"], "skipped": [], "mode": "adaptive", "frames": 0, "observations": 3, "events": 0, "commentary_lines": 1, "script": "skipped", "tts": "skipped", "artifacts": {"state": "/o/observations/match_state.json", "events": "/o/events/events.json", "commentary": "/o/commentary/commentary.json", "script": null, "tts": null}}}
 {"type": "adaptive_sample", "data": {"timestamp": 12.5, "speed": "HIGH", "reason": "Fast motion.", "next_timestamp": 13.0, "observations": 3, "requests": 3}}
 {"type": "stopped", "data": {"status": "stopped", "termination": "stop-requested", "mode": "adaptive", "observations": 2, "requests": 2}}
 {"type": "error", "stage": "state_rebuild", "message": "State rebuild failed; see worker stderr."}
@@ -84,8 +87,11 @@ Message types:
   in order (always empty; the adaptive plan has no skip branches), run
   `mode` (`adaptive`), observed counts, the script status (`success`,
   `silence`, or `skipped` when the `--with-script` stage did not run),
-  and artifact paths (each `null` when the file was not produced).
-  `script` is `null` unless `--with-script` ran.
+  the TTS status (`success`, `partial`, `silence`, `error`, or `skipped`
+  when the `--generate-tts` stage did not run), and artifact paths
+  (each `null` when the file was not produced). `script` is `null`
+  unless `--with-script` ran; `tts` (the `tts-v1` manifest path) is
+  `null` unless `--generate-tts` ran.
 - `error` — terminal failure. `stage` names the failing phase
   (`validation`, a pipeline stage name, `spawn`, `protocol`, or `worker`);
   `message` is human-readable and never contains secrets. At most one
@@ -94,7 +100,8 @@ Message types:
 Stages, in order: `adaptive_vision` (paid), `state_rebuild`
 (offline), `event_detection` (offline), `commentary`
 (offline, deterministic wording), `script` (paid, only with
-`--with-script`). The plan is fixed (`plan_stages`): adaptive sampling
+`--with-script`), `tts` (paid, only with `--generate-tts`, which
+requires `--with-script`). The plan is fixed (`plan_stages`): adaptive sampling
 is the only supported analysis mode, so `frame_extraction` and batch
 `vision_analysis` never run and emit nothing. Corrupt observations
 still fail `state_rebuild`; nothing invalid is ever silently accepted.
@@ -189,6 +196,10 @@ dispatched as a final message.
   terminal, the adaptive protocol (including `adaptive_sample`
   emission), the iteration hook, and the engine stop boundaries —
   all offline with fixture videos and observations, never paid calls.
+  `tests/test_tts.py` covers the TTS runner and manifest (mocked
+  synthesis, per-segment failure isolation, redaction), and
+  `tests/test_worker.py` covers the `--generate-tts` flag validation,
+  TTS key fail-fast, and the `tts` worker stage.
 - `electron/test/` covers incremental parsing (split chunks, multiple
   messages per chunk, invalid lines), input validation, interpreter
   resolution, process cancel/cleanup, `adaptive_sample` shape validation,

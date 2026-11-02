@@ -48,6 +48,13 @@ def run_cli(engine, argv=None):
         "no template fallback).",
     )
     mode.add_argument(
+        "--generate-tts",
+        action="store_true",
+        help="Synthesize commentary audio from output/script/script.json "
+        "into output/audio/ with Gemini TTS (paid, opt-in; one request "
+        "per segment, sequential, no retries).",
+    )
+    mode.add_argument(
         "--adaptive",
         action="store_true",
         help="Sample the video adaptively: capture one frame at a time, "
@@ -91,6 +98,7 @@ def run_cli(engine, argv=None):
         or args.generate_commentary
         or args.commentary_write
         or args.generate_script
+        or args.generate_tts
         or args.adaptive
     )
     if args.video is not None and offline_mode and not args.adaptive:
@@ -99,7 +107,7 @@ def run_cli(engine, argv=None):
     # Resolve the output tree. None means "use the project-root defaults";
     # the runners below treat None as their standard locations.
     frames_dir = obs_dir = state_path = None
-    events_path = commentary_path = script_path = None
+    events_path = commentary_path = script_path = audio_dir = None
     if args.output_dir is not None:
         base = Path(args.output_dir)
         frames_dir = base / "frames"
@@ -108,6 +116,7 @@ def run_cli(engine, argv=None):
         events_path = base / "events" / engine.EVENTS_FILENAME
         commentary_path = base / "commentary" / engine.COMMENTARY_FILENAME
         script_path = base / "script" / engine.SCRIPT_FILENAME
+        audio_dir = base / engine.TTS_AUDIO_DIRNAME
     
     if args.migrate_observations:
         raise SystemExit(
@@ -162,6 +171,13 @@ def run_cli(engine, argv=None):
                 commentary_path=commentary_path,
                 script_path=script_path,
                 frames_dir=frames_dir,
+            )
+        )
+    elif args.generate_tts:
+        raise SystemExit(
+            engine.run_generate_tts(
+                script_path=script_path,
+                audio_dir=audio_dir,
             )
         )
     elif args.adaptive:

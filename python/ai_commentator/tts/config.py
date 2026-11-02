@@ -60,6 +60,16 @@ PREBUILT_VOICES = (
 TTS_MANIFEST_FILENAME = "tts.json"
 TTS_COMBINED_FILENAME = "combined.wav"
 
+TTS_SCHEMA_VERSION = "tts-v1"
+TTS_AUDIO_DIRNAME = "audio"
+TTS_SEGMENTS_DIRNAME = "segments"
+TTS_API_KEY_ENV_VAR = "AI_COMMENTATOR_PROVIDER_API_KEY"
+
+TTS_ENTRY_STATUSES = ("success", "skipped", "error")
+TTS_RUN_STATUSES = ("success", "partial", "silence", "error")
+
+TTS_MAX_ERROR_CHARS = 300
+
 
 def validate_tts_voice(voice: str) -> str:
     """Validate a voice identifier (prebuilt, library, or custom ID)."""
