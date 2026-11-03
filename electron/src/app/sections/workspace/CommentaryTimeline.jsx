@@ -12,9 +12,9 @@ import {
   WAVEFORM_VIEWBOX_HEIGHT,
   WAVEFORM_VIEWBOX_WIDTH,
 } from "@/lib/waveform.js";
+import { toast } from "sonner";
 import useCommentaryAudio from "@/hooks/useCommentaryAudio.js";
 import useCommentaryPlayback from "@/hooks/useCommentaryPlayback.js";
-import useProjectAudio from "@/hooks/useProjectAudio.js";
 
 const MIN_PX_PER_SEC = 6;
 const PLACEHOLDER_PEAKS = Array.from({ length: WAVEFORM_PEAK_COUNT }, () => 0.14);
@@ -71,8 +71,10 @@ function StatusTick({ leftPct, label, title, tone }) {
   );
 }
 
-export default function CommentaryTimeline({ projectId = null, videoRef = null, script = null, runStatus = "idle" }) {
-  const { audioFiles, ttsEntries, manifestInvalid } = useProjectAudio(projectId, script, runStatus);
+export default function CommentaryTimeline({ projectId = null, videoRef = null, script = null, runStatus = "idle", audio = null }) {
+  const audioFiles = audio?.audioFiles ?? [];
+  const ttsEntries = audio?.ttsEntries ?? null;
+  const manifestInvalid = audio?.manifestInvalid === true;
   const segments = useMemo(
     () => (Array.isArray(script?.segments) ? script.segments : []),
     [script],
@@ -202,20 +204,26 @@ export default function CommentaryTimeline({ projectId = null, videoRef = null, 
         setExportState((prev) => ({ ...prev, status: "exporting", percent }));
       } else if (event.phase === "done") {
         exportLiveRef.current = false;
+        const outputPath = typeof event.outputPath === "string" ? event.outputPath : null;
         setExportState({
           status: "done",
           percent: 100,
-          outputPath: typeof event.outputPath === "string" ? event.outputPath : null,
+          outputPath,
           error: null,
+        });
+        toast.success("Export complete", {
+          description: outputPath?.split(/[/\\]/).pop() ?? undefined,
         });
       } else if (event.phase === "error") {
         exportLiveRef.current = false;
+        const message = typeof event.error === "string" ? event.error : "Export failed.";
         setExportState({
           status: "error",
           percent: 0,
           outputPath: null,
-          error: typeof event.error === "string" ? event.error : "Export failed.",
+          error: message,
         });
+        toast.error("Export failed", { description: message });
       } else if (event.phase === "cancelled") {
         exportLiveRef.current = false;
         setExportState({ status: "idle", percent: 0, outputPath: null, error: null });

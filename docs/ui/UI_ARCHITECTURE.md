@@ -15,9 +15,14 @@ see [../architecture.md](../architecture.md) and
   navigation collapse is controlled by `App`, while inspector visibility is
   controlled at the workspace boundary and exposed in the header.
 - `electron/src/app/sections/workspace/` — `ProjectWorkspaceLayout` owns the
-  fixed editor grid and dock; `EditorCenter` owns preview/artifact tabs;
-  `ProcessingInspector` presents existing run state and project information;
-  `DockedWorkspace` hosts bottom-panel tabs (Audio only today).
+  editor flex row (central workspace plus a resizable, collapsible right
+  inspector with an accessible splitter); `EditorCenter` owns the always
+  visible preview, the bottom commentary timeline, and the Diagnostics
+  dialog; `ProcessingInspector` owns Processing/Script/Configure/Project
+  tabs; `ScriptPanel` renders the readable script list with compact audio
+  previews. `WorkspaceSection` runs one `useProjectAudio` discovery whose
+  result the timeline and script panel share, so both agree on every
+  segment's audio state.
 - `electron/src/primitives/` — `GlassPanel`, `GlassCard`, `StatusIndicator`.
 - `electron/src/app/sections/DashboardSection.jsx` — project creation,
   listing, opening, and deletion through the audited `window.api` bridge.
@@ -116,8 +121,10 @@ primitives. No section reaches past the layout layer into another section.
   All paths, validation, and atomic writes stay main-side — no
   filesystem access reaches the renderer. No other backend surface exists.
 - Project workspaces are fixed to the Electron viewport. Scroll stays within
-  the inspector, artifact view, or global library section. The dock uses a
-  fixed height because no panel-resizing dependency is installed.
+  the inspector, the diagnostics dialog, or the global library section. The
+  right inspector resizes through a dependency-free accessible splitter
+  (`role="separator"`, arrow-key support, 280–480px clamp in
+  `lib/inspector-width.js`); the preview consumes the remaining width.
 - Never invent worker data: unimplemented sections render honest empty
   states, never fake pipelines or mocked processing.
 - Event handling uses the shared `useWorkerStatus` hook (subscribe in

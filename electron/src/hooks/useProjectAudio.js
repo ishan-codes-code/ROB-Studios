@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 /**
  * Project audio discovery for commentary surfaces: the discovered WAV
@@ -60,5 +60,10 @@ export default function useProjectAudio(projectId, script, runStatus) {
     };
   }, [projectId, script, runStatus]);
 
-  return { audioFiles, ttsEntries, manifestInvalid };
+  // Stable identity: consumers memo their joins on this object, and the
+  // workspace re-renders on every worker message.
+  return useMemo(
+    () => ({ audioFiles, ttsEntries, manifestInvalid }),
+    [audioFiles, ttsEntries, manifestInvalid],
+  );
 }

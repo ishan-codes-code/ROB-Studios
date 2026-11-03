@@ -1,15 +1,20 @@
+import { useState } from "react";
 import { FolderOpen, Play, Sparkles } from "lucide-react";
+import { AutoHeight } from "@animate-ui/react/primitives/effects/auto-height";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
+import AITextLoading from "@/components/kokonutui/ai-text-loading.jsx";
 import RunPanel from "@/components/RunPanel.jsx";
 import StatusIndicator from "@/primitives/StatusIndicator.jsx";
 import ProjectConfiguration from "./ProjectConfiguration.jsx";
+import ScriptPanel from "./ScriptPanel.jsx";
 import { extensionOf, fileNameOf, formatBytes } from "@/lib/format.js";
 import { ADAPTIVE_DEFAULT_MAX_FRAMES, ADAPTIVE_HARD_MAX_FRAMES } from "@/lib/run-options.js";
+import { EASING, MOTION } from "@/lib/tokens.js";
 import { stageLabel } from "@/lib/worker-view.js";
 
 const RUN_STATUS = {
@@ -88,34 +93,42 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
 
   return (
     <div className="flex min-w-0 flex-col gap-3 p-3">
-      <section aria-label="Current processing status" className="flex min-w-0 flex-col gap-2">
-        <div className="flex min-w-0 items-center justify-between gap-2">
-          <SectionHeading>Run status</SectionHeading>
-          <StatusIndicator status={displayStatus.key} label={displayStatus.label} />
-        </div>
-        {run.status === "processing" && run.currentStage ? (
-          <div className="min-w-0 rounded-sm border border-border bg-background px-2.5 py-2">
-            <p className="text-[10px] text-subtle">Current stage</p>
-            <p className="mt-0.5 truncate text-[12px] font-medium text-foreground">
-              {stageLabel(run.currentStage)}
-            </p>
-            {run.totalStages > 0 ? (
-              <p className="mt-1 font-mono text-[10px] tabular-nums text-muted-foreground">
-                {run.completedCount} of {run.totalStages} stages complete
-              </p>
-            ) : null}
+      <AutoHeight
+        deps={[run.status, run.currentStage]}
+        transition={{ duration: MOTION.standard, ease: EASING.entrance }}
+        className="flex min-w-0 flex-col gap-2"
+      >
+        <section aria-label="Current processing status" className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <SectionHeading>Run status</SectionHeading>
+            <StatusIndicator status={displayStatus.key} label={displayStatus.label} />
           </div>
-        ) : null}
-      </section>
+          {run.status === "processing" && run.currentStage ? (
+            <div className="min-w-0 rounded-sm border border-border bg-background px-2.5 py-2">
+              <p className="text-[10px] text-subtle">Current stage</p>
+              <AITextLoading
+                texts={[stageLabel(run.currentStage)]}
+                label={`Current stage: ${stageLabel(run.currentStage)}`}
+                className="mt-0.5 w-full justify-start gap-0 overflow-hidden text-left text-[12px] font-medium text-foreground"
+              />
+              {run.totalStages > 0 ? (
+                <p className="mt-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+                  {run.completedCount} of {run.totalStages} stages complete
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
 
-      {interrupted ? (
-        <Alert>
-          <AlertTitle>Previous run was interrupted</AlertTitle>
-          <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
-            The application closed while this project was processing. Start a new run when ready.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+        {interrupted ? (
+          <Alert>
+            <AlertTitle>Previous run was interrupted</AlertTitle>
+            <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
+              The application closed while this project was processing. Start a new run when ready.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </AutoHeight>
 
       <Separator />
       <section aria-label="Processing stages" className="min-w-0">
@@ -321,15 +334,20 @@ export default function ProcessingInspector({
   setAdaptiveMaxFrames,
   requestTts,
   setRequestTts,
+  script = null,
+  runStatus = "idle",
+  audio = null,
   onStart,
   onCancel,
   onStop,
   onReadinessChange,
 }) {
+  const [tab, setTab] = useState("processing");
   return (
-    <Tabs defaultValue="processing" className="flex h-full min-h-0 min-w-0 flex-col gap-0 overflow-hidden bg-surface">
+    <Tabs value={tab} onValueChange={setTab} className="flex h-full min-h-0 min-w-0 flex-col gap-0 overflow-hidden bg-surface">
       <TabsList variant="line" aria-label="Inspector sections" className="h-10 w-full shrink-0 gap-1 rounded-none border-b border-border px-2 py-0">
         <TabsTrigger value="processing" className="h-9 flex-1 rounded-sm px-1.5 text-[10px]">Processing</TabsTrigger>
+        <TabsTrigger value="script" className="h-9 flex-1 rounded-sm px-1.5 text-[10px]">Script</TabsTrigger>
         <TabsTrigger value="configuration" className="h-9 flex-1 rounded-sm px-1.5 text-[10px]">Configure</TabsTrigger>
         <TabsTrigger value="project" className="h-9 flex-1 rounded-sm px-1.5 text-[10px]">Project</TabsTrigger>
       </TabsList>
@@ -349,6 +367,13 @@ export default function ProcessingInspector({
           onCancel={onCancel}
           onStop={onStop}
         />
+      </TabsContent>
+      <TabsContent
+        value="script"
+        forceMount
+        className={`m-0 min-h-0 min-w-0 flex-1 overflow-hidden outline-none ${tab === "script" ? "" : "hidden"}`}
+      >
+        <ScriptPanel projectId={project.id} script={script} runStatus={runStatus} audio={audio} />
       </TabsContent>
       <TabsContent value="configuration" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none">
         <ConfigurationContent

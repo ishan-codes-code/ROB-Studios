@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Toaster } from "@/components/ui/sonner.jsx";
 import AppLayout from "@/layout/AppLayout.jsx";
 import AppHeader from "@/layout/AppHeader.jsx";
 import Sidebar from "@/layout/Sidebar.jsx";
@@ -45,6 +46,9 @@ export default function App() {
   const [projectName, setProjectName] = useState(null);
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  // Sidebar state before the editor auto-collapsed it; restored when
+  // leaving the workspace so the toggle stays predictable.
+  const savedNavigationCollapsed = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -70,12 +74,24 @@ export default function App() {
     setWorkspaceId(null);
     setProjectName(null);
     setActiveSection("dashboard");
+    if (savedNavigationCollapsed.current !== null) {
+      setNavigationCollapsed(savedNavigationCollapsed.current);
+      savedNavigationCollapsed.current = null;
+    }
   }, []);
 
   const handleOpenProject = useCallback((id) => {
     setProjectName(null);
     setWorkspaceId(id);
     setActiveSection("editor");
+    // The editor gets the available width; the user can still reopen
+    // the sidebar manually, and leaving restores the previous state.
+    setNavigationCollapsed((current) => {
+      if (savedNavigationCollapsed.current === null) {
+        savedNavigationCollapsed.current = current;
+      }
+      return true;
+    });
   }, []);
 
   const handleProjectLoaded = useCallback((project) => {
@@ -87,6 +103,7 @@ export default function App() {
   }, [workspaceId]);
 
   return (
+    <>
     <AppLayout
       sidebar={
         <Sidebar
@@ -143,5 +160,7 @@ export default function App() {
         </motion.div>
       </AnimatePresence>
     </AppLayout>
+    <Toaster theme="dark" position="bottom-right" />
+    </>
   );
 }

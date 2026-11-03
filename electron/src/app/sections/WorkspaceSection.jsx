@@ -8,6 +8,7 @@ import {
   createInitialRunState,
 } from "@/lib/worker-view.js";
 import { ADAPTIVE_DEFAULT_MAX_FRAMES, RUN_MODES, buildProcessOptions, defaultRunMode, isAdaptiveMode } from "@/lib/run-options.js";
+import useProjectAudio from "@/hooks/useProjectAudio.js";
 import EditorCenter from "./workspace/EditorCenter.jsx";
 import ProcessingInspector from "./workspace/ProcessingInspector.jsx";
 import ProjectWorkspaceLayout from "./workspace/ProjectWorkspaceLayout.jsx";
@@ -43,6 +44,10 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   // mode change cannot rewire a live run's controls).
   const [runIsAdaptive, setRunIsAdaptive] = useState(false);
   const mountedRef = useRef(true);
+  // Single audio-discovery boundary for the editor: the commentary
+  // timeline and the inspector script panel join the same files and
+  // manifest entries, so both agree on every segment's state.
+  const audio = useProjectAudio(project?.id ?? null, run.script, run.status);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -277,7 +282,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       </Alert>
     </div>
   ) : (
-    <EditorCenter project={project} refreshSignal={run.status} script={run.script} runStatus={run.status} onBack={onBack} />
+    <EditorCenter project={project} refreshSignal={run.status} script={run.script} runStatus={run.status} audio={audio} onBack={onBack} />
   );
 
   const inspectorContent = project ? (
@@ -300,6 +305,9 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       setAdaptiveMaxFrames={setAdaptiveMaxFrames}
       requestTts={requestTts}
       setRequestTts={setRequestTts}
+      script={run.script}
+      runStatus={run.status}
+      audio={audio}
       onStart={handleStart}
       onCancel={handleCancel}
       onStop={handleStop}
@@ -316,9 +324,6 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       main={mainContent}
       inspector={inspectorContent}
       inspectorOpen={inspectorOpen}
-      projectId={project?.id ?? null}
-      script={run.script}
-      runStatus={run.status}
     />
   );
 }

@@ -191,7 +191,7 @@ export default function RunPanel({
         <p className="text-[13px] text-muted-foreground">
           Adaptive sampling stopped before completion. Validated
           observations and the run manifest are preserved; inspect them in
-          Artifacts.
+          Diagnostics.
         </p>
         <ResultRows result={run.result} />
       </>

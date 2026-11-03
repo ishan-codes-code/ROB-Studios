@@ -1,5 +1,41 @@
 # Current state
 
+## Editor workspace redesign (on `feature/tts-generation`, uncommitted)
+
+The Editor is now a three-region broadcast workspace: central gameplay
+preview (untouched `VideoPreview` behavior), the commentary timeline as
+the only bottom audio workspace (unchanged timing/playback/export
+architecture), and a resizable right inspector with
+Processing/Script/Configure/Project tabs. The Preview/Artifacts tabs and
+the bottom Audio/Script dock are removed (`DockedWorkspace.jsx`
+deleted); artifact browsing moved to a secondary Diagnostics dialog in
+the editor header (same `ArtifactBrowser` IPC/contracts, video pauses on
+open). The Script tab renders one readable list per segment — timestamp,
+text, TTS status, and a compact play/pause preview toggle only when a
+real WAV backs the row — reusing the shared `buildAudioRows` join and
+`projectMediaUrl` helper. Audio discovery runs once per workspace
+(`WorkspaceSection` owns `useProjectAudio`; the timeline and script
+panel share its result), so both surfaces always agree. The inspector
+splitter is dependency-free and accessible (`separator` role,
+arrow/Home/End keys, double-click reset, 280–480px clamp, collapse
+preserves tab state and scroll). Opening a project auto-collapses the
+left navigation and restores it on exit; the sidebar stays manually
+toggleable. New component usage: Sonner `Toaster` mounted once in `App`
+(export done/failed toasts), `AITextLoading` for the live stage name in
+the inspector, `AutoHeight` around the inspector status block. Animate
+UI base Tabs were deliberately not adopted (`@base-ui/react` is not
+installed; the existing shadcn Tabs are already Animate-UI powered) and
+`AILoadingState` was left out (the `RunPanel` stage list already shows
+the same real states). No Python, worker-protocol, schema, prompt,
+provider, IPC, or security changes.
+
+Verification: Electron suite 317 tests pass, 0 fail (offline,
+`node:test`, incl. new `inspector-width` clamp/step tests and the
+extended hook-import guard); renderer production build succeeds.
+Manually unverified: sidebar collapse/restore feel, splitter drag
+feel, dialog sizing on small windows, preview-audio overlap behavior,
+and reduced-motion walkthrough.
+
 ## MVP video export (uncommitted)
 
 The timeline header has an Export action that mixes timestamped

@@ -19,8 +19,13 @@ const COMPONENTS = [
   '../src/app/sections/TtsStudioSection.jsx',
   '../src/app/sections/tts-studio/VoicePicker.jsx',
   '../src/app/sections/tts-studio/PreviewPlayer.jsx',
+  '../src/app/sections/workspace/CommentaryTimeline.jsx',
+  '../src/app/sections/workspace/EditorCenter.jsx',
   '../src/app/sections/workspace/ProcessingInspector.jsx',
   '../src/app/sections/workspace/ProjectConfiguration.jsx',
+  '../src/app/sections/workspace/ProjectWorkspaceLayout.jsx',
+  '../src/app/sections/workspace/ScriptPanel.jsx',
+  '../src/app/sections/workspace/VideoPreview.jsx',
   '../src/layout/Sidebar.jsx',
 ];
 
@@ -30,6 +35,29 @@ function checkFile(relative) {
   const imported = new Set(
     importMatch ? importMatch[1].split(',').map((entry) => entry.trim()).filter(Boolean) : [],
   );
+  // Project hooks (useProjectAudio, …) imported from app modules satisfy
+  // the guard the same way react imports do; only a hook with no import
+  // at all is still reported.
+  const namedPattern = /import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
+  let named;
+  while ((named = namedPattern.exec(source)) !== null) {
+    if (named[2] === 'react') {
+      continue;
+    }
+    for (const entry of named[1].split(',')) {
+      const name = entry.trim().split(/\s+as\s+/).pop().trim();
+      if (/^use[A-Z]/.test(name)) {
+        imported.add(name);
+      }
+    }
+  }
+  const defaultPattern = /import\s+([A-Za-z_$][\w$]*)\s*(?:,\s*\{[^}]*\})?\s*from\s*["']([^"']+)["']/g;
+  let direct;
+  while ((direct = defaultPattern.exec(source)) !== null) {
+    if (direct[2] !== 'react' && /^use[A-Z]/.test(direct[1])) {
+      imported.add(direct[1]);
+    }
+  }
   const namespaced = /import\s+React[,\s]/.test(source);
   const calls = new Set();
   const callPattern = /use[A-Z][A-Za-z]*(?=\s*\()/g;
