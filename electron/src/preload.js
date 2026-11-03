@@ -20,8 +20,12 @@ contextBridge.exposeInMainWorld('api', {
   setCredentialKey: (id, key) => ipcRenderer.invoke('credential-set-key', id, key),
   setCredentialModel: (id, model) => ipcRenderer.invoke('credential-set-model', id, model),
   removeCredential: (id) => ipcRenderer.invoke('credential-remove', id),
+  getDevBypass: () => ipcRenderer.invoke('dev-bypass-get'),
+  setDevBypass: (enabled) => ipcRenderer.invoke('dev-bypass-set', enabled === true),
   testCredential: (id) => ipcRenderer.invoke('credential-test', id),
   verifyCredential: (id) => ipcRenderer.invoke('credential-verify', id),
+  setCredentialEndpoint: (id, baseUrl) => ipcRenderer.invoke('credential-set-endpoint', id, baseUrl),
+  discoverCustomModels: (input) => ipcRenderer.invoke('custom-models', input ?? {}),
   providerModels: (providerId) => ipcRenderer.invoke('provider-models', providerId),
   listGameProfiles: () => ipcRenderer.invoke('game-profile-list'),
   createGameProfile: (input) => ipcRenderer.invoke('game-profile-create', input),
@@ -32,8 +36,15 @@ contextBridge.exposeInMainWorld('api', {
   updatePreset: (id, patch) => ipcRenderer.invoke('preset-update', id, patch),
   duplicatePreset: (id, name) => ipcRenderer.invoke('preset-duplicate', id, name ?? null),
   deletePreset: (id) => ipcRenderer.invoke('preset-delete', id),
+  listPromptPacks: () => ipcRenderer.invoke('prompt-pack-list'),
+  setPromptField: (packId, field, text) => ipcRenderer.invoke('prompt-pack-set', packId, field, text),
+  resetPromptPack: (packId) => ipcRenderer.invoke('prompt-pack-reset', packId),
   getProjectConfig: (projectId) => ipcRenderer.invoke('project-config-get', projectId),
   setProjectConfig: (projectId, configuration) => ipcRenderer.invoke('project-config-set', projectId, configuration),
+  getTtsCatalog: () => ipcRenderer.invoke('tts-catalog'),
+  getTtsConfig: (projectId) => ipcRenderer.invoke('tts-config-get', projectId ?? null),
+  setTtsConfig: (input) => ipcRenderer.invoke('tts-config-set', input),
+  previewTts: (input) => ipcRenderer.invoke('tts-preview', input),
   providerSetup: (operation, settings) => ipcRenderer.invoke('provider-setup', operation, settings),
   selectVideo: () => ipcRenderer.invoke('select-video'),
   listProjects: () => ipcRenderer.invoke('list-projects'),
@@ -52,5 +63,15 @@ contextBridge.exposeInMainWorld('api', {
     const listener = (_event, message) => callback(message);
     ipcRenderer.on('worker-event', listener);
     return () => ipcRenderer.removeListener('worker-event', listener);
+  },
+  exportVideo: (projectId, rows) => ipcRenderer.invoke('export-video', projectId, rows),
+  cancelExport: () => ipcRenderer.invoke('cancel-export'),
+  onExportEvent: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('callback must be a function.');
+    }
+    const listener = (_event, message) => callback(message);
+    ipcRenderer.on('export-event', listener);
+    return () => ipcRenderer.removeListener('export-event', listener);
   },
 });

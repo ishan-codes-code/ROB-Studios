@@ -58,9 +58,13 @@ export default function PreferencesSection() {
     setError("");
     setNotice("");
     try {
+      const replay = settings.onboardingCompleted;
       const result = await window.api.saveSettings({
         ...settings,
         onboardingCompleted: !settings.onboardingCompleted,
+        // Replaying starts the wizard from the welcome step; the saved
+        // vault credential (if any) is adopted, never duplicated.
+        ...(replay ? { onboarding: { step: 0, credentialId: settings.onboarding?.credentialId ?? null } } : {}),
       });
       if (!result?.ok) throw new Error("Could not save preferences.");
       setSettings(result.settings);
@@ -79,10 +83,9 @@ export default function PreferencesSection() {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-8">
       <div className="min-w-0">
-        <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">Preferences</h1>
+        <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">General</h1>
         <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
-          Application preferences. API configurations live under API Keys; game profiles and
-          commentary presets live under Games &amp; Prompts.
+          Application preferences. Providers live under AI Providers, styles under Game Profiles and Commentary Presets.
         </p>
       </div>
 

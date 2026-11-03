@@ -1,11 +1,14 @@
 # Provider vault v1
 
 Named, encrypted, multi-credential provider storage owned by the Electron
-main process. The curated catalogue supports `meta` (Meta Model API),
-`baseten` (Baseten), and `google-gemini-tts` (Google Gemini TTS). There
-are no generic endpoints, no user-editable
-base URLs, and no arbitrary model IDs — see
-`electron/src/provider-catalog.mjs` for the curated catalogue.
+main process. The catalogue supports `meta` (Meta Model API) and
+`baseten` (Baseten) with pinned endpoints and curated models,
+`google-gemini-tts` (Google Gemini TTS, speech only), and `custom`
+(a user-configured OpenAI-compatible endpoint with a per-record
+validated base URL and an explicit model ID — see
+[ADR 0014](../decisions/0014-custom-openai-compatible-provider.md)).
+There are no interchangeable base URLs: curated records reject the
+endpoint field, and custom records always carry their own.
 
 ## Files (under Electron `userData`)
 
@@ -36,6 +39,12 @@ base URLs, and no arbitrary model IDs — see
 }
 ```
 
+Custom records add a non-secret `baseUrl` field (public HTTPS,
+validated at write time and re-validated at every use; local and
+private-network targets are rejected). Curated records must not carry
+it. The public shape exposes `baseUrl` for custom records (`null`
+otherwise) so the UI can show which host a key belongs to.
+
 Google Gemini TTS records use `purpose: "tts"` and `model: null`; no fake
 Vision model is stored. Their verification records use a null
 `verifiedModel` and remain scoped to the exact credential version. Existing
@@ -45,20 +54,26 @@ TTS records cannot be selected for project Vision processing.
 `credentialVersion` increments on every key replacement.
 For Vision credentials, `verification.status` is `verified` only after an
 explicit user-initiated image-input check for that exact credential-version/
-model pair. For TTS credentials, it is verified only after the separate
+model pair — plus the exact endpoint for custom records
+(`verifiedBaseUrl`). For TTS credentials, it is verified only after the separate
 Google authentication and TTS model-metadata check succeeds. That check does
-not generate speech and does not prove inference entitlement. Changing a key
-or Vision model resets verification. Verification is never inferred from
-catalogue membership and never runs in the background or at launch.
+not generate speech and does not prove inference entitlement. Changing a key,
+Vision model, or custom endpoint resets verification. Verification is never
+inferred from catalogue membership or discovery results and never runs in
+the background or at launch.
 
 ## Operations (main-process IPC)
 
-Create, list, rename, set-key, set-model, test-connection,
-verify-image / verify-TTS-authentication, delete. The renderer receives
+Create, list, rename, set-key, set-model, set-endpoint (custom only),
+test-connection, verify-image / verify-TTS-authentication, custom model
+discovery (`custom-models`, by saved credential or one-shot
+endpoint+key during creation), delete. The renderer receives
 only the public shape plus `keyAvailable` (whether the ciphertext exists
 and decrypts), purpose, and provider display name. There is no read/reveal operation: key entry is
 write-only, and saved keys render as "Credential stored securely" (or
-"Key unreadable" when decryption fails).
+"Key unreadable" when decryption fails). Discovery returns id-only
+entries marked `unverified`; endpoints without listing report
+`discovery_unsupported` so the UI offers manual model entry.
 
 ## Security rules
 
@@ -70,7 +85,18 @@ write-only, and saved keys render as "Credential stored securely" (or
   renderer state.
 - Deleting a credential referenced by any project is refused with the
   referencing project names; the caller must reassign those projects
-  first. There is no silent substitution of another key — ever.
+  first. This covers TTS references too: a project TTS override or the
+  global TTS default blocks deletion until reassigned. There is no
+  silent substitution of another key — ever.
+- TTS runs and previews resolve the key main-side from the selected
+  purpose-`tts` record and hand it to Python exclusively through the
+  `AI_COMMENTATOR_PROVIDER_API_KEY` child environment (see
+  `tts-studio-v1.md`), beside — never mixed with — the vision key.
+- TEMPORARY development-only exception: in unpackaged builds only,
+  an explicit user opt-in permits memory-held credentials
+  (`devOnly`) while OS encryption is unavailable. They never touch
+  disk, clear on disable and quit, and production builds reject the
+  bypass entirely. Secure storage stays preferred whenever available.
 
 ## Migration
 

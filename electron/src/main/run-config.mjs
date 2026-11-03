@@ -17,6 +17,9 @@ import {
   DEFAULT_GAME_PROFILE_ID,
 } from '../game-store.mjs';
 import { getProviderBaseUrl } from '../provider-catalog.mjs';
+import { buildPackSnapshot } from '../prompt-packs.mjs';
+import { loadSettings } from '../settings-store.mjs';
+import { resolveTtsConfig } from '../tts-config.mjs';
 
 /**
  * Resolve `{ provider, model, apiKey, baseUrl, preferences,
@@ -24,9 +27,10 @@ import { getProviderBaseUrl } from '../provider-catalog.mjs';
  * errors that the IPC handler returns directly: missing selection,
  * missing or unreadable credential, or unknown game/prompt references.
  * `verified` reports image-input verification; paid runs require it.
- * Never silently substitutes another key.
+ * Never silently substitutes another key. `packsFactory` may be null
+ * when the prompt-pack probe is unavailable (Python backstops).
  */
-export function resolveProjectRunConfig(userDataPath, safeStorage, projectId) {
+export function resolveProjectRunConfig(userDataPath, safeStorage, projectId, packsFactory = null) {
   if (typeof projectId !== 'string' || projectId === '') {
     throw new Error('Project not found.');
   }
@@ -68,14 +72,84 @@ export function resolveProjectRunConfig(userDataPath, safeStorage, projectId) {
       'The selected game profile or commentary preset is missing. Choose another configuration.',
     );
   }
+  try {
+    preferences.promptPack = buildPackSnapshot(
+      userDataPath, packsFactory, config.promptPackId ?? null,
+    );
+  } catch {
+    throw new Error(
+      'The selected prompt pack is invalid. Choose another pack.',
+    );
+  }
+  let baseUrl;
+  try {
+    baseUrl = getProviderBaseUrl(resolved.provider, resolved.record);
+  } catch {
+    throw new Error(
+      'The selected API configuration has an invalid endpoint URL. Update the endpoint.',
+    );
+  }
   return {
     provider: resolved.provider,
     model: resolved.model,
     apiKey: resolved.apiKey,
-    baseUrl: getProviderBaseUrl(resolved.provider),
+    baseUrl,
     preferences,
     credentialName: resolved.record.name,
     verified,
+  };
+}
+
+/**
+ * Resolve `{ config, apiKey, credentialName }` for a project's TTS run.
+ * `catalog` is the validated backend catalogue. The voice triple follows
+ * project override > global default > application default; the key comes
+ * from the resolved TTS credential only. Throws secret-free, actionable
+ * errors: no credential selected, missing/unreadable credential,
+ * wrong-purpose credential, or unverified credential. Never silently
+ * substitutes another key or voice.
+ */
+export function resolveTtsRunConfig(userDataPath, safeStorage, projectId, catalog) {
+  if (typeof projectId !== 'string' || projectId === '') {
+    throw new Error('Project not found.');
+  }
+  let project;
+  try {
+    project = getProject(userDataPath, projectId);
+  } catch {
+    throw new Error('Project not found.');
+  }
+  const settings = loadSettings(userDataPath);
+  const resolved = resolveTtsConfig({
+    catalog,
+    globalTts: settings.tts ?? null,
+    projectTts: project.configuration?.tts ?? null,
+  });
+  if (resolved.credentialId === null) {
+    throw new Error(
+      'This project has no TTS credential selected. Choose one in the TTS Studio.',
+    );
+  }
+  let credential;
+  try {
+    credential = getCredentialForRun(userDataPath, safeStorage, resolved.credentialId);
+  } catch {
+    throw new Error(
+      'The selected TTS credential is missing or unreadable. Choose another TTS credential.',
+    );
+  }
+  if (credential.record.purpose !== 'tts') {
+    throw new Error('The selected credential is not a TTS credential. Choose a TTS credential.');
+  }
+  if (!isCredentialVerifiedForRun(credential.record)) {
+    throw new Error(
+      'The selected TTS credential is not verified. Verify it under AI Providers first.',
+    );
+  }
+  return {
+    config: resolved.config,
+    apiKey: credential.apiKey,
+    credentialName: credential.record.name,
   };
 }
 

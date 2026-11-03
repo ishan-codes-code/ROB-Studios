@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { registerProcessingIpc } from '../src/main/ipc/processing.js';
 import { createProject, getProject, updateProject } from '../src/project-store.mjs';
-import { createCredential, markCredentialVerified } from '../src/credentials-store.mjs';
+import { createCredential, markCredentialVerified, setDevBypassEnabled } from '../src/credentials-store.mjs';
 
 // Real repo root so resolvePythonExecutable/resolveWorkerScript find the
 // checked-in .venv layout and worker script; the fake manager never spawns.
@@ -38,7 +38,7 @@ const testSafeStorage = {
   decryptString: (buf) => Buffer.from(String(buf == null ? '' : buf).replace(/^enc:/, ''), 'base64').toString('utf8'),
 };
 
-function setup(t, { requestStopResult } = {}) {
+function setup(t, { requestStopResult, ttsCatalog = null, safeStorage = testSafeStorage } = {}) {
   const userData = makeUserData(t);
   const handlers = {};
   const ipcMain = {
@@ -73,23 +73,32 @@ function setup(t, { requestStopResult } = {}) {
     app,
     dialog,
     fs: fakeFs,
-    safeStorage: testSafeStorage,
+    safeStorage,
     workerManager,
     state,
     repoRoot: () => repoRoot,
     sendWorkerEvent: (message) => events.push(message),
     getMainWindow: () => null,
+    ttsCatalogLoader: ttsCatalog ? { load: async () => ttsCatalog, reset: () => {} } : null,
   });
   return { userData, handlers, workerManager, state, events, getStart: () => captured };
 }
 
 async function startRun(t, setupResult, videoPath, options) {
   const video = videoPath ?? makeFixtureVideo(path.join(setupResult.userData, 'incoming'));
+  // Every run is paid now: select a verified vault credential so the
+  // fake manager (which never spawns) starts the job. No request can
+  // leave the machine.
+  startRun.credentialCounter = (startRun.credentialCounter ?? 0) + 1;
+  const credential = createCredential(setupResult.userData, testSafeStorage, {
+    name: `Stop Test ${startRun.credentialCounter}`, provider: 'meta', model: 'muse-spark-1.3', key: 'test-dummy-key',
+  });
+  markCredentialVerified(setupResult.userData, testSafeStorage, credential.id, credential.model);
   const project = createProject(setupResult.userData, { name: 'stop test', sourcePath: video });
-  // ipcMain passes the event first; skipVision keeps the test independent
-  // of any ambient BASETEN_API_KEY.
+  updateProject(setupResult.userData, project.id, { configuration: { credentialId: credential.id } });
+  // ipcMain passes the event first.
   const started = await setupResult.handlers['process-video'](
-    {}, video, { skipVision: true, projectId: project.id, ...(options ?? {}) },
+    {}, video, { adaptive: true, projectId: project.id, ...(options ?? {}) },
   );
   assert.equal(started.ok, true);
   // Mirror the renderer: a started run marks its project processing, which
@@ -198,6 +207,27 @@ test('quitting still settles as interrupted after a stop', async (t) => {
   assert.equal(getProject(s.userData, projectId).processingStatus, 'interrupted');
 });
 
+test('a custom-endpoint run injects the saved endpoint URL only', async (t) => {
+  const s = setup(t);
+  const credential = createCredential(s.userData, testSafeStorage, {
+    name: 'Gateway Test', provider: 'custom', model: 'qwen-vl', key: 'test-dummy-key',
+    baseUrl: 'https://llm.example.com/v1',
+  });
+  markCredentialVerified(s.userData, testSafeStorage, credential.id, credential.model, credential.baseUrl);
+  const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+  const draft = createProject(s.userData, { name: 'custom test', sourcePath: video });
+  updateProject(s.userData, draft.id, { configuration: { credentialId: credential.id } });
+  const started = await s.handlers['process-video'](
+    {}, video, { projectId: draft.id, adaptive: true, adaptiveMaxFrames: 5 },
+  );
+  assert.equal(started.ok, true);
+  const start = s.getStart();
+  assert.equal(start.env?.AI_COMMENTATOR_PROVIDER, 'custom');
+  assert.equal(start.env?.AI_COMMENTATOR_BASE_URL, 'https://llm.example.com/v1');
+  assert.equal(start.argv.includes('test-dummy-key'), false);
+  assert.equal(JSON.stringify(start.argv).includes('llm.example.com'), false);
+});
+
 test('an adaptive run carries sampling bounds and settles stopped', async (t) => {
   const s = setup(t);
   // Paid project runs use the project's selected vault credential -
@@ -222,6 +252,7 @@ test('an adaptive run carries sampling bounds and settles stopped', async (t) =>
   assert.equal(start.env?.AI_COMMENTATOR_PROVIDER, 'meta');
   assert.equal(start.env?.AI_COMMENTATOR_MODEL, 'muse-spark-1.3');
   assert.equal(start.env?.AI_COMMENTATOR_API_KEY, 'test-dummy-key');
+  assert.equal(start.env?.AI_COMMENTATOR_BASE_URL, undefined);
   const flagAt = start.argv.indexOf('--adaptive-max-frames');
   assert.notEqual(flagAt, -1);
   assert.equal(start.argv[flagAt + 1], '5');
@@ -242,6 +273,43 @@ test('an adaptive run carries sampling bounds and settles stopped', async (t) =>
   assert.equal(getProject(s.userData, projectId).processingStatus, 'stopped');
 });
 
+test('an unlimited adaptive run omits the max-frames flag', async (t) => {
+  for (const adaptiveMaxFrames of [null, undefined]) {
+    const s = setup(t);
+    const credential = createCredential(s.userData, testSafeStorage, {
+      name: 'Meta Test', provider: 'meta', model: 'muse-spark-1.3', key: 'test-dummy-key',
+    });
+    markCredentialVerified(s.userData, testSafeStorage, credential.id, credential.model);
+    const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+    const draft = createProject(s.userData, { name: 'unlimited test', sourcePath: video });
+    updateProject(s.userData, draft.id, { configuration: { credentialId: credential.id } });
+    const started = await s.handlers['process-video'](
+      {}, video, { projectId: draft.id, adaptive: true, adaptiveMaxFrames },
+    );
+    assert.equal(started.ok, true);
+    const start = s.getStart();
+    assert.ok(start.argv.includes('--adaptive'));
+    assert.equal(start.argv.includes('--adaptive-max-frames'), false);
+  }
+});
+
+test('an over-cap adaptive bound is rejected before spawning', async (t) => {
+  const s = setup(t);
+  const credential = createCredential(s.userData, testSafeStorage, {
+    name: 'Meta Test', provider: 'meta', model: 'muse-spark-1.3', key: 'test-dummy-key',
+  });
+  markCredentialVerified(s.userData, testSafeStorage, credential.id, credential.model);
+  const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+  const draft = createProject(s.userData, { name: 'over-cap test', sourcePath: video });
+  updateProject(s.userData, draft.id, { configuration: { credentialId: credential.id } });
+  const started = await s.handlers['process-video'](
+    {}, video, { projectId: draft.id, adaptive: true, adaptiveMaxFrames: 10001 },
+  );
+  assert.equal(started.ok, false);
+  assert.match(started.error ?? '', /positive integer/);
+  assert.equal(s.getStart(), null);
+});
+
 test('a paid project run without a selected credential fails closed', async (t) => {
   const s = setup(t);
   const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
@@ -260,4 +328,154 @@ test('stop-request IPC acceptance does not settle the run by itself', async (t) 
   assert.deepEqual(accepted, { ok: true, requested: true, reason: 'stop-requested' });
   // No run exists, so nothing settled: acceptance is not completion.
   assert.equal(s.state.activeProjectId, null);
+});
+
+const TTS_CATALOG = {
+  models: [
+    { id: 'gemini-3.8-flash-tts', description: '' },
+    { id: 'gemini-3.8-flash-lite-tts', description: '' },
+  ],
+  voices: [{ id: 'Kore', character: '' }, { id: 'Fenrir', character: '' }],
+  defaults: { model: 'gemini-3.8-flash-tts', voice: 'Kore', voiceDirection: 'Default style.' },
+  limits: { voiceMaxLength: 64, voiceDirectionMaxLength: 500 },
+};
+
+function seedTtsProject(userData, { voice = null } = {}) {
+  const vision = createCredential(userData, testSafeStorage, {
+    name: 'Vision', provider: 'meta', model: 'muse-spark-1.3', key: 'vision-run-key',
+  });
+  markCredentialVerified(userData, testSafeStorage, vision.id, vision.model);
+  const tts = createCredential(userData, testSafeStorage, {
+    name: 'TTS', provider: 'google-gemini-tts', model: null, key: 'tts-run-key',
+  });
+  markCredentialVerified(userData, testSafeStorage, tts.id, null);
+  const video = makeFixtureVideo(path.join(userData, 'incoming'));
+  const project = createProject(userData, { name: 'tts run', sourcePath: video });
+  updateProject(userData, project.id, {
+    configuration: {
+      credentialId: vision.id,
+      tts: { voice, voiceDirection: null, model: null, credentialId: tts.id },
+    },
+  });
+  return project;
+}
+
+test('TTS run passes resolved config argv and injects the vault key only', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData, { voice: 'Fenrir' });
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    {
+      projectId: project.id, adaptive: true, withScript: true, requestTts: true,
+      // Renderer-supplied TTS values must never reach the worker.
+      generateTts: false, ttsVoice: 'Evil', ttsModel: 'evil-model', ttsVoiceDirection: 'evil',
+    },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.ok(argv.includes('--with-script'));
+  assert.ok(argv.includes('--generate-tts'));
+  const valueOf = (flag) => argv[argv.indexOf(flag) + 1];
+  assert.equal(valueOf('--tts-model'), 'gemini-3.8-flash-tts');
+  assert.equal(valueOf('--tts-voice'), 'Fenrir');
+  assert.equal(valueOf('--tts-voice-direction'), 'Default style.');
+  assert.equal(argv.join(' ').includes('Evil'), false);
+  assert.equal(env.AI_COMMENTATOR_PROVIDER_API_KEY, 'tts-run-key');
+  assert.equal(env.AI_COMMENTATOR_API_KEY, 'vision-run-key');
+});
+
+test('streaming run passes the streaming flag', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData);
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    { projectId: project.id, adaptive: true, streaming: true },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.ok(argv.includes('--streaming'));
+  assert.ok(argv.includes('--adaptive'));
+  assert.equal(argv.includes('--generate-tts'), false);
+  assert.equal('AI_COMMENTATOR_PROVIDER_API_KEY' in env, false);
+});
+
+test('streaming run unlocks TTS without the sequential script flag', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData, { voice: 'Fenrir' });
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    { projectId: project.id, adaptive: true, streaming: true, requestTts: true },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.ok(argv.includes('--streaming'));
+  assert.ok(argv.includes('--generate-tts'));
+  assert.equal(env.AI_COMMENTATOR_PROVIDER_API_KEY, 'tts-run-key');
+});
+
+test('plain runs carry no TTS key or flags', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData);
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path, { projectId: project.id, adaptive: true },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.equal(argv.includes('--generate-tts'), false);
+  assert.equal('AI_COMMENTATOR_PROVIDER_API_KEY' in env, false);
+});
+
+test('TTS run without the script or credential fails before spawning', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData);
+  const noScript = await s.handlers['process-video'](
+    {}, project.sourceVideo.path, { projectId: project.id, adaptive: true, requestTts: true },
+  );
+  assert.equal(noScript.ok, false);
+  assert.match(noScript.error, /final casting script/);
+  assert.equal(s.getStart(), null);
+
+  updateProject(s.userData, project.id, { configuration: { tts: { credentialId: null } } });
+  const noCredential = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    { projectId: project.id, adaptive: true, withScript: true, requestTts: true },
+  );
+  assert.equal(noCredential.ok, false);
+  assert.match(noCredential.error, /no TTS credential selected/);
+  assert.equal(s.getStart(), null);
+});
+
+test('TTS run with dev-bypass memory credentials injects keys via env only', async (t) => {
+  const downStorage = {
+    isEncryptionAvailable: () => false,
+    encryptString: () => { throw new Error('no encryption'); },
+    decryptString: () => { throw new Error('no encryption'); },
+  };
+  const s = setup(t, { ttsCatalog: TTS_CATALOG, safeStorage: downStorage });
+  t.after(() => setDevBypassEnabled(false, { isPackaged: false }));
+  setDevBypassEnabled(true, { isPackaged: false });
+  const vision = createCredential(s.userData, downStorage, {
+    name: 'Vision', provider: 'meta', model: 'muse-spark-1.3', key: 'memory-vision-key',
+  });
+  markCredentialVerified(s.userData, downStorage, vision.id, vision.model);
+  const tts = createCredential(s.userData, downStorage, {
+    name: 'TTS', provider: 'google-gemini-tts', model: null, key: 'memory-tts-key',
+  });
+  markCredentialVerified(s.userData, downStorage, tts.id, null);
+  const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+  const project = createProject(s.userData, { name: 'bypass run', sourcePath: video });
+  updateProject(s.userData, project.id, {
+    configuration: { credentialId: vision.id, tts: { credentialId: tts.id } },
+  });
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    { projectId: project.id, adaptive: true, withScript: true, requestTts: true },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.ok(argv.includes('--generate-tts'));
+  assert.equal(argv.join(' ').includes('memory-tts-key'), false);
+  assert.equal(argv.join(' ').includes('memory-vision-key'), false);
+  assert.equal(env.AI_COMMENTATOR_PROVIDER_API_KEY, 'memory-tts-key');
+  assert.equal(env.AI_COMMENTATOR_API_KEY, 'memory-vision-key');
 });

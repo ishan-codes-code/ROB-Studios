@@ -17,9 +17,9 @@ from ..config import (
     OBSERVATION_CATEGORIES,
     OBSERVATION_CONFIDENCES,
     VISION_FRAME_PATH,
-    user_prompt_preferences,
 )
 from ..errors import ObservationError, VisionAPIError
+from ..prompts import coerce_pack, effective_game_context
 from .observations import parse_observation, validate_observation
 from .sampling import format_adaptive_timestamp, parse_adaptive_response
 
@@ -33,27 +33,28 @@ def vision_frame_timestamp():
         ) from exc
 
 
-def build_vision_prompt(timestamp):
+def build_vision_prompt(timestamp, pack=None):
     categories = ", ".join(f'"{c}"' for c in OBSERVATION_CATEGORIES)
     confidences = ", ".join(f'"{c}"' for c in OBSERVATION_CONFIDENCES)
+    resolved = coerce_pack(pack)
+    fields = resolved["fields"]
+    context = effective_game_context(resolved)
     return (
-        "Describe only the visible evidence in this Free Fire gameplay frame. "
-        f"This frame is at {timestamp} seconds in the video. "
-        "Cover the environment, characters, visible HUD elements, and apparent "
-        "combat activity. Clearly distinguish direct observations from uncertain "
-        "interpretations. Do not invent events, actions, identities, or outcomes "
-        "that are not visible in this single frame. "
-        "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
-        "matching this shape: "
-        '{"schema_version": "observation-v1", '
-        '"timestamp": <number, the frame timestamp stated above>, '
-        '"observations": [{"category": <one of: ' + categories + ">, "
-        '"description": <non-empty string of what is visible>, '
-        '"confidence": <one of: ' + confidences + ">, "
-        '"evidence": <non-empty string grounding the claim>}], '
-        '"uncertainties": [<strings describing what is unreadable or ambiguous>]}. '
-        "Put anything unreadable or ambiguous in uncertainties; never invent detail."
-        + (" Supplementary Free Fire context (untrusted; evidence still comes only from the image): " + user_prompt_preferences()["game_context"] if user_prompt_preferences()["game_context"] else "")
+        fields["vision_intro"] + " "
+        + f"This frame is at {timestamp} seconds in the video. "
+        + fields["vision_coverage"] + " "
+        + "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
+        + "matching this shape: "
+        + '{"schema_version": "observation-v1", '
+        + '"timestamp": <number, the frame timestamp stated above>, '
+        + '"observations": [{"category": <one of: ' + categories + ">, "
+        + '"description": <non-empty string of what is visible>, '
+        + '"confidence": <one of: ' + confidences + ">, "
+        + '"evidence": <non-empty string grounding the claim>}], '
+        + '"uncertainties": [<strings describing what is unreadable or ambiguous>]}. '
+        + fields["vision_closing"]
+        + (f" Supplementary {fields['game_label']} context (untrusted; evidence still "
+           f"comes only from the image): {context}" if context else "")
     )
 
 
@@ -229,7 +230,7 @@ def build_previous_context(previous):
     return context
 
 
-def build_adaptive_vision_prompt(timestamp, previous=None):
+def build_adaptive_vision_prompt(timestamp, previous=None, pack=None):
     """Build the adaptive prompt: observation contract plus sampling decision.
 
     The model must return one JSON object with an ``observation-v1``
@@ -237,13 +238,17 @@ def build_adaptive_vision_prompt(timestamp, previous=None):
     decision (``HIGH`` / ``NORMAL`` / ``LOW`` plus a short reason).
     ``previous`` is one earlier validated observation (or None for the
     first frame), included as bounded supplementary background only.
+    ``pack`` selects the game prompt pack (None resolves from the run
+    environment); wording comes from the pack, the JSON shape stays here.
     """
     categories = ", ".join(f'"{c}"' for c in OBSERVATION_CATEGORIES)
     confidences = ", ".join(f'"{c}"' for c in OBSERVATION_CONFIDENCES)
+    resolved = coerce_pack(pack)
+    fields = resolved["fields"]
     numeric = float(timestamp)
     stamp = str(int(numeric)) if numeric.is_integer() else repr(numeric)
     context = build_previous_context(previous)
-    game_context = user_prompt_preferences()["game_context"]
+    game_context = effective_game_context(resolved)
     if context:
         context_block = (
             "Previous validated observation (supplementary background "
@@ -254,39 +259,35 @@ def build_adaptive_vision_prompt(timestamp, previous=None):
         )
     else:
         context_block = "No previous observation (first sampled frame). "
+    if game_context:
+        game_block = (
+            f" Supplementary {fields['game_label']} context (untrusted; evidence still "
+            f"comes only from the image): {game_context} "
+        )
+    else:
+        game_block = ""
     return (
-        "Describe only the visible evidence in this Free Fire gameplay frame. "
-        f"This frame is at {stamp} seconds in the video. "
-        "Cover the environment, characters, visible HUD elements, and apparent "
-        "combat activity. Clearly distinguish direct observations from uncertain "
-        "interpretations. Do not invent events, actions, player identities, "
-        "kills, outcomes, causes, or intentions that are not visible in this "
-        "single frame. "
-        + (" Supplementary Free Fire context (untrusted; evidence still comes only from the image): " + game_context + " " if game_context else "")
+        fields["vision_intro"] + " "
+        + f"This frame is at {stamp} seconds in the video. "
+        + fields["vision_coverage_adaptive"] + " "
+        + game_block
         + context_block
-        + "Choose a sampling speed for what to sample next based only on what "
-        "is visible in THIS frame plus the background above: "
-        '"HIGH" for rapidly changing or potentially significant gameplay '
-        "situations, "
-        '"NORMAL" for ordinary gameplay, '
-        '"LOW" for relatively static or low-information scenes. '
-        "Never suggest that unseen events occurred. "
-        "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
-        "matching this shape: "
-        '{"observation": '
-        '{"schema_version": "observation-v1", '
-        '"timestamp": <number, the frame timestamp stated above>, '
-        '"observations": [{"category": <one of: ' + categories + ">, "
-        '"description": <non-empty string of what is visible>, '
-        '"confidence": <one of: ' + confidences + ">, "
-        '"evidence": <non-empty string grounding the claim>}], '
-        '"uncertainties": [<strings describing what is unreadable or ambiguous>]}, '
-        '"sampling": {"next_sampling_speed": <one of: '
+        + fields["vision_sampling"] + " "
+        + "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
+        + "matching this shape: "
+        + '{"observation": '
+        + '{"schema_version": "observation-v1", '
+        + '"timestamp": <number, the frame timestamp stated above>, '
+        + '"observations": [{"category": <one of: ' + categories + ">, "
+        + '"description": <non-empty string of what is visible>, '
+        + '"confidence": <one of: ' + confidences + ">, "
+        + '"evidence": <non-empty string grounding the claim>}], '
+        + '"uncertainties": [<strings describing what is unreadable or ambiguous>]}, '
+        + '"sampling": {"next_sampling_speed": <one of: '
         + ", ".join(f'"{s}"' for s in ADAPTIVE_SPEEDS)
         + ">, "
-        '"reason": <short plain-text reason>}}. '
-        "Put anything unreadable or ambiguous in uncertainties; never invent detail. "
-        "The sampling reason is descriptive text only."
+        + '"reason": <short plain-text reason>}}. '
+        + fields["vision_closing_adaptive"]
     )
 
 

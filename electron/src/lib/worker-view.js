@@ -9,23 +9,21 @@
  */
 
 export const STAGE_ORDER = [
-  'frame_extraction',
-  'vision_analysis',
   'adaptive_vision',
   'state_rebuild',
   'event_detection',
   'commentary',
   'script',
+  'tts',
 ];
 
 export const STAGE_LABELS = {
-  frame_extraction: 'Frame extraction',
-  vision_analysis: 'Vision analysis',
-  adaptive_vision: 'Adaptive vision',
+  adaptive_vision: 'Adaptive sampling',
   state_rebuild: 'Match-state reconstruction',
   event_detection: 'Event detection',
   commentary: 'Commentary generation',
   script: 'Script generation',
+  tts: 'Commentary audio',
 };
 
 export function stageLabel(stage) {
@@ -77,13 +75,23 @@ export function stageDetailText(detail) {
 export const MAX_WORKER_LOGS = 50;
 
 /**
- * Maximum adaptive samples kept per run. Runs are bounded server-side
- * (UI default 10, engine default 60), so this cap only guards against
+ * Maximum adaptive samples kept per run. Runs end at video end, an
+ * explicit bound, stop, or failure, so this cap only guards against
  * unbounded growth, never truncates a normal run.
  */
 export const MAX_ADAPTIVE_SAMPLES = 500;
 
 export const ADAPTIVE_SPEEDS = ['HIGH', 'NORMAL', 'LOW'];
+
+/**
+ * Maximum streamed script segments kept per run. Runs are bounded
+ * server-side, so this cap only guards against unbounded growth, never
+ * truncates a normal run.
+ */
+export const MAX_SCRIPT_SEGMENTS = 500;
+
+export const SCRIPT_SEGMENT_STATUSES = ['worded', 'superseded'];
+export const TTS_SEGMENT_STATUSES = ['success', 'error', 'skipped', 'started'];
 
 export function createInitialRunState() {
   return {
@@ -100,6 +108,10 @@ export function createInitialRunState() {
     // leak from one run into the next; terminal messages keep it for
     // post-run inspection.
     adaptive: null,
+    // Streamed script segments for the active run (null until the first
+    // `script_segment` arrives). Same reset/retention rules as above;
+    // `tts_segment` updates fold into the matching segment.
+    script: null,
     // True once the worker lifecycle for this run is over (worker-exit,
     // or a spawn failure that never produces a process). The UI only
     // allows a new run after the previous run has settled, so a late
@@ -198,6 +210,71 @@ export function applyWorkerMessage(state, message) {
           requests: data.requests,
         },
       };
+    }
+    case 'script_segment': {
+      // Progress only: one validated utterance per worded segment, plus
+      // later `superseded` updates for queued segments a more important
+      // utterance pre-empted. Upsert by utterance id, bounded; segments
+      // survive terminal messages for post-run inspection.
+      const data = message.data;
+      if (
+        !data ||
+        typeof data !== 'object' ||
+        typeof data.utterance_id !== 'string' ||
+        data.utterance_id === '' ||
+        typeof data.timestamp_seconds !== 'number' ||
+        !Number.isFinite(data.timestamp_seconds) ||
+        typeof data.text !== 'string' ||
+        !Array.isArray(data.source_claim_ids) ||
+        typeof data.priority !== 'number' ||
+        !SCRIPT_SEGMENT_STATUSES.includes(data.status)
+      ) {
+        return state;
+      }
+      const previous = state.script?.segments ?? [];
+      const segment = {
+        utteranceId: data.utterance_id,
+        timestamp: data.timestamp_seconds,
+        text: data.text,
+        sourceClaimIds: data.source_claim_ids.filter((id) => typeof id === 'string'),
+        priority: data.priority,
+        scriptStatus: data.status,
+        ttsStatus: previous.find((entry) => entry.utteranceId === data.utterance_id)?.ttsStatus ?? null,
+        ttsError: previous.find((entry) => entry.utteranceId === data.utterance_id)?.ttsError ?? null,
+      };
+      const segments = [
+        ...previous.filter((entry) => entry.utteranceId !== segment.utteranceId),
+        segment,
+      ].slice(-MAX_SCRIPT_SEGMENTS);
+      return { ...state, script: { segments } };
+    }
+    case 'tts_segment': {
+      // Progress only: the synthesis outcome for one utterance. Folds
+      // into the matching script segment; unknown ids are ignored so a
+      // single out-of-order line can never corrupt the session.
+      const data = message.data;
+      if (
+        !data ||
+        typeof data !== 'object' ||
+        typeof data.utterance_id !== 'string' ||
+        !TTS_SEGMENT_STATUSES.includes(data.status)
+      ) {
+        return state;
+      }
+      const previous = state.script?.segments ?? [];
+      if (!previous.some((entry) => entry.utteranceId === data.utterance_id)) {
+        return state;
+      }
+      const segments = previous.map((entry) =>
+        entry.utteranceId === data.utterance_id
+          ? {
+              ...entry,
+              ttsStatus: data.status,
+              ttsError: typeof data.error === 'string' ? data.error : null,
+            }
+          : entry,
+      );
+      return { ...state, script: { segments } };
     }
     case 'stopped': {
       return {

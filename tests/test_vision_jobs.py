@@ -559,25 +559,5 @@ class ClientLifecycleTests(unittest.TestCase):
         self.assertEqual(client.close_calls, 0)
 
 
-class CliJobsTests(unittest.TestCase):
-    def _run_cli(self, *argv):
-        return subprocess.run(
-            [sys.executable, str(MAIN_PATH), *argv],
-            cwd=MAIN_PATH.parent,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=120,
-        )
-
-    def test_jobs_requires_vision_batch(self):
-        proc = self._run_cli("--jobs", "2")
-        self.assertEqual(proc.returncode, 2)
-
-    def test_jobs_out_of_range_rejected(self):
-        for value in ("0", "5"):
-            proc = self._run_cli("--vision-batch", "--jobs", value)
-            self.assertEqual(proc.returncode, 2, msg=f"--jobs {value}")
-
-
 if __name__ == "__main__":
     unittest.main()

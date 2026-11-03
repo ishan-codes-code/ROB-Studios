@@ -10,10 +10,13 @@ assumption.
 
 | Variable | Meaning |
 | --- | --- |
-| `AI_COMMENTATOR_PROVIDER` | `meta` or `baseten` (explicit, validated) |
-| `AI_COMMENTATOR_MODEL` | Curated model ID for that provider |
+| `AI_COMMENTATOR_PROVIDER` | `meta`, `baseten`, or `custom` (explicit, validated) |
+| `AI_COMMENTATOR_MODEL` | Curated model ID for that provider (explicit ID for `custom`) |
 | `AI_COMMENTATOR_API_KEY` | Decrypted key for the selected credential only |
-| `AI_COMMENTATOR_SETTINGS_JSON` | Non-secret `{game, prompt}` preferences |
+| `AI_COMMENTATOR_BASE_URL` | Validated custom endpoint URL, only for `custom` runs |
+| `AI_COMMENTATOR_PROVIDER_API_KEY` | Decrypted TTS key, only for runs with `--generate-tts` |
+| `AI_COMMENTATOR_SETTINGS_JSON` | Non-secret `{game, prompt, promptPack}` preferences |
+| `AI_COMMENTATOR_PACK_ID` | Standalone pack selection for CLI runs (Electron passes `promptPack`) |
 | `BASETEN_API_KEY` | Legacy mirror of the run key (fallback compat) |
 | `BASETEN_BASE_URL` / `BASETEN_MODEL` | Mirrored only for Baseten runs |
 
@@ -24,24 +27,33 @@ those, a legacy `BASETEN_*` pair resolves as a Baseten configuration
 call or extraction work. The worker `require_key` message names both
 variables so legacy setups stay diagnosable.
 
+`AI_COMMENTATOR_SETTINGS_JSON.promptPack` is the resolved pack
+snapshot `{packId, custom}` (`custom` maps field names to user text for
+the selected pack only). Python resolves custom text over the factory
+pack and re-validates both before any paid call; see
+[game-pack-v1.md](game-pack-v1.md).
+
 No provider metadata comes from the renderer at run time: the main
 process resolves the project's stored credential ID through the vault
-and injects the fixed catalogue base URL. Arbitrary URLs cannot reach
-the worker. The key never appears in argv, stdin (reserved for the
-versioned stop line), NDJSON, files, or renderer state, and the child
-no longer inherits unrelated host secrets (`API_KEY`/`SECRET`/`TOKEN`
-/`PASSWORD`-shaped variables are stripped before spawn).
+and injects the pinned catalogue base URL — or, for `custom` runs,
+the record's own validated endpoint URL (re-validated at resolution).
+Unvalidated URLs cannot reach the worker. The key never appears in
+argv, stdin (reserved for the versioned stop line), NDJSON, files, or
+renderer state, and the child no longer inherits unrelated host
+secrets (`API_KEY`/`SECRET`/`TOKEN`/`PASSWORD`-shaped variables are
+stripped before spawn).
 
 ## Verification gate
 
 Paid runs require a vault credential whose verification is `verified`
-for the exact credential version and model. The gate lives in the main
-process (`resolveProjectRunConfig`); the worker's fail-fast key check
+for the exact credential version and model (plus the exact endpoint
+for custom records). The gate lives in the main process
+(`resolveProjectRunConfig`); the worker's fail-fast key check
 remains as a second layer. Test connection and image verification run
 through `python/provider_setup.py` as one-shot JSON operations
 (`connection`, `models`, `verify-vision`) with `--provider`; `models`
-returns the curated catalogue (all `unverified` by design) instead of
-live discovery.
+returns the curated catalogue for Meta/Baseten (all `unverified` by
+design) and performs live `GET /models` discovery for `custom`.
 
 ## Setup failure contract
 
@@ -51,7 +63,8 @@ Failures are structured, not generic: `{"ok": false, "error",
 category (`auth`, `model`, `image`, `bad_request`, `rate_limit`,
 `timeout`, `network`, `bad_response`, `config`, `provider_error`,
 `unknown`, plus `stale` for verification raced by a mid-flight
-edit), `status` the HTTP status when known, and `detail` a
+edit and `discovery_unsupported` for custom endpoints without
+model listing), `status` the HTTP status when known, and `detail` a
 truncated sanitized note for logs. Raw provider bodies and key
 material never cross this boundary; the Electron layers forward
 these fields instead of substituting their own generic message.

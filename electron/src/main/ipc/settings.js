@@ -7,15 +7,19 @@ import {
   renameCredential as vaultRename,
   setCredentialKey as vaultSetKey,
   setCredentialModel as vaultSetModel,
+  setCredentialEndpoint as vaultSetEndpoint,
   deleteCredential as vaultDelete,
   markCredentialVerified,
   markCredentialUnverified,
   getCredentialForRun,
   isCredentialVerifiedForRun,
+  isDevBypassEnabled,
+  setDevBypassEnabled,
 } from '../../credentials-store.mjs';
 import {
   getProvider,
   getProviderBaseUrl,
+  validateCustomBaseUrl,
 } from '../../provider-catalog.mjs';
 import {
   listGameProfiles,
@@ -34,8 +38,17 @@ import {
 } from '../../game-store.mjs';
 import { migrateLegacyVault } from '../../vault-migration.mjs';
 import { listProjects, getProject, updateProject } from '../../project-store.mjs';
+import {
+  listPromptPacks,
+  setPromptField,
+  resetPromptPack,
+} from '../../prompt-packs.mjs';
 
-export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
+export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader = null }) {
+  async function loadFactory() {
+    if (!packsLoader) throw new Error('Prompt packs are unavailable.');
+    return packsLoader.load();
+  }
   const userData = () => app.getPath('userData');
   const credentials = {
     available: () => safeStorage?.isEncryptionAvailable?.() === true,
@@ -100,7 +113,8 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     }
     for (const project of projects) {
       const config = project.configuration ?? {};
-      if ((credentialId !== null && config.credentialId === credentialId)
+      if ((credentialId !== null && (config.credentialId === credentialId
+          || config.tts?.credentialId === credentialId))
         || (gameProfileId !== null && config.gameProfileId === gameProfileId)
         || (presetId !== null && config.commentaryPresetId === presetId)) {
         names.push(project.name);
@@ -111,15 +125,21 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
 
   async function runCredentialCheck(id, operation) {
     // Read the credential once: the snapshot pins the exact configuration
-    // under test (id, provider, model, version) so a mid-flight key or
-    // model change cannot mark the wrong configuration as verified.
+    // under test (id, provider, model, endpoint, version) so a mid-flight
+    // key, model, or endpoint change cannot mark the wrong configuration
+    // as verified.
     let snapshot;
     try {
       snapshot = getCredentialForRun(userDataPath(), safeStorage, id);
     } catch {
       return { ok: false, error: 'Secure API credential is unavailable. Check secure storage.', code: 'config', tested: null };
     }
-    const baseUrl = getProviderBaseUrl(snapshot.provider);
+    let baseUrl;
+    try {
+      baseUrl = getProviderBaseUrl(snapshot.provider, snapshot.record);
+    } catch {
+      return { ok: false, error: 'The saved endpoint URL is invalid. Update the endpoint and try again.', code: 'config', tested: null };
+    }
     const setupOperation = operation === 'verify-vision' && snapshot.record.purpose === 'tts'
       ? 'verify-tts-auth'
       : operation;
@@ -145,6 +165,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       id: snapshot.record.id,
       provider: snapshot.provider,
       model: snapshot.model,
+      baseUrl: snapshot.record.baseUrl ?? null,
       credentialVersion: snapshot.record.credentialVersion,
     };
     if (!result || typeof result !== 'object' || result.ok !== true) {
@@ -205,6 +226,25 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
   });
 
   // ---- Provider vault -------------------------------------------------
+  // TEMPORARY development-only bypass: memory-held credentials when OS
+  // encryption is unavailable. Gated main-side on app.isPackaged —
+  // never on renderer input. Production builds always reject enabling.
+  ipcMain.handle('dev-bypass-get', async () => ({
+    ok: true,
+    supported: app.isPackaged !== true,
+    enabled: isDevBypassEnabled(),
+  }));
+  ipcMain.handle('dev-bypass-set', async (_event, enabled) => {
+    try {
+      if (app.isPackaged === true) {
+        return { ok: false, error: 'The development credential bypass is not available in production builds.' };
+      }
+      const state = setDevBypassEnabled(enabled === true, { isPackaged: app.isPackaged === true });
+      return { ok: true, supported: true, enabled: state.enabled };
+    } catch (err) {
+      return { ok: false, error: err?.message ?? 'Settings operation failed.' };
+    }
+  });
   ipcMain.handle('credential-list', async () => {
     try {
       const { credentials: items, migration } = ensureMigrated();
@@ -241,6 +281,73 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       return { ok: true, credential };
     } catch (err) { return safe(err); }
   });
+  ipcMain.handle('credential-set-endpoint', async (_event, id, baseUrl) => {
+    try {
+      const credential = vaultSetEndpoint(userDataPath(), safeStorage, id, baseUrl);
+      return { ok: true, credential };
+    } catch (err) { return safe(err); }
+  });
+  // Best-effort live model discovery for custom endpoints. Either
+  // resolves a saved credential (key decrypted main-side, never over
+  // IPC) or runs one-shot with a caller-supplied endpoint + key during
+  // creation (validated, used once, never stored or logged). Structured
+  // failures mirror credential-test so the renderer can distinguish
+  // "listing unsupported" (offer manual entry) from real errors.
+  ipcMain.handle('custom-models', async (_event, input) => {
+    try {
+      let baseUrl;
+      let key;
+      if (input && typeof input === 'object' && typeof input.credentialId === 'string' && input.credentialId !== '') {
+        let snapshot;
+        try {
+          snapshot = getCredentialForRun(userDataPath(), safeStorage, input.credentialId);
+        } catch {
+          return { ok: false, error: 'Secure API credential is unavailable. Check secure storage.', code: 'config' };
+        }
+        if (snapshot.provider !== 'custom') {
+          return { ok: false, error: 'Model discovery is only available for custom endpoints.', code: 'config' };
+        }
+        baseUrl = snapshot.record.baseUrl;
+        key = snapshot.apiKey;
+      } else {
+        try {
+          baseUrl = validateCustomBaseUrl(input?.baseUrl);
+        } catch (err) {
+          return { ok: false, error: err?.message ?? 'Custom endpoint URL is invalid.', code: 'config' };
+        }
+        key = input?.key;
+        if (typeof key !== 'string' || key.trim() === '' || key.length > 4096) {
+          return { ok: false, error: 'API key must be a non-empty string under 4096 characters.', code: 'config' };
+        }
+      }
+      let result;
+      try {
+        result = await spawnSetup({
+          operation: 'models',
+          provider: { id: 'custom', baseUrl },
+          model: '',
+          key,
+        });
+      } catch {
+        result = { ok: false, error: 'Model discovery process failed. Try again.', code: 'setup' };
+      }
+      if (!result || typeof result !== 'object' || result.ok !== true) {
+        return {
+          ok: false,
+          error: (result && typeof result.error === 'string' && result.error)
+            || 'Could not list models for this endpoint.',
+          code: (result && typeof result.code === 'string' && result.code) || 'unknown',
+          detail: (result && typeof result.detail === 'string' && result.detail)
+            ? result.detail.slice(0, 500)
+            : null,
+        };
+      }
+      const models = Array.isArray(result.models)
+        ? result.models.filter((entry) => entry && typeof entry.id === 'string').map((entry) => ({ id: entry.id }))
+        : [];
+      return { ok: true, provider: 'custom', models };
+    } catch (err) { return safe(err); }
+  });
   ipcMain.handle('credential-remove', async (_event, id) => {
     try {
       if (typeof id !== 'string' || id === '') throw new Error('Invalid credential id.');
@@ -248,6 +355,11 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       if (usedBy.length > 0) {
         return { ok: false, error: 'Settings operation failed.', referencedBy: usedBy };
       }
+      try {
+        if (loadSettings(userDataPath()).tts?.credentialId === id) {
+          return { ok: false, error: 'Settings operation failed.', referencedByGlobal: true };
+        }
+      } catch { /* unreadable settings cannot block deletion */ }
       return { ok: true, ...vaultDelete(userDataPath(), safeStorage, id) };
     } catch (err) { return safe(err); }
   });
@@ -276,6 +388,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
             if (fresh.record.id === tested.id
               && fresh.record.provider === tested.provider
               && fresh.record.model === tested.model
+              && (fresh.record.baseUrl ?? null) === (tested.baseUrl ?? null)
               && fresh.record.credentialVersion === tested.credentialVersion) {
               markCredentialUnverified(userDataPath(), safeStorage, id);
             }
@@ -297,12 +410,14 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
         || fresh.record.id !== tested.id
         || fresh.record.provider !== tested.provider
         || fresh.record.model !== tested.model
+        || (fresh.record.baseUrl ?? null) !== (tested.baseUrl ?? null)
         || fresh.record.credentialVersion !== tested.credentialVersion) {
         return { ok: false, error: 'The configuration changed during verification. Review the current values and verify again.', code: 'stale' };
       }
       const credential = markCredentialVerified(
         userDataPath(), safeStorage, id,
         fresh.record.purpose === 'tts' ? null : fresh.record.model,
+        fresh.record.baseUrl ?? null,
       );
       return { ok: true, credential };
     } catch (err) { return safe(err); }
@@ -358,6 +473,35 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     } catch (err) { return safe(err); }
   });
 
+  // ---- Prompt packs --------------------------------------------------
+  ipcMain.handle('prompt-pack-list', async () => {
+    try {
+      const factory = await loadFactory();
+      return {
+        ok: true,
+        defaultPackId: factory.defaultPackId,
+        fieldMeta: factory.fieldMeta,
+        packs: listPromptPacks(userDataPath(), factory),
+      };
+    } catch (err) { return safe(err); }
+  });
+  ipcMain.handle('prompt-pack-set', async (_event, packId, field, text) => {
+    try {
+      const factory = await loadFactory();
+      if (typeof packId !== 'string' || typeof field !== 'string' || typeof text !== 'string') {
+        throw new Error('Invalid prompt pack update.');
+      }
+      return { ok: true, pack: setPromptField(userDataPath(), factory, packId, field, text) };
+    } catch (err) { return safe(err); }
+  });
+  ipcMain.handle('prompt-pack-reset', async (_event, packId) => {
+    try {
+      const factory = await loadFactory();
+      if (typeof packId !== 'string') throw new Error('Invalid prompt pack id.');
+      return { ok: true, pack: resetPromptPack(userDataPath(), factory, packId) };
+    } catch (err) { return safe(err); }
+  });
+
   // ---- Project configuration -------------------------------------------
   ipcMain.handle('project-config-get', async (_event, projectId) => {
     try {
@@ -380,6 +524,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
             name: resolved.record.name,
             provider: resolved.record.provider,
             model: resolved.record.model,
+            baseUrl: resolved.record.baseUrl ?? null,
             verified: isCredentialVerifiedForRun(resolved.record),
           };
           if (!credential.verified) {
@@ -403,13 +548,25 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       } catch {
         presetWarning = 'The saved commentary preset is missing. Choose another preset.';
       }
+      let packWarning = null;
+      if (config.promptPackId !== null && config.promptPackId !== undefined) {
+        try {
+          const factory = await loadFactory();
+          if (!factory.packs.some((pack) => pack.packId === config.promptPackId)) {
+            packWarning = 'The saved prompt pack is unknown. Choose another pack.';
+          }
+        } catch {
+          // Loader failure is not a configuration problem: the worker
+          // validates the pack id again before any paid call.
+        }
+      }
       return {
         ok: true,
         configuration: { ...config },
         credential,
         profile,
         preset,
-        warnings: [credentialWarning, profileWarning, presetWarning].filter(Boolean),
+        warnings: [credentialWarning, profileWarning, presetWarning, packWarning].filter(Boolean),
       };
     } catch (err) {
       // Development diagnosis: the renderer keeps a generic message, but
@@ -423,6 +580,10 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     try {
       if (typeof projectId !== 'string' || projectId === '') throw new Error('Invalid project id.');
       if (!configuration || typeof configuration !== 'object') throw new Error('Invalid project configuration.');
+      // TTS overrides have a single validated writer (`tts-config-set`,
+      // which checks catalogue membership and credential purpose); this
+      // channel never accepts them, even though the store shape allows it.
+      if (configuration.tts !== undefined) throw new Error('Save TTS overrides from the TTS Studio.');
       if (configuration.credentialId !== undefined && configuration.credentialId !== null) {
         // Validates existence + readability without exposing the secret.
         const resolved = getCredentialForRun(userDataPath(), safeStorage, configuration.credentialId);
@@ -430,6 +591,12 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       }
       if (configuration.gameProfileId !== undefined) getGameProfile(userDataPath(), configuration.gameProfileId);
       if (configuration.commentaryPresetId !== undefined) getCommentaryPreset(userDataPath(), configuration.commentaryPresetId);
+      if (configuration.promptPackId !== undefined && configuration.promptPackId !== null) {
+        const factory = await loadFactory();
+        if (!factory.packs.some((pack) => pack.packId === configuration.promptPackId)) {
+          throw new Error('Unknown prompt pack.');
+        }
+      }
       const project = updateProject(userDataPath(), projectId, { configuration });
       return { ok: true, configuration: project.configuration };
     } catch (err) {

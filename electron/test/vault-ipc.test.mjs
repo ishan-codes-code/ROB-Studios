@@ -7,6 +7,7 @@ import { registerSettingsIpc } from '../src/main/ipc/settings.js';
 import { createCredential as vaultCreate, setCredentialKey, setCredentialModel } from '../src/credentials-store.mjs';
 import { createGameProfile, createCommentaryPreset } from '../src/game-store.mjs';
 import { createProject, updateProject } from '../src/project-store.mjs';
+import { loadSettings, saveSettings } from '../src/settings-store.mjs';
 
 const storage = () => ({
   isEncryptionAvailable: () => true,
@@ -135,6 +136,31 @@ test('Gemini TTS credentials cannot be assigned as project Vision credentials an
   const blocked = await handlers['credential-remove']({}, created.credential.id);
   assert.equal(blocked.ok, false);
   assert.deepEqual(blocked.referencedBy, ['Project']);
+});
+
+test('TTS credential referenced by a project or global default cannot be deleted', async (t) => {
+  const { dir, handlers } = setup(t);
+  const created = await handlers['credential-create']({}, {
+    name: 'Gemini TTS', provider: 'google-gemini-tts', model: null, key: 'tts-key',
+  });
+  const id = created.credential.id;
+  const project = createProject(dir, { name: 'Project', sourcePath: seedVideo(t) });
+  updateProject(dir, project.id, { configuration: { tts: { credentialId: id } } });
+  const blocked = await handlers['credential-remove']({}, id);
+  assert.equal(blocked.ok, false);
+  assert.deepEqual(blocked.referencedBy, ['Project']);
+  updateProject(dir, project.id, { configuration: { tts: { credentialId: null } } });
+  saveSettings(dir, { ...loadSettings(dir), tts: { ...loadSettings(dir).tts, credentialId: id } });
+  const blockedGlobal = await handlers['credential-remove']({}, id);
+  assert.equal(blockedGlobal.ok, false);
+  assert.equal(blockedGlobal.referencedByGlobal, true);
+});
+
+test('project-config-set refuses TTS overrides (single writer rule)', async (t) => {
+  const { dir, handlers } = setup(t);
+  const project = createProject(dir, { name: 'Project', sourcePath: seedVideo(t) });
+  const rejected = await handlers['project-config-set']({}, project.id, { tts: { voice: 'Kore' } });
+  assert.equal(rejected.ok, false);
 });
 
 test('credential in use by a project cannot be deleted', async (t) => {

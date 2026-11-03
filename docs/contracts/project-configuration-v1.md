@@ -12,7 +12,8 @@ ever duplicated into project directories.
   "configuration": {
     "credentialId": "cred-9f3a2b1c4d5e6f70",
     "gameProfileId": "free-fire-default",
-    "commentaryPresetId": "default-energetic"
+    "commentaryPresetId": "default-energetic",
+    "promptPackId": null
   }
 }
 ```
@@ -23,6 +24,9 @@ ever duplicated into project directories.
   it as the initial selection but still persists the explicit choice.
 - `gameProfileId`: game-library profile ID (default `free-fire-default`).
 - `commentaryPresetId`: preset ID (default `default-energetic`).
+- `promptPackId`: game prompt-pack ID, or `null` for the application
+  default (`free-fire`). Validated against the factory packs on save;
+  see [game-pack-v1.md](game-pack-v1.md).
 
 New projects start with the built-in game/preset defaults and no
 credential. Pre-migration projects without `configuration` default on

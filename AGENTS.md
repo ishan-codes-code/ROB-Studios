@@ -112,7 +112,11 @@ Read this file and the relevant `docs/` pages before implementing any task.
   and the project IPC (`list-projects`, `create-project`, `open-project`,
   `update-project`, `delete-project`, `list-artifacts`, `read-artifact`) via
   `contextBridge` — no unrestricted Node.js APIs, no API keys, and no
-  interpreter paths reach the renderer. Validate every IPC input
+  interpreter paths reach the renderer. The M7-approved TTS Studio surface
+  (`tts-catalog`, `tts-config-get`, `tts-config-set`, `tts-preview`) follows
+  the same rules: main-side validation, no key material over IPC. The temporary
+  dev-only bypass (`dev-bypass-get`, `dev-bypass-set`) is additionally gated on
+  unpackaged builds main-side and must be removed before release. Validate every IPC input
   (non-empty string, supported video extension) in the main process.
 - Never weaken TLS verification or introduce arbitrary network configuration
   to bypass an error.
@@ -127,7 +131,7 @@ Read this file and the relevant `docs/` pages before implementing any task.
 - Run the Electron tests: `npm test` inside `electron/` (dependency-free,
   `node:test`).
 - Preserve the working default frame-extraction command.
-- Verify the vision-test mode (`--vision-test`) when changing vision-related code.
+- Verify the adaptive-only worker contract (`--adaptive` required; the removed batch/offline flags must stay rejected) when changing worker-related code.
 - Add unit tests when they provide useful coverage, especially for parsing,
   schemas, and event logic.
 - Worker changes need protocol coverage: argument parsing, invalid video
@@ -176,7 +180,8 @@ Read this file and the relevant `docs/` pages before implementing any task.
   (`processVideo`, `cancelProcessing`, `onWorkerEvent`, `selectVideo`,
   plus project IPC — `selectVideo` added in Stage 1, project handlers
   in Stage 1.5, and artifact handlers plus the `project://` media scheme
-  in the hardening milestone, each as an approved exception).
+  in the hardening milestone, each as an approved exception; TTS Studio
+  handlers added in M7 under the same narrow-bridge rules).
 
 ## Task completion
 

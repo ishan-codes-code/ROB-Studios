@@ -7,18 +7,6 @@ def run_cli(engine, argv=None):
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
-        "--vision-test",
-        action="store_true",
-        help="Request a validated structured-JSON observation of "
-        "output/frames/frame_00000.jpg from Baseten's vision model.",
-    )
-    mode.add_argument(
-        "--vision-batch",
-        action="store_true",
-        help="Analyse up to --limit frames spread across the clip, saving "
-        "one validated observation-v1 JSON per frame in output/observations/.",
-    )
-    mode.add_argument(
         "--migrate-observations",
         action="store_true",
         help="Move validated legacy observation JSONs from output/frames/ "
@@ -60,6 +48,13 @@ def run_cli(engine, argv=None):
         "no template fallback).",
     )
     mode.add_argument(
+        "--generate-tts",
+        action="store_true",
+        help="Synthesize commentary audio from output/script/script.json "
+        "into output/audio/ with Gemini TTS (paid, opt-in; one request "
+        "per segment, sequential, no retries).",
+    )
+    mode.add_argument(
         "--adaptive",
         action="store_true",
         help="Sample the video adaptively: capture one frame at a time, "
@@ -68,33 +63,13 @@ def run_cli(engine, argv=None):
         "(paid, bounded by --adaptive-max-frames).",
     )
     parser.add_argument(
-        "--limit",
-        type=engine.parse_limit_argument,
-        default=None,
-        metavar="N",
-        help="Maximum frames for --vision-batch (positive integer, "
-        f"default {engine.DEFAULT_VISION_BATCH_LIMIT}).",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Re-analyse frames that already have a validated observation JSON.",
-    )
-    parser.add_argument(
-        "--jobs",
-        type=engine.parse_jobs_argument,
-        default=None,
-        metavar="J",
-        help="Maximum concurrent vision requests for --vision-batch "
-        f"(integer 1-{engine.MAX_VISION_BATCH_JOBS}, default {engine.DEFAULT_VISION_BATCH_JOBS}).",
-    )
-    parser.add_argument(
         "--adaptive-max-frames",
         type=engine.parse_max_frames_argument,
         default=None,
         metavar="N",
-        help="Maximum sampled frames for --adaptive (positive integer, "
-        f"default {engine.ADAPTIVE_DEFAULT_MAX_FRAMES}).",
+        help="Maximum sampled frames for --adaptive (positive integer up "
+        f"to {engine.ADAPTIVE_HARD_MAX_FRAMES}; omit for unlimited, which "
+        "samples to video end unless stopped).",
     )
     parser.add_argument(
         "--video",
@@ -113,25 +88,35 @@ def run_cli(engine, argv=None):
         "events/, commentary/, and script/ "
         f"(default {engine.PROJECT_ROOT / 'output'}).",
     )
+    parser.add_argument(
+        "--game-pack",
+        default=None,
+        metavar="PACK",
+        help="Game prompt pack for LLM wording (free-fire, cod, bgmi; "
+        "default free-fire). Custom overrides still come from "
+        "AI_COMMENTATOR_SETTINGS_JSON.",
+    )
     args = parser.parse_args(argv)
+
+    if args.game_pack is not None:
+        try:
+            engine.get_factory_pack(args.game_pack)
+        except ValueError as exc:
+            parser.error(str(exc))
+        import os
+
+        os.environ["AI_COMMENTATOR_PACK_ID"] = args.game_pack
     
-    if args.limit is not None and not args.vision_batch:
-        parser.error("--limit requires --vision-batch.")
-    if args.force and not args.vision_batch:
-        parser.error("--force requires --vision-batch.")
-    if args.jobs is not None and not args.vision_batch:
-        parser.error("--jobs requires --vision-batch.")
     if args.adaptive_max_frames is not None and not args.adaptive:
         parser.error("--adaptive-max-frames requires --adaptive.")
     offline_mode = (
-        args.vision_test
-        or args.vision_batch
-        or args.migrate_observations
+        args.migrate_observations
         or args.rebuild_state
         or args.detect_events
         or args.generate_commentary
         or args.commentary_write
         or args.generate_script
+        or args.generate_tts
         or args.adaptive
     )
     if args.video is not None and offline_mode and not args.adaptive:
@@ -140,7 +125,7 @@ def run_cli(engine, argv=None):
     # Resolve the output tree. None means "use the project-root defaults";
     # the runners below treat None as their standard locations.
     frames_dir = obs_dir = state_path = None
-    events_path = commentary_path = script_path = None
+    events_path = commentary_path = script_path = audio_dir = None
     if args.output_dir is not None:
         base = Path(args.output_dir)
         frames_dir = base / "frames"
@@ -149,27 +134,9 @@ def run_cli(engine, argv=None):
         events_path = base / "events" / engine.EVENTS_FILENAME
         commentary_path = base / "commentary" / engine.COMMENTARY_FILENAME
         script_path = base / "script" / engine.SCRIPT_FILENAME
+        audio_dir = base / engine.TTS_AUDIO_DIRNAME
     
-    if args.vision_test:
-        engine.run_vision_test(
-            frame_path=frames_dir / "frame_00000.jpg"
-            if frames_dir is not None
-            else None,
-            observations_dir=obs_dir,
-        )
-    elif args.vision_batch:
-        raise SystemExit(
-            engine.run_vision_batch(
-                limit=args.limit or engine.DEFAULT_VISION_BATCH_LIMIT,
-                force=args.force,
-                jobs=args.jobs
-                if args.jobs is not None
-                else engine.DEFAULT_VISION_BATCH_JOBS,
-                directory=frames_dir,
-                observations_dir=obs_dir,
-            )
-        )
-    elif args.migrate_observations:
+    if args.migrate_observations:
         raise SystemExit(
             engine.run_migration(
                 frames_dir=frames_dir, observations_dir=obs_dir
@@ -224,15 +191,20 @@ def run_cli(engine, argv=None):
                 frames_dir=frames_dir,
             )
         )
+    elif args.generate_tts:
+        raise SystemExit(
+            engine.run_generate_tts(
+                script_path=script_path,
+                audio_dir=audio_dir,
+            )
+        )
     elif args.adaptive:
         result = engine.run_adaptive_vision(
             video_path=args.video,
             observations_dir=obs_dir,
-            max_frames=(
-                args.adaptive_max_frames
-                if args.adaptive_max_frames is not None
-                else engine.ADAPTIVE_DEFAULT_MAX_FRAMES
-            ),
+            # None is the unlimited sentinel (omitted flag): no
+            # user-imposed bound; video end or stop terminates.
+            max_frames=args.adaptive_max_frames,
         )
         print(
             f"Adaptive run {result['status']}: {result['observations']} "

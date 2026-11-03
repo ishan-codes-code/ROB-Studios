@@ -1209,10 +1209,6 @@ class WorkerAdaptiveTests(unittest.TestCase):
         kwargs = {
             "video": video,
             "output_dir": out,
-            "limit": None,
-            "force": False,
-            "jobs": None,
-            "skip_vision": False,
             "with_script": False,
             "adaptive": True,
             "adaptive_max_frames": 2,
@@ -1242,8 +1238,7 @@ class WorkerAdaptiveTests(unittest.TestCase):
         )
         self.assertTrue(args.adaptive)
         self.assertEqual(args.adaptive_max_frames, 5)
-        with tempfile.TemporaryDirectory() as tmp:
-            plan = worker.plan_stages(args, Path(tmp))
+        plan = worker.plan_stages(args)
         self.assertEqual(
             [stage for stage, _ in plan],
             [
@@ -1258,8 +1253,7 @@ class WorkerAdaptiveTests(unittest.TestCase):
         scripted = worker.build_parser().parse_args(
             ["clip.mp4", "--adaptive", "--with-script"]
         )
-        with tempfile.TemporaryDirectory() as tmp:
-            scripted_plan = worker.plan_stages(scripted, Path(tmp))
+        scripted_plan = worker.plan_stages(scripted)
         self.assertEqual(scripted_plan[-1], ("script", "run"))
 
     def test_conflicting_flags_rejected(self):
@@ -1276,17 +1270,17 @@ class WorkerAdaptiveTests(unittest.TestCase):
             root = Path(tmp)
             video = write_test_video(root / "clip.mp4")
             out = root / "out"
-            code, stdout = run_main(
-                [str(video), "--output-dir", str(out), "--adaptive", "--skip-vision"],
-            )
-            self.assertEqual(code, 2)
-            message = json.loads(stdout.strip().splitlines()[-1])
-            self.assertEqual(message["type"], "error")
-            self.assertEqual(message["stage"], "validation")
-            code, stdout = run_main(
-                [str(video), "--output-dir", str(out), "--adaptive", "--limit", "3"],
-            )
-            self.assertEqual(code, 2)
+            # Removed batch/offline flags are rejected by argparse.
+            for argv in (
+                ["--adaptive", "--skip-vision"],
+                ["--adaptive", "--limit", "3"],
+                ["--adaptive", "--force"],
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        run_main([str(video), "--output-dir", str(out), *argv])
+                self.assertEqual(raised.exception.code, 2)
+            # --adaptive-max-frames without --adaptive fails validation.
             code, stdout = run_main(
                 [
                     str(video),
@@ -1297,6 +1291,9 @@ class WorkerAdaptiveTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(code, 2)
+            message = json.loads(stdout.strip().splitlines()[-1])
+            self.assertEqual(message["type"], "error")
+            self.assertEqual(message["stage"], "validation")
 
     def test_completed_adaptive_run_reports_result(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1563,6 +1560,80 @@ class CliAdaptiveTests(unittest.TestCase):
                     worker.engine, ["--adaptive-max-frames", "3"]
                 )
         self.assertEqual(raised.exception.code, 2)
+
+
+class UnlimitedMaxFramesTests(unittest.TestCase):
+    """None is the unlimited sentinel: sample to video end, no bound."""
+
+    def run_loop(self, video_seconds=7, speeds=("NORMAL",), **kwargs):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        video = write_test_video(root / "clip.mp4", seconds=video_seconds)
+        obs_dir = root / "out" / "observations"
+        client = FakeClient(echo_handler(speeds))
+        with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stderr(io.StringIO()):
+                result = run_adaptive_vision(
+                    video_path=video,
+                    observations_dir=obs_dir,
+                    client=client,
+                    **kwargs,
+                )
+        return result, client, obs_dir
+
+    def test_none_samples_to_video_end(self):
+        result, client, _ = self.run_loop(
+            speeds=("NORMAL",), max_frames=None
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["termination"], "video-end")
+        # 7s video at NORMAL/3s: 0, 3, 6 then 9 >= 7 stops.
+        self.assertEqual(result["requested_timestamps"], [0, 3, 6])
+        self.assertEqual(len(client.calls), 3)
+
+    def test_omitted_max_frames_is_unlimited(self):
+        # The default call shape (no max_frames argument at all) must
+        # behave exactly like an explicit None: no silent numeric bound.
+        result, client, obs_dir = self.run_loop(speeds=("NORMAL",))
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["termination"], "video-end")
+        self.assertEqual(result["requested_timestamps"], [0, 3, 6])
+        manifest = json.loads(
+            (obs_dir / "adaptive_run.json").read_text(encoding="utf-8")
+        )
+        self.assertIsNone(manifest["max_frames"])
+
+    def test_unlimited_manifest_records_null_bound(self):
+        _, _, obs_dir = self.run_loop(speeds=("HIGH",), max_frames=None)
+        manifest = json.loads(
+            (obs_dir / "adaptive_run.json").read_text(encoding="utf-8")
+        )
+        self.assertIsNone(manifest["max_frames"])
+        self.assertEqual(manifest["termination"], "video-end")
+        self.assertNotIn("BASETEN_API_KEY", json.dumps(manifest))
+
+    def test_explicit_bound_still_terminates(self):
+        result, client, obs_dir = self.run_loop(
+            speeds=("NORMAL",), max_frames=2
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["termination"], "max-frames")
+        self.assertEqual(len(client.calls), 2)
+        manifest = json.loads(
+            (obs_dir / "adaptive_run.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["max_frames"], 2)
+
+    def test_unlimited_still_honors_stop(self):
+        token = StopToken()
+        token.request_stop()
+        result, client, _ = self.run_loop(
+            speeds=("NORMAL",), max_frames=None, stop_token=token
+        )
+        self.assertEqual(result["status"], "stopped")
+        self.assertEqual(result["termination"], "stop-requested")
+        self.assertEqual(len(client.calls), 0)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,16 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    // The ffmpeg binary ships beside the asar (it cannot execute from
+    // inside the archive). The vite plugin prunes node_modules, so the
+    // binary rides as an extra resource instead of a require() target.
+    extraResource: [
+      process.platform === 'win32'
+        ? './node_modules/ffmpeg-static/ffmpeg.exe'
+        : './node_modules/ffmpeg-static/ffmpeg',
+      './node_modules/ffmpeg-static/ffmpeg.LICENSE',
+      './node_modules/ffmpeg-static/ffmpeg.README',
+    ],
   },
   rebuildConfig: {},
   makers: [

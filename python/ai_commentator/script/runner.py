@@ -54,7 +54,25 @@ def _live_text_client(provider, model, api_key):
         from ..vision.providers.meta import MetaAdapter
 
         return MetaAdapter(model=model, api_key=api_key)
+    if provider == "custom":
+        from ..vision.providers.custom import CustomAdapter
+        from ..vision.providers.registry import custom_base_url_from_env
+
+        return CustomAdapter(model=model, api_key=api_key,
+                             base_url=custom_base_url_from_env())
     return OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
+
+
+def open_live_text_client():
+    """Return ``(client_context_manager, api_key)`` for a live text run.
+
+    The caller enters the context manager and closes it when done; the
+    yielded client serves exactly one thread. Raises RuntimeError without
+    a key (legacy message kept) and ValueError for unsupported
+    provider/model pairs.
+    """
+    provider, model, api_key = _resolve_live_credentials()
+    return _live_text_client(provider, model, api_key), api_key
 
 
 def run_generate_script(

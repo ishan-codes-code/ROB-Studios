@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
@@ -7,7 +8,8 @@ import {
   applyWorkerMessage,
   createInitialRunState,
 } from "@/lib/worker-view.js";
-import { ADAPTIVE_DEFAULT_MAX_FRAMES, RUN_MODES, buildProcessOptions, defaultRunMode, isAdaptiveMode } from "@/lib/run-options.js";
+import { RUN_MODES, buildProcessOptions, defaultRunMode, isAdaptiveMode, isValidAdaptiveMaxFrames } from "@/lib/run-options.js";
+import useProjectAudio from "@/hooks/useProjectAudio.js";
 import EditorCenter from "./workspace/EditorCenter.jsx";
 import ProcessingInspector from "./workspace/ProcessingInspector.jsx";
 import ProjectWorkspaceLayout from "./workspace/ProjectWorkspaceLayout.jsx";
@@ -18,21 +20,40 @@ import ProjectWorkspaceLayout from "./workspace/ProjectWorkspaceLayout.jsx";
  * runs project-bound so artifacts can never leak across projects.
  * Audio lanes are honest empty states until extraction/TTS land.
  */
-export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLoaded, onBack }) {
+
+/** One-line summary of measured result counts, or undefined when empty. */
+function resultSummary(result) {
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+  const parts = [];
+  if (Number.isFinite(result.observations)) {
+    parts.push(`${result.observations} observations`);
+  }
+  if (Number.isFinite(result.events)) {
+    parts.push(`${result.events} events`);
+  }
+  if (Number.isFinite(result.commentary_lines)) {
+    parts.push(`${result.commentary_lines} lines`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLoaded, onBack, onNavigate }) {
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [run, setRun] = useState(() => createInitialRunState());
-  const [runMode, setRunMode] = useState(RUN_MODES.OFFLINE);
+  const [runMode, setRunMode] = useState(RUN_MODES.ADAPTIVE);
   const [visionConfigured, setVisionConfigured] = useState(false);
   const [visionMissing, setVisionMissing] = useState('API key');
   const [visionChecked, setVisionChecked] = useState(false);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState(null);
-  const [adaptiveMaxFrames, setAdaptiveMaxFrames] = useState(
-    ADAPTIVE_DEFAULT_MAX_FRAMES,
-  );
+  // null = unlimited (the default): sample to video end unless
+  // stopped. A positive integer caps paid vision requests instead.
+  const [adaptiveMaxFrames, setAdaptiveMaxFrames] = useState(null);
+  const [requestTts, setRequestTts] = useState(false);
   // True while a cooperative stop was accepted and the run is still
   // alive. Set only after the main process confirms acceptance; the
   // worker's terminal message clears it.
@@ -42,6 +63,16 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   // mode change cannot rewire a live run's controls).
   const [runIsAdaptive, setRunIsAdaptive] = useState(false);
   const mountedRef = useRef(true);
+  // Single audio-discovery boundary for the editor: the commentary
+  // timeline and the inspector script panel join the same files and
+  // manifest entries, so both agree on every segment's state.
+  const audio = useProjectAudio(project?.id ?? null, run.script, run.status);
+  // One run toast per project: `loading` while accepted, replaced by
+  // the terminal outcome. Cancelled/stopped runs dismiss it silently —
+  // both follow explicit user actions whose inline pending and terminal
+  // states already confirm the outcome.
+  const runToastId = `processing-${projectId}`;
+  const lastTerminalNotified = useRef(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -108,10 +139,29 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       if (unsubscribe) {
         unsubscribe();
       }
+      toast.dismiss(`processing-${projectId}`);
     };
   }, [projectId, onProjectLoaded]);
 
   useEffect(() => {
+    if (run.status === "processing" || run.status === "idle") {
+      lastTerminalNotified.current = null;
+    } else if (lastTerminalNotified.current !== run.status) {
+      lastTerminalNotified.current = run.status;
+      if (run.status === "completed") {
+        toast.success("Processing complete", {
+          id: runToastId,
+          description: resultSummary(run.result),
+        });
+      } else if (run.status === "failed") {
+        toast.error("Processing failed", {
+          id: runToastId,
+          description: run.error?.message ?? undefined,
+        });
+      } else {
+        toast.dismiss(runToastId);
+      }
+    }
     if (
       run.status === "completed" ||
       run.status === "failed" ||
@@ -148,16 +198,13 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
     const ready = verified === true;
     setVisionConfigured(ready);
     setVisionMissing(ready ? null : "verified API configuration");
-    setRunMode((current) => {
-      if (ready) return current;
-      if (current === RUN_MODES.AI || isAdaptiveMode(current)) return RUN_MODES.OFFLINE;
-      return current;
-    });
+    setRunMode(RUN_MODES.ADAPTIVE);
   }, []);
 
   const processing = run.status === "processing";
+  const limitValid = isValidAdaptiveMaxFrames(adaptiveMaxFrames);
   const canStart =
-    project && !starting && !cancelling && run.settled && !processing;
+    project && !starting && !cancelling && run.settled && !processing && limitValid;
 
   async function handleStart() {
     if (!canStart) {
@@ -170,7 +217,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
     setStopping(false);
     setRunIsAdaptive(adaptive);
     try {
-      const runOptions = buildProcessOptions(runMode, { adaptiveMaxFrames });
+      const runOptions = buildProcessOptions(runMode, { adaptiveMaxFrames, requestTts });
       const res = await window.api.processVideo(project.sourceVideo.path, {
         projectId: project.id,
         ...runOptions,
@@ -189,6 +236,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
           },
         });
       } else if (typeof window.api?.updateProject === "function") {
+        toast.loading("Processing video…", { id: runToastId });
         window.api
           .updateProject(project.id, { processingStatus: "processing" })
           .catch(() => {});
@@ -280,7 +328,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       </Alert>
     </div>
   ) : (
-    <EditorCenter project={project} refreshSignal={run.status} onBack={onBack} />
+    <EditorCenter project={project} refreshSignal={run.status} script={run.script} runStatus={run.status} audio={audio} onBack={onBack} />
   );
 
   const inspectorContent = project ? (
@@ -301,10 +349,16 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       runIsAdaptive={runIsAdaptive}
       adaptiveMaxFrames={adaptiveMaxFrames}
       setAdaptiveMaxFrames={setAdaptiveMaxFrames}
+      requestTts={requestTts}
+      setRequestTts={setRequestTts}
+      script={run.script}
+      runStatus={run.status}
+      audio={audio}
       onStart={handleStart}
       onCancel={handleCancel}
       onStop={handleStop}
       onReadinessChange={handleReadinessChange}
+      onNavigate={onNavigate}
     />
   ) : (
     <div className="flex h-full items-center justify-center px-4 text-[12px] text-muted-foreground">

@@ -24,7 +24,8 @@ BASETEN_BASE_URL = os.environ.get("BASETEN_BASE_URL", "https://inference.baseten
 BASETEN_MODEL = os.environ.get("BASETEN_MODEL", "meta-models/muse-spark-open")
 PROVIDER_META = "meta"
 PROVIDER_BASETEN = "baseten"
-SUPPORTED_PROVIDERS = (PROVIDER_META, PROVIDER_BASETEN)
+PROVIDER_CUSTOM = "custom"
+SUPPORTED_PROVIDERS = (PROVIDER_META, PROVIDER_BASETEN, PROVIDER_CUSTOM)
 META_API_BASE_URL = "https://api.meta.ai/v1"
 META_MODELS = ("muse-spark-1.3", "muse-wonder-1.0")
 
@@ -193,7 +194,11 @@ ADAPTIVE_MAX_REASON_CHARS = 280
 # through the OpenAI-compatible SDK's timeout mechanism. No retries: one
 # sampled frame costs at most one paid request.
 ADAPTIVE_REQUEST_TIMEOUT_S = 60.0
-# Cost bound: an adaptive run stops after this many sampled frames.
+# Cost bound: explicit --adaptive-max-frames values must stay within
+# 1..ADAPTIVE_HARD_MAX_FRAMES. The effective default is unlimited
+# (None: sample to video end); ADAPTIVE_DEFAULT_MAX_FRAMES below is
+# retained only for facade compatibility — no code path uses it as a
+# fallback anymore, so it must never be reintroduced silently.
 ADAPTIVE_DEFAULT_MAX_FRAMES = 60
 ADAPTIVE_HARD_MAX_FRAMES = 10000
 # Scheduled timestamps are quantized to millisecond precision so prompt

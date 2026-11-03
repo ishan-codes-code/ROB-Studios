@@ -129,7 +129,7 @@ def prioritize_writer_claims(claims: list) -> tuple:
     return ordered[:WRITER_MAX_CLAIMS], ordered[WRITER_MAX_CLAIMS:]
 
 
-def build_writer_prompt(claims: list, history_texts: list) -> str:
+def build_writer_prompt(claims: list, history_texts: list, pack=None) -> str:
     """Build the bounded prompt for the commentary-writer model.
 
     The model sees only gated claims (with their verbatim evidence,
@@ -137,19 +137,14 @@ def build_writer_prompt(claims: list, history_texts: list) -> str:
     lines for consistency. It never sees raw observations, match state,
     or full history. It must answer with JSON mapping claim ids to
     spoken lines, and may omit claims it cannot word safely.
+    Wording comes from the game prompt pack; the JSON shape stays here.
     """
+    from ..prompts import coerce_pack
+
+    fields = coerce_pack(pack)["fields"]
     parts = [
-        "You are a concise live esports commentator for Free Fire gameplay. ",
-        "Write one short spoken line per evidence item below (one or two ",
-        "sentences, suitable for text-to-speech). Prefer the newest ",
-        "developments; vary phrasing naturally; never repeat what was ",
-        "already said. ",
-        "Strict rules: each line must stay within its quoted evidence — ",
-        "quote or closely restate the evidence, never add kills, knocks, ",
-        "damage, identities, positions, outcomes, or causal explanations ",
-        "beyond the quotes. A candidate event is NOT confirmed: lines for ",
-        "event_echo items must keep their qualifier wording (unconfirmed). ",
-        "If an item cannot be worded safely, omit it. ",
+        fields["writer_persona"] + " ",
+        fields["writer_rules"] + " ",
         "Respond with ONLY a single JSON object, no markdown fences, no ",
         "commentary, matching this shape: ",
         '{"lines": [{"claim_id": <one of the ids below>, ',
@@ -188,6 +183,12 @@ def _live_text_client(provider, model, api_key):
         from ..vision.providers.meta import MetaAdapter
 
         return MetaAdapter(model=model, api_key=api_key)
+    if provider == "custom":
+        from ..vision.providers.custom import CustomAdapter
+        from ..vision.providers.registry import custom_base_url_from_env
+
+        return CustomAdapter(model=model, api_key=api_key,
+                             base_url=custom_base_url_from_env())
     return OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
 
 

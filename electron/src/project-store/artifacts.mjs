@@ -18,7 +18,18 @@ const ARTIFACT_FILES = {
   events: ['events', 'events.json'],
   commentary: ['commentary', 'commentary.json'],
   script: ['script', 'script.json'],
+  tts: ['audio', 'tts.json'],
 };
+
+// Audio roots in listing order. The pipeline writes streaming and
+// sequential TTS output under `output/audio/segments/`; the legacy
+// `audio/` roots predate the output layout and stay listed so older
+// projects keep working.
+const AUDIO_SCOPES = [
+  { scope: 'audio', parts: ['audio'] },
+  { scope: 'audio/commentary', parts: ['audio', 'commentary'] },
+  { scope: 'audio/segments', parts: ['output', 'audio', 'segments'] },
+];
 
 function projectSubdir(projectDir, ...parts) {
   const resolved = path.join(projectDir, ...parts);
@@ -114,6 +125,7 @@ export function listArtifacts(userDataPath, projectId) {
   const eventsSummary = summarizeJsonDocument(projectSubdir(dir, 'output', ...ARTIFACT_FILES.events));
   const commentarySummary = summarizeJsonDocument(projectSubdir(dir, 'output', ...ARTIFACT_FILES.commentary));
   const scriptSummary = summarizeJsonDocument(projectSubdir(dir, 'output', ...ARTIFACT_FILES.script));
+  const ttsSummary = summarizeJsonDocument(projectSubdir(dir, 'output', ...ARTIFACT_FILES.tts));
 
   let eventCount = 0;
   if (eventsSummary.present && !eventsSummary.invalid) {
@@ -130,16 +142,20 @@ export function listArtifacts(userDataPath, projectId) {
     const doc = readJsonDocument(projectSubdir(dir, 'output', ...ARTIFACT_FILES.script));
     if (doc && typeof doc.status !== 'undefined') scriptStatus = String(doc.status);
   }
+  let ttsCount = 0;
+  if (ttsSummary.present && !ttsSummary.invalid) {
+    const doc = readJsonDocument(projectSubdir(dir, 'output', ...ARTIFACT_FILES.tts));
+    if (Array.isArray(doc.entries)) ttsCount = doc.entries.length;
+  }
 
   const audioFiles = [];
-  for (const scope of ['audio', 'audio/commentary']) {
-    const scopeDir = scope === 'audio' ? [] : ['commentary'];
-    for (const entry of readdirEntries(path.join(dir, 'audio', ...scopeDir))) {
+  for (const { scope, parts } of AUDIO_SCOPES) {
+    for (const entry of readdirEntries(path.join(dir, ...parts))) {
       if (!entry.isFile()) continue;
       if (!AUDIO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
       let sizeBytes = 0;
       try {
-        sizeBytes = fs.statSync(path.join(dir, 'audio', ...scopeDir, entry.name)).size;
+        sizeBytes = fs.statSync(path.join(dir, ...parts, entry.name)).size;
       } catch {
         continue;
       }
@@ -156,6 +172,7 @@ export function listArtifacts(userDataPath, projectId) {
     events: { ...eventsSummary, count: eventCount },
     commentary: { ...commentarySummary, lines: commentaryLines },
     script: { ...scriptSummary, status: scriptStatus },
+    tts: { ...ttsSummary, count: ttsCount },
     audio: { files: audioFiles },
   };
 }

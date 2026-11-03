@@ -3,7 +3,7 @@
 // The Electron main process (main.js) wires this to IPC.
 
 import { spawn } from 'node:child_process';
-import { buildStopControlLine, createLineParser, isValidWorkerMessage } from './worker-protocol.mjs';
+import { buildStopControlLine, createLineParser, describeWorkerMessageIssue } from './worker-protocol.mjs';
 
 function createWorkerManager({ spawnFn = spawn } = {}) {
   let active = null;
@@ -67,13 +67,20 @@ function createWorkerManager({ spawnFn = spawn } = {}) {
       });
       const forward = (message) => {
         if (typeof onMessage === 'function') {
-          if (isValidWorkerMessage(message)) {
+          const issue = describeWorkerMessageIssue(message);
+          if (issue === null) {
             onMessage(message);
+          } else if (issue.kind === 'invalid-payload') {
+            onMessage({
+              type: 'error',
+              stage: 'protocol',
+              message: `Invalid "${issue.type}" message from worker: payload failed validation.`,
+            });
           } else {
             onMessage({
               type: 'error',
               stage: 'protocol',
-              message: `Unknown worker message type: ${JSON.stringify(message && message.type)}`,
+              message: `Unknown worker message type: ${JSON.stringify(issue.type)}`,
             });
           }
         }

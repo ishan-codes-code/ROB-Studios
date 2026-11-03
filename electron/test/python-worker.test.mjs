@@ -75,6 +75,34 @@ test('stderr is forwarded and unknown types become protocol errors', async () =>
   assert.equal(outcome.code, 0);
 });
 
+test('tts segments forward when valid and diagnose precisely when not', async () => {
+  const manager = createWorkerManager();
+  const print = (obj) => `console.log(JSON.stringify(${obj}));`;
+  const validStarted =
+    '{type:"tts_segment",data:{utterance_id:"u-0001",timestamp_seconds:12.5,status:"started",error:null}}';
+  const badPayload =
+    '{type:"tts_segment",data:{utterance_id:"u-0001",timestamp_seconds:12.5,status:"queued",error:null}}';
+  const { outcome, messages } = await runToExit(manager, [
+    '-e',
+    print(validStarted) + print(badPayload) + print('{type:"mystery"}'),
+  ]);
+  assert.equal(messages.length, 3);
+  assert.deepEqual(messages[0], {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-0001', timestamp_seconds: 12.5, status: 'started', error: null },
+  });
+  assert.equal(messages[1].type, 'error');
+  assert.equal(messages[1].stage, 'protocol');
+  assert.equal(
+    messages[1].message,
+    'Invalid "tts_segment" message from worker: payload failed validation.',
+  );
+  assert.equal(messages[2].type, 'error');
+  assert.equal(messages[2].stage, 'protocol');
+  assert.equal(messages[2].message, 'Unknown worker message type: "mystery"');
+  assert.equal(outcome.code, 0);
+});
+
 test('second start while busy is refused without spawning', async () => {
   const manager = createWorkerManager();
   let exited = null;

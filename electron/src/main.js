@@ -5,10 +5,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createWorkerManager } from './python-worker.mjs';
+import { createExportManager } from './export-runner.mjs';
 import { resolvePythonExecutable } from './worker-protocol.mjs';
+import { clearDevCredentials } from './credentials-store.mjs';
+import { registerExportIpc } from './main/ipc/export.js';
 import { registerProjectIpc } from './main/ipc/projects.js';
 import { registerProcessingIpc } from './main/ipc/processing.js';
 import { registerSettingsIpc } from './main/ipc/settings.js';
+import { registerTtsIpc } from './main/ipc/tts.js';
+import { createTtsCatalogLoader } from './tts-catalog.mjs';
+import { createPromptPackLoader } from './prompt-packs.mjs';
 import { registerProjectMediaProtocol } from './main/media-protocol.js';
 import { createMainWindow } from './main/window.js';
 import { reconcileInterruptedRuns, resolveProjectMedia } from './project-store.mjs';
@@ -44,6 +50,7 @@ function repoRoot() {
 }
 
 const workerManager = createWorkerManager();
+const exportManager = createExportManager();
 let mainWindow = null;
 const processingState = { activeProjectId: null, appQuitting: false };
 
@@ -114,6 +121,12 @@ function sendWorkerEvent(message) {
   }
 }
 
+function sendExportEvent(message) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('export-event', message);
+  }
+}
+
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -147,18 +160,28 @@ app.on('window-all-closed', () => {
 
 // Never leave a worker running after the app exits.
 app.on('before-quit', () => {
+  // Temporary dev bypass: memory-held credentials vanish at shutdown.
+  try { clearDevCredentials(); } catch { /* never block quit */ }
   if (workerManager.isBusy()) {
     // Best effort: the process tree is torn down with the session, but an
     // explicit terminate avoids a stray paid API call or file write.
     processingState.appQuitting = true;
     void workerManager.cancel({ killGraceMs: 1000 });
   }
+  if (exportManager.isBusy()) {
+    void exportManager.cancel({ killGraceMs: 1000 });
+  }
 });
 
-registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow });
+const ttsCatalogLoader = createTtsCatalogLoader({ repoRoot });
+const packsLoader = createPromptPackLoader({ repoRoot });
+
+registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader, packsLoader });
 
 registerProjectIpc({ ipcMain, app, workerManager });
-registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup });
+registerExportIpc({ ipcMain, app, dialog, fs, exportManager, sendExportEvent, getMainWindow: () => mainWindow });
+registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader });
+registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.

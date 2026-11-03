@@ -8,7 +8,10 @@ import {
   buildStopControlLine,
   buildWorkerArgv,
   createLineParser,
+  describeWorkerMessageIssue,
   isValidAdaptiveSample,
+  isValidScriptSegment,
+  isValidTtsSegment,
   isValidWorkerMessage,
   isVisionConfigured,
   resolvePythonExecutable,
@@ -162,6 +165,101 @@ test('adaptive_sample rejects missing or malformed envelopes', () => {
   );
 });
 
+function validScriptSegment(overrides = {}) {
+  return {
+    type: 'script_segment',
+    data: {
+      utterance_id: 'u-0001',
+      timestamp_seconds: 12.5,
+      text: 'The zone starts closing in.',
+      source_claim_ids: ['clm-9f3a2b1c4d5e'],
+      priority: 1,
+      status: 'worded',
+      ...overrides,
+    },
+  };
+}
+
+function validTtsSegment(overrides = {}) {
+  return {
+    type: 'tts_segment',
+    data: {
+      utterance_id: 'u-0001',
+      timestamp_seconds: 12.5,
+      status: 'success',
+      error: null,
+      ...overrides,
+    },
+  };
+}
+
+test('script_segment accepts worded and superseded payloads', () => {
+  assert.equal(isValidScriptSegment(validScriptSegment()), true);
+  assert.equal(isValidScriptSegment(validScriptSegment({ status: 'superseded' })), true);
+  assert.equal(isValidWorkerMessage(validScriptSegment()), true);
+  assert.equal(isValidWorkerMessage({ type: 'script_segment' }), false);
+});
+
+test('script_segment rejects malformed payloads', () => {
+  assert.equal(isValidScriptSegment(validScriptSegment({ utterance_id: '' })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ timestamp_seconds: -1 })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ text: '  ' })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ text: 'x'.repeat(601) })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ source_claim_ids: [] })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ source_claim_ids: ['ok', 42] })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ priority: 3 })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ status: 'draft' })), false);
+  assert.equal(isValidWorkerMessage(validScriptSegment({ priority: 9 })), false);
+});
+
+test('tts_segment accepts outcomes and rejects malformed payloads', () => {
+  assert.equal(isValidTtsSegment(validTtsSegment()), true);
+  assert.equal(
+    isValidTtsSegment(validTtsSegment({ status: 'error', error: 'Synth failed.' })),
+    true,
+  );
+  assert.equal(isValidTtsSegment(validTtsSegment({ status: 'skipped' })), true);
+  assert.equal(isValidTtsSegment(validTtsSegment({ status: 'started', error: null })), true);
+  assert.equal(isValidWorkerMessage(validTtsSegment({ status: 'started' })), true);
+  assert.equal(isValidWorkerMessage(validTtsSegment()), true);
+  assert.equal(isValidTtsSegment(validTtsSegment({ utterance_id: '' })), false);
+  assert.equal(isValidTtsSegment(validTtsSegment({ status: 'queued' })), false);
+  assert.equal(isValidTtsSegment(validTtsSegment({ error: 42 })), false);
+  assert.equal(isValidWorkerMessage(validTtsSegment({ status: 'nope' })), false);
+});
+
+test('describeWorkerMessageIssue separates unknown types from bad payloads', () => {
+  assert.equal(describeWorkerMessageIssue({ type: 'started' }), null);
+  assert.equal(describeWorkerMessageIssue(validTtsSegment()), null);
+  assert.equal(describeWorkerMessageIssue(validTtsSegment({ status: 'started' })), null);
+  assert.deepEqual(describeWorkerMessageIssue({ type: 'mystery' }), {
+    kind: 'unknown-type',
+    type: 'mystery',
+  });
+  assert.deepEqual(describeWorkerMessageIssue(null), { kind: 'unknown-type', type: null });
+  assert.deepEqual(describeWorkerMessageIssue({ type: 42 }), {
+    kind: 'unknown-type',
+    type: null,
+  });
+  assert.deepEqual(describeWorkerMessageIssue(validTtsSegment({ status: 'queued' })), {
+    kind: 'invalid-payload',
+    type: 'tts_segment',
+  });
+  assert.deepEqual(describeWorkerMessageIssue(validScriptSegment({ status: 'draft' })), {
+    kind: 'invalid-payload',
+    type: 'script_segment',
+  });
+  // Untrusted payload data never travels into the diagnostic, and
+  // overlong types are capped.
+  const sneaky = validTtsSegment({ status: 'queued', error: 'sk-SECRET-VALUE' });
+  const issue = describeWorkerMessageIssue(sneaky);
+  assert.equal(issue.kind, 'invalid-payload');
+  assert.ok(!JSON.stringify(issue).includes('SECRET'));
+  const long = describeWorkerMessageIssue({ type: `x${'y'.repeat(500)}` });
+  assert.equal(long.kind, 'unknown-type');
+  assert.equal(long.type.length, 120);
+});
+
 test('resolvePythonExecutable reports the venv interpreter or its absence', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'venv-resolve-'));
   try {
@@ -232,50 +330,119 @@ test('buildWorkerArgv rejects non-positive adaptiveMaxFrames', () => {
   }
 });
 
-test('buildWorkerArgv omits adaptive flags unless requested', () => {
-  assert.deepEqual(
-    buildWorkerArgv('worker.py', 'clip.mp4', { skipVision: true }),
-    ['worker.py', 'clip.mp4', '--skip-vision'],
-  );
-});
-
-test('buildWorkerArgv passes explicit limit for AI runs', () => {
-  assert.deepEqual(
-    buildWorkerArgv('worker.py', 'clip.mp4', {
-      outputDir: '/out',
-      limit: 10,
-      skipVision: false,
-    }),
-    ['worker.py', 'clip.mp4', '--output-dir', '/out', '--limit', '10'],
-  );
-});
-
-test('buildWorkerArgv omits vision flags for offline runs', () => {
-  assert.deepEqual(
-    buildWorkerArgv('worker.py', 'clip.mp4', {
-      outputDir: '/out',
-      skipVision: true,
-    }),
-    ['worker.py', 'clip.mp4', '--output-dir', '/out', '--skip-vision'],
-  );
-});
-
-test('buildWorkerArgv rejects non-positive limits', () => {
-  for (const limit of [0, -3, 2.5, 'many', NaN]) {
+test('buildWorkerArgv rejects explicit bounds above the engine hard cap', () => {
+  for (const adaptiveMaxFrames of [10001, 10 ** 9, '20000']) {
     assert.throws(
-      () => buildWorkerArgv('worker.py', 'clip.mp4', { limit }),
-      /positive integer/,
+      () => buildWorkerArgv('worker.py', 'clip.mp4', { adaptiveMaxFrames }),
+      /up to 10000/,
     );
   }
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', { adaptive: true, adaptiveMaxFrames: 10000 }),
+    ['worker.py', 'clip.mp4', '--adaptive', '--adaptive-max-frames', '10000'],
+  );
+});
+
+test('buildWorkerArgv omits the flag for unlimited runs', () => {
+  for (const adaptiveMaxFrames of [null, undefined]) {
+    assert.deepEqual(
+      buildWorkerArgv('worker.py', 'clip.mp4', { adaptive: true, adaptiveMaxFrames }),
+      ['worker.py', 'clip.mp4', '--adaptive'],
+    );
+  }
+});
+
+test('buildWorkerArgv omits vision flags when not adaptive', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      outputDir: '/out',
+    }),
+    ['worker.py', 'clip.mp4', '--output-dir', '/out'],
+  );
 });
 
 test('buildWorkerArgv never invents flags from unknown options', () => {
   assert.deepEqual(
     buildWorkerArgv('worker.py', 'clip.mp4', {
+      limit: 10,
       skipVision: true,
       extra: '--exec-evil',
     }),
-    ['worker.py', 'clip.mp4', '--skip-vision'],
+    ['worker.py', 'clip.mp4'],
+  );
+});
+
+test('buildWorkerArgv passes the script flag', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      adaptive: true,
+      withScript: true,
+    }),
+    ['worker.py', 'clip.mp4', '--with-script', '--adaptive'],
+  );
+});
+
+test('buildWorkerArgv passes TTS flags with a validated voice triple', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      adaptive: true,
+      withScript: true,
+      generateTts: true,
+      ttsModel: 'gemini-3.8-flash-tts',
+      ttsVoice: 'Fenrir',
+      ttsVoiceDirection: 'Calm and measured.',
+    }),
+    [
+      'worker.py', 'clip.mp4', '--with-script', '--generate-tts',
+      '--tts-model', 'gemini-3.8-flash-tts',
+      '--tts-voice', 'Fenrir',
+      '--tts-voice-direction', 'Calm and measured.',
+      '--adaptive',
+    ],
+  );
+});
+
+test('buildWorkerArgv rejects TTS without the script and unbounded values', () => {
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { generateTts: true }),
+    /requires --with-script/,
+  );
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { ttsVoice: '' }),
+    /ttsVoice must be a non-empty string/,
+  );
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { ttsVoice: 'v'.repeat(65) }),
+    /ttsVoice must be a non-empty string/,
+  );
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { ttsVoiceDirection: 'd'.repeat(501) }),
+    /ttsVoiceDirection must be a non-empty string/,
+  );
+});
+
+test('buildWorkerArgv passes the streaming flag', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      adaptive: true,
+      streaming: true,
+    }),
+    ['worker.py', 'clip.mp4', '--streaming', '--adaptive'],
+  );
+});
+
+test('buildWorkerArgv allows TTS with streaming but not alone', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      adaptive: true,
+      streaming: true,
+      generateTts: true,
+    }),
+    ['worker.py', 'clip.mp4', '--streaming', '--generate-tts', '--adaptive'],
+  );
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { generateTts: true }),
+    /requires --with-script/,
   );
 });
 

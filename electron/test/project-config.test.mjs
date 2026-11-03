@@ -13,7 +13,7 @@ import {
   createCredential,
   markCredentialVerified,
 } from '../src/credentials-store.mjs';
-import { resolveProjectRunConfig, stripHostSecrets } from '../src/main/run-config.mjs';
+import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../src/main/run-config.mjs';
 
 const storage = () => ({
   isEncryptionAvailable: () => true,
@@ -65,6 +65,83 @@ test('partial stored configuration defaults on read without rewriting', async (t
   assert.deepEqual(stored.configuration, { credentialId: null });
 });
 
+test('project TTS overrides default to inherit and persist explicitly', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'TTS', sourcePath: seedVideo(t) });
+  assert.deepEqual(project.configuration.tts, {
+    model: null, voice: null, voiceDirection: null, credentialId: null,
+  });
+  const updated = updateProject(dir, project.id, {
+    configuration: { tts: { voice: 'Fenrir', credentialId: null } },
+  });
+  assert.deepEqual(updated.configuration.tts, {
+    model: null, voice: 'Fenrir', voiceDirection: null, credentialId: null,
+  });
+  // A fresh read (application restart) returns the same override.
+  assert.deepEqual(getProject(dir, project.id).configuration.tts, updated.configuration.tts);
+  assert.throws(
+    () => updateProject(dir, project.id, { configuration: { tts: { voice: 'v'.repeat(65) } } }),
+    /Invalid TTS configuration field 'voice'/,
+  );
+});
+
+test('legacy project configuration without TTS inherits without rewriting', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'LegacyTTS', sourcePath: seedVideo(t) });
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  raw.configuration = { credentialId: null };
+  fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+  const reread = getProject(dir, project.id);
+  assert.deepEqual(reread.configuration.tts, {
+    model: null, voice: null, voiceDirection: null, credentialId: null,
+  });
+  const stored = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  assert.deepEqual(stored.configuration, { credentialId: null });
+});
+
+test('TTS run resolution merges config and gates the credential', async (t) => {
+  const dir = tempDir(t);
+  const catalog = {
+    models: [{ id: 'gemini-3.8-flash-tts', description: '' }],
+    voices: [{ id: 'Kore', character: '' }],
+    defaults: { model: 'gemini-3.8-flash-tts', voice: 'Kore', voiceDirection: 'Default style.' },
+    limits: { voiceMaxLength: 64, voiceDirectionMaxLength: 500 },
+  };
+  const project = createProject(dir, { name: 'TTS Run', sourcePath: seedVideo(t) });
+  assert.throws(
+    () => resolveTtsRunConfig(dir, storage(), project.id, catalog),
+    /no TTS credential selected/,
+  );
+  const tts = createCredential(dir, storage(), {
+    name: 'TTS', provider: 'google-gemini-tts', model: null, key: 'run-tts-key',
+  });
+  updateProject(dir, project.id, {
+    configuration: { tts: { voice: 'Kore', credentialId: tts.id } },
+  });
+  assert.throws(
+    () => resolveTtsRunConfig(dir, storage(), project.id, catalog),
+    /not verified/,
+  );
+  markCredentialVerified(dir, storage(), tts.id, null);
+  const resolved = resolveTtsRunConfig(dir, storage(), project.id, catalog);
+  assert.deepEqual(resolved.config, {
+    model: 'gemini-3.8-flash-tts',
+    voice: 'Kore',
+    voiceDirection: 'Default style.',
+  });
+  assert.equal(resolved.apiKey, 'run-tts-key');
+  assert.equal(resolved.credentialName, 'TTS');
+  const vision = createCredential(dir, storage(), {
+    name: 'Vision', provider: 'meta', model: 'muse-spark-1.3', key: 'vision-key',
+  });
+  updateProject(dir, project.id, { configuration: { tts: { credentialId: vision.id } } });
+  assert.throws(
+    () => resolveTtsRunConfig(dir, storage(), project.id, catalog),
+    /not a TTS credential/,
+  );
+});
+
 test('configuration patches merge and validate fields', async (t) => {
   const dir = tempDir(t);
   const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
@@ -106,6 +183,56 @@ test('run resolution never substitutes another key and flags unverified', async 
   updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
   const resolved = resolveProjectRunConfig(dir, storage(), project.id);
   assert.equal(resolved.verified, false);
+});
+
+test('prompt pack selection defaults to null and stays patchable', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
+  assert.equal(project.configuration.promptPackId, null);
+  // Legacy files without the field read as null (application default).
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  delete raw.configuration.promptPackId;
+  fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+  assert.equal(getProject(dir, project.id).configuration.promptPackId, null);
+  const updated = updateProject(dir, project.id, { configuration: { promptPackId: 'cod' } });
+  assert.equal(updated.configuration.promptPackId, 'cod');
+  assert.throws(() => updateProject(dir, project.id, { configuration: { promptPackId: 'bad id!' } }), /Invalid project configuration/);
+});
+
+test('run resolution snapshots the prompt pack with customs', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id, promptPackId: 'cod' } });
+  fs.writeFileSync(
+    path.join(dir, 'prompt-packs.json'),
+    JSON.stringify({ version: 1, custom: { cod: { script_closing: 'Custom.' } } }),
+  );
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.deepEqual(resolved.preferences.promptPack, { packId: 'cod', custom: { script_closing: 'Custom.' } });
+  const fresh = createProject(dir, { name: 'Q', sourcePath: seedVideo(t) });
+  updateProject(dir, fresh.id, { configuration: { credentialId: credential.id } });
+  const fallback = resolveProjectRunConfig(dir, storage(), fresh.id);
+  assert.deepEqual(fallback.preferences.promptPack, { packId: 'free-fire', custom: {} });
+});
+
+test('run resolution snapshots the custom endpoint from the record', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Gateway', provider: 'custom', model: 'qwen-vl', key: 'run-key',
+    baseUrl: 'https://llm.example.com/v1',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model, credential.baseUrl);
+  const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.equal(resolved.provider, 'custom');
+  assert.equal(resolved.baseUrl, 'https://llm.example.com/v1');
+  assert.equal(resolved.verified, true);
 });
 
 test('host secrets are stripped from the worker environment', async () => {

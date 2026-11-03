@@ -5,6 +5,20 @@
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
 
+/** Media clock display: `MM:SS`, or `HH:MM:SS` past one hour. */
+export function formatMediaTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return '--:--';
+  }
+  const whole = Math.floor(seconds);
+  const secondsPart = String(whole % 60).padStart(2, '0');
+  const minutes = Math.floor(whole / 60);
+  if (minutes >= 60) {
+    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:${secondsPart}`;
+  }
+  return `${String(minutes).padStart(2, '0')}:${secondsPart}`;
+}
+
 export function formatBytes(sizeBytes) {
   if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
     return '—';

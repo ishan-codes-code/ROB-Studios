@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { getProjectOutputDir, getProject as getStoredProject, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
 import { buildWorkerArgv, isVisionConfigured, resolvePythonExecutable, resolveWorkerScript, validateVideoInput } from '../../worker-protocol.mjs';
-import { resolveProjectRunConfig, stripHostSecrets } from '../run-config.mjs';
+import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../run-config.mjs';
+import { TTS_API_KEY_ENV_VAR } from '../../tts-config.mjs';
 import { loadSettings } from '../../settings-store.mjs';
 
-export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow }) {
+export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow, ttsCatalogLoader = null, packsLoader = null }) {
   // True once the active run emitted its terminal `stopped` message.
   // Reset on every start; runs never overlap, so one flag is enough.
   let stoppedSeenForActiveRun = false;
@@ -74,24 +75,33 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     if (!script) {
       return { ok: false, error: `Worker script not found at ${missingScript}.` };
     }
-    // AI analysis is a paid run: refuse to spawn without a key rather
-    // than silently falling back to offline mode. The worker also
-    // fails fast, but this stops the job before any extraction work.
+    // Adaptive sampling is a paid run: refuse to spawn without a key.
+    // The worker also fails fast, but this stops the job before any
+    // paid request.
     let userSettings;
     try { userSettings = loadSettings(app.getPath('userData')); } catch { userSettings = null; }
     const hasStoredCredential = (() => { try { return fs.existsSync(path.join(app.getPath('userData'), 'provider-key.enc')); } catch { return false; } })();
     const legacyCredential = typeof process.env.BASETEN_API_KEY === 'string' ? process.env.BASETEN_API_KEY : '';
-    const paidRequested = !opts.skipVision || opts.withScript || opts.adaptive;
+    const paidRequested = true;
     // Project-scoped runs resolve the project's selected API credential,
     // game profile, and commentary preset. This resolution is the run
-    // snapshot: UI edits afterwards cannot change this job. Offline runs
-    // proceed without a key; paid runs require a verified configuration
-    // and never fall back to another key.
+    // snapshot: UI edits afterwards cannot change this job. All runs
+    // require a verified configuration and never fall back to another
+    // key.
     let runConfig = null;
     let runConfigError = null;
     if (opts.projectId !== undefined) {
+      let packsFactory = null;
+      if (packsLoader) {
+        try {
+          packsFactory = await packsLoader.load();
+        } catch {
+          // Probe failure is not fatal here: customs pass through and
+          // Python validates the pack selection before any paid call.
+        }
+      }
       try {
-        runConfig = resolveProjectRunConfig(app.getPath('userData'), safeStorage, opts.projectId);
+        runConfig = resolveProjectRunConfig(app.getPath('userData'), safeStorage, opts.projectId, packsFactory);
       } catch (err) {
         runConfigError = err?.message ?? 'The project configuration could not be resolved.';
       }
@@ -100,13 +110,47 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       return { ok: false, error: runConfigError };
     }
     if (runConfig !== null && paidRequested && !runConfig.verified) {
-      return { ok: false, error: 'The selected API configuration is not verified for image input. Open API Keys and run image verification.' };
+      return { ok: false, error: 'The selected API configuration is not verified for image input. Open AI Providers and run image verification.' };
     }
     if (paidRequested && runConfig === null && !hasStoredCredential && !legacyCredential) {
       return {
         ok: false,
-        error: 'AI analysis needs an API key. Open Settings to configure a provider, or choose offline extraction.',
+        error: 'Adaptive sampling needs an API key. Open AI Providers to configure a provider.',
       };
+    }
+    // TTS runs resolve here, never from renderer values: the renderer only
+    // opts in with `requestTts`. Worker argv and the TTS key below derive
+    // exclusively from the vault plus stored configuration.
+    delete opts.generateTts;
+    delete opts.ttsModel;
+    delete opts.ttsVoice;
+    delete opts.ttsVoiceDirection;
+    let ttsRun = null;
+    if (opts.requestTts === true) {
+      if (runConfig === null) {
+        return { ok: false, error: 'Commentary audio needs a project with TTS configuration. Open the TTS Studio to configure it.' };
+      }
+      if (opts.withScript !== true && opts.streaming !== true) {
+        return { ok: false, error: 'Commentary audio requires the final casting script. Enable both options.' };
+      }
+      if (!ttsCatalogLoader) {
+        return { ok: false, error: 'TTS catalogue is unavailable.' };
+      }
+      let catalog;
+      try {
+        catalog = await ttsCatalogLoader.load();
+      } catch (err) {
+        return { ok: false, error: err?.message ?? 'TTS catalogue is unavailable.' };
+      }
+      try {
+        ttsRun = resolveTtsRunConfig(app.getPath('userData'), safeStorage, opts.projectId, catalog);
+      } catch (err) {
+        return { ok: false, error: err?.message ?? 'The TTS configuration could not be resolved.' };
+      }
+      opts.generateTts = true;
+      opts.ttsModel = ttsRun.config.model;
+      opts.ttsVoice = ttsRun.config.voice;
+      opts.ttsVoiceDirection = ttsRun.config.voiceDirection;
     }
     let argv;
     try {
@@ -131,6 +175,17 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
         workerEnv.BASETEN_BASE_URL = runConfig.baseUrl;
         workerEnv.BASETEN_MODEL = runConfig.model;
       }
+      // Custom runs resolve their endpoint from the saved record only;
+      // curated runs never see this variable, so a custom URL can never
+      // leak into (or be picked up by) another provider's run.
+      if (runConfig.provider === 'custom') {
+        workerEnv.AI_COMMENTATOR_BASE_URL = runConfig.baseUrl;
+      }
+      // The TTS key is injected only for runs that requested audio, and
+      // only from the resolved vault credential — never renderer input.
+      if (ttsRun !== null) {
+        workerEnv[TTS_API_KEY_ENV_VAR] = ttsRun.apiKey;
+      }
     } else {
     let credential = '';
     try {
@@ -140,10 +195,10 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     } catch { credential = ''; }
     if (!credential) credential = legacyCredential;
     if (paidRequested && !credential) {
-      return { ok: false, error: 'Secure API credential is unavailable. Check API Keys and secure storage.' };
+      return { ok: false, error: 'Secure API credential is unavailable. Check AI Providers and secure storage.' };
     }
     if (paidRequested && hasStoredCredential && userSettings && !userSettings.provider.modelVisionVerified) {
-      return { ok: false, error: 'The selected model has not been verified for image input. Open API Keys and run Verify image support.' };
+      return { ok: false, error: 'The selected model has not been verified for image input. Open AI Providers and run Verify image support.' };
     }
     workerEnv = stripHostSecrets(process.env);
     if (credential) workerEnv.BASETEN_API_KEY = credential;

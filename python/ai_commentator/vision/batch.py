@@ -67,6 +67,18 @@ def _live_client_factory(provider, model, api_key):
 
         return make_client
 
+    if provider == "custom":
+        from .providers.custom import CustomAdapter
+        from .providers.registry import custom_base_url_from_env
+
+        @contextlib.contextmanager
+        def make_client():
+            with CustomAdapter(model=model, api_key=api_key,
+                               base_url=custom_base_url_from_env()) as adapter:
+                yield adapter
+
+        return make_client
+
     @contextlib.contextmanager
     def make_client():
         # Fresh client per frame: a live client is never shared across
@@ -240,6 +252,12 @@ def run_vision_test(
             from .providers.meta import MetaAdapter
 
             client = MetaAdapter(model=model, api_key=api_key)
+        elif provider == "custom":
+            from .providers.custom import CustomAdapter
+            from .providers.registry import custom_base_url_from_env
+
+            client = CustomAdapter(model=model, api_key=api_key,
+                                   base_url=custom_base_url_from_env())
         else:
             client = OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
     else:

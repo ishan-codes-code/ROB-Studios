@@ -1,5 +1,400 @@
 # Current state
 
+## Processing workspace redesign + unlimited requests (uncommitted)
+
+Processing tab rebuilt around real lifecycle state; the vision-request
+limit contract is now `null` = unlimited (the default) with explicit
+1–10000 bounds, propagated through renderer, run-options, main argv
+gate (which now also enforces the upper cap it previously skipped),
+worker/CLI passthrough, and the adaptive engine (loop skips the
+max-frames check when unbounded; manifest records `max_frames: null`).
+No numeric fallback exists anywhere: invalid renderer input blocks
+Start with inline guidance, and main/Python reject invalid explicit
+values. Termination for unlimited runs is structural (video end, stop,
+first failure — scheduled timestamps strictly increase). The legacy
+`ADAPTIVE_DEFAULT_MAX_FRAMES = 60` constant is retained for facade
+compatibility only and drives nothing.
+
+UI: ready state (mode/limit/TTS summary, incomplete-config guidance
+with Configure link, advanced-settings path), hero current-stage card
+(`AITextLoading` on the real stage label), `AILoadingState` steps
+derived from observed stages only (new honest `skipped` status; no
+pending invention; conditional script/tts appear only when the worker
+reports them), sampling activity in `ScrollFade` with an unbordered
+idle placeholder, collapsible worker-log diagnostics, and full
+empty-state coverage (idle/starting/cancelling/failed/cancelled/
+stopped/no-observations). RunPanel keeps terminal/result/error/starting
+blocks plus stopped/cancelled stage history (`showStages` prop) so
+stages never render twice. Sonner lifecycle audited: stable run toast
+id per project was already correct; export toasts gained a stable id
+so repeats replace instead of stacking. Export was already correctly
+placed in the Editor toolbar — verified, unchanged. No original-audio
+checkbox exists (game audio always ships in export; the Configure
+checkbox is the paid TTS opt-in), so nothing was removed per the
+audio-scope boundary.
+
+Verification: Electron suite 382 tests pass, 0 fail; Python suite 526
+tests pass, OK; renderer production build succeeds. Manual visual
+verification in a running shell was not completed (cut short per
+operator request after Xvfb proved unusable in the sandbox and before
+the CDP screenshot pass ran). Unverified visually: every redesigned
+surface — ready/failed/narrow/reduced-motion states, sampling
+activity, toasts, Export toolbar. Not verifiable without a live
+provider regardless: active-processing stages, completion/success
+toast, and export progress over a real file.
+
+## Configuration UX redesign C1–C5 + custom provider (uncommitted)
+
+Complete configuration-experience redesign over preserved backend
+contracts, plus one genuine backend addition: a user-configured
+OpenAI-compatible `custom` vision provider (see
+[ADR 0014](decisions/0014-custom-openai-compatible-provider.md)).
+
+C1 onboarding: first launch renders a resumable 5-step guided wizard
+(`OnboardingWizard`: welcome, provider, model, commentator style,
+summary) instead of redirecting to settings. Progress persists to
+`settings.json` `onboarding: {step, credentialId}` (tolerant reads,
+legacy files start at step 0); the in-progress credential is adopted
+on resume, never duplicated. Completion requires a verified vision
+credential plus a game profile and preset — saving alone never
+completes — and optionally creates a first project with the setup
+applied. TTS stays optional.
+
+C2 providers: the API Keys page is now AI Providers (Meta, Baseten,
+Custom, Gemini TTS) with one shared status vocabulary
+(`lib/provider-status.js`: not-connected, saved, connected,
+model-selected, vision-verified, needs-attention), inline validation,
+skeleton loading, and a detail panel with separate test-connection /
+verify-image actions. Custom records carry a validated public-HTTPS
+endpoint (localhost/private blocked, curated records reject the
+field); verification pins key version + model + endpoint, and
+changing any resets it. Model discovery (`custom-models` IPC, live
+`GET /models`) degrades honestly to manual entry with
+`discovery_unsupported`. Keys stay main-side encrypted; discovery and
+verification never run automatically.
+
+C3 Configure: the editor inspector is a compact overview (AI vision,
+game profile + prompt pack, commentary style, processing, readiness
+summary via `isRunReady`). The nested management dialogs are gone:
+"Manage …" links navigate to the owning settings section with the
+workspace preserved and a back-to-editor return.
+
+C4 libraries: Games & Prompts is split into Game Profiles and
+Commentary Presets sections over one shared `useGameLibrary` hook
+(same IPC, IDs, and storage; built-ins immutable; reference-guarded
+deletes). Profiles gain duplicate; presets gain a sized editor dialog
+and an honest preview (deterministic prompt wording plus a labeled
+style-illustration template, never presented as model output).
+
+C5 settings: sidebar Configuration group is now Overview (new
+read-only readiness page), AI Providers, Voice Providers (TTS Studio
+content, unchanged behavior), Game Profiles, Commentary Presets,
+Prompt Packs (kept: the pack editor has no other home), General
+(Preferences content). Voice stays separate from vision; existing
+remediation strings point at the new names.
+
+Python: new `vision/providers/custom.py` adapter (plain Chat
+Completions, request-time URL validation, minimal text connection
+probe, shared live image probe, bounded discovery) routed through
+`provider_setup.py` and every engine live-client site (batch,
+adaptive, writer, script); `AI_COMMENTATOR_BASE_URL` reaches the
+worker only for custom runs. Meta/Baseten behavior, catalogues, and
+the legacy `BASETEN_*` fallback are unchanged.
+
+Verification: Electron suite 377 tests pass, 0 fail (offline,
+`node:test`, incl. new catalog/vault/IPC/discovery/onboarding/
+status/validation/section suites and rewritten static guards for the
+new structure); Python suite 519 tests pass, OK (offline, fakes only,
+incl. new `test_custom_provider.py`); renderer production build
+succeeds. No live provider calls were made; custom-endpoint behavior
+against a real server (discovery shapes, redirect handling, image
+probe acceptance) is untested beyond fakes. Manually unverified:
+wizard walkthrough in a running shell, dialog/drawer feel at minimum
+width, and the reduced-motion walkthrough.
+
+## Editor refinement pass (on `feature/tts-generation`, uncommitted)
+
+Polish on the existing three-region Editor; no structural rebuild, no
+Python, protocol, schema, IPC, or security changes. Export moved from
+the timeline header to the toolbar as the primary Editor action: a new
+`hooks/useVideoExport.js` owns export state, the `export-event`
+subscription, and export toasts, while `EditorCenter` computes the
+audio-row join once and shares it with the timeline (no duplicated
+discovery or rows). Eligibility, FFmpeg behavior, progress, cancel,
+and done/error handling are unchanged; no output-reveal action was
+added (no such IPC exists). The toolbar also gained a compact live run
+status. The timeline was visually redesigned around the untouched
+timing model: borderless regions with hairline boundaries and a center
+baseline, quiet inactive bars, distinct active fill, memoized regions
+(primitive props, so one decode no longer recomputes every path),
+centered state ticks (waiting muted, generating amber, failed
+red, decode errors honored), a playhead with a top marker, a
+scroll-synced ruler with tick marks, and icon-led empty/unavailable
+states. Inspector tabs gained icons with labels that collapse below
+320px via container queries; script rows got timestamp chips, 13px
+relaxed text, hover states, larger preview targets, and an icon empty
+state, keeping the same segment/file mapping and streaming stability.
+Pending run buttons now compose `Spinner`; native config inputs gained
+focus rings; all buttons have a subtle `:active` press (disabled
+under reduced motion); the splitter highlights while dragging; toast
+ownership is exactly two modules (`useVideoExport` for export,
+`WorkspaceSection` for one loading→outcome run toast with measured
+counts, guarded against duplicates).
+
+Verification: Electron suite 324 tests pass, 0 fail (offline,
+`node:test`, incl. new static export-ownership/toast-ownership
+guards); renderer production build succeeds; container-query CSS
+verified in the built bundle. Manually unverified: visual polish in a
+running shell, export progress/cancel from the toolbar, toast timing
+and replacement, splitter/tab feel at minimum width, and the
+reduced-motion walkthrough.
+
+## Editor workspace redesign (on `feature/tts-generation`, uncommitted)
+
+The Editor is now a three-region broadcast workspace: central gameplay
+preview (untouched `VideoPreview` behavior), the commentary timeline as
+the only bottom audio workspace (unchanged timing/playback/export
+architecture), and a resizable right inspector with
+Processing/Script/Configure/Project tabs. The Preview/Artifacts tabs and
+the bottom Audio/Script dock are removed (`DockedWorkspace.jsx`
+deleted); artifact browsing moved to a secondary Diagnostics dialog in
+the editor header (same `ArtifactBrowser` IPC/contracts, video pauses on
+open). The Script tab renders one readable list per segment — timestamp,
+text, TTS status, and a compact play/pause preview toggle only when a
+real WAV backs the row — reusing the shared `buildAudioRows` join and
+`projectMediaUrl` helper. Audio discovery runs once per workspace
+(`WorkspaceSection` owns `useProjectAudio`; the timeline and script
+panel share its result), so both surfaces always agree. The inspector
+splitter is dependency-free and accessible (`separator` role,
+arrow/Home/End keys, double-click reset, 280–480px clamp, collapse
+preserves tab state and scroll). Opening a project auto-collapses the
+left navigation and restores it on exit; the sidebar stays manually
+toggleable. New component usage: Sonner `Toaster` mounted once in `App`
+(export done/failed toasts), `AITextLoading` for the live stage name in
+the inspector, `AutoHeight` around the inspector status block. Animate
+UI base Tabs were deliberately not adopted (`@base-ui/react` is not
+installed; the existing shadcn Tabs are already Animate-UI powered) and
+`AILoadingState` was left out (the `RunPanel` stage list already shows
+the same real states). No Python, worker-protocol, schema, prompt,
+provider, IPC, or security changes.
+
+Verification: Electron suite 317 tests pass, 0 fail (offline,
+`node:test`, incl. new `inspector-width` clamp/step tests and the
+extended hook-import guard); renderer production build succeeds.
+Manually unverified: sidebar collapse/restore feel, splitter drag
+feel, dialog sizing on small windows, preview-audio overlap behavior,
+and reduced-motion walkthrough.
+
+## MVP video export (uncommitted)
+
+The timeline header has an Export action that mixes timestamped
+commentary WAVs over the source video into an MP4 (copied H.264
+video, AAC stereo) via a bundled `ffmpeg-static` binary (7.0.2):
+game bed at 0.8, commentary at 1.0, limiter ceiling 0.95, one input
+per kept segment placed with absolute `adelay` offsets, output
+capped at the probed source duration. Segment selection reuses the
+timeline's shared single-channel overlap rule
+(`selectSingleChannel`, equivalence-tested against live
+`planPlayback`); only listed, stat-verified, RIFF-duration-parsed
+ready WAVs are eligible. Main-side manager probes, spawns with argv
+arrays, streams `-progress` percentages, and cancels with SIGTERM /
+SIGKILL plus partial-output cleanup; one export at a time. New IPC
+(`export-video`, `cancel-export`, `export-event`) plus matching
+preload bridge follows existing validation patterns. FFmpeg ships
+via npm in dev and `extraResource` beside the asar when packaged
+(verified with a real `electron-forge package`: binary present,
+executable, both resolutions correct). Renderer shows determinate
+progress, cancel, and success/error states. No Python, schema,
+prompt, or playback changes. Verified with unit, fake-process, IPC,
+and real-ffmpeg integration tests — not yet manually verified with
+real gameplay footage end to end.
+
+## Synchronized commentary timeline (uncommitted)
+
+The Preview tab now shows a compact waveform timeline beneath the
+video: one region per generated speech segment positioned by its
+`timestamp_seconds`, with real Web Audio-decoded peaks (96 per
+segment, single SVG path each), a video-driven playhead, and
+per-segment playback through one commentary channel scheduled
+against `video.currentTime` (play/pause/seek/rate/ended aware, no
+setInterval clock). Segments decoded after their start passed while
+playing are missed for the pass and replayable after seek/replay;
+overlaps resolve to the earliest starter; renames and decode gaps
+never interrupt sounding audio. Timing assumption (no contract
+change): evidence timestamps are already on the video clock, so they
+serve as intended playback starts; generation time is never used.
+No Python, provider, prompt, schema, or storage changes; the dock,
+artifact browser, and video preview are untouched apart from shared
+prop/format plumbing. Verified with targeted unit tests plus jsdom
+harnesses with fake media boundaries — not yet manually verified
+with real video/audio sync.
+
+## Streaming audio visibility, playback & tray fix (on `feature/tts-generation`, uncommitted)
+
+The pipeline wrote TTS audio under `output/audio/segments/` while
+Electron discovered `<project>/audio/`, so generated segments were
+invisible and unplayable, and the artifact browser had no audio UI at
+all. `listArtifacts` now also lists `output/audio/segments/` (scope
+`audio/segments`, served over `project://`), exposes the `tts`
+manifest summary plus a readable `tts` artifact kind, and keeps the
+legacy `audio/` roots for older projects. The artifact browser gains
+an Audio tab (manifest entries with text/timestamps plus mid-run raw
+files, each with a player and honest missing-file states), and the
+bottom dock's Audio tab lists every segment as Waiting / Generating /
+Ready / Failed / Skipped with per-segment playback while the run
+continues (`Audio: X / Y ready`). The dock now uses two stable
+always-mounted tab panels instead of one conditional panel, so
+switching tabs no longer remounts subtree state, and a new
+`tts_segment` `started` status distinguishes Generating from Waiting.
+No pipeline, provider, prompt, or schema behavior changed.
+
+## One-click processing simplification (on `feature/tts-generation`, uncommitted)
+
+The workspace Configure tab no longer exposes pipeline-mode choices:
+the "Streaming commentary" and "Final casting script" checkboxes are
+removed, and streaming (with incremental script generation
+underneath) is the standard experience via the
+`buildProcessOptions` default. The only remaining run extra is the
+"Generate spoken audio" checkbox (explicit paid opt-in, unchanged
+main-side validation). Sequential mode, the `--with-script` worker
+path, and all script/TTS schemas and artifacts are preserved as
+internal fallbacks; no engine, TTS, or prompt-pack code changed.
+
+## Game Prompt Packs + streaming commentary pipeline (on `feature/tts-generation`, uncommitted)
+
+Game-specific Prompt Packs (Free Fire, Call of Duty, BGMI) plus an
+opt-in streaming Vision → Script → TTS pipeline with incremental
+script visibility.
+
+Prompt packs: factory wording ships in Python
+(`ai_commentator/prompts/`, exposed read-only via the offline
+`python/prompt_packs.py` probe) and covers the adaptive vision,
+script, and writer prompts with game-specific HUD/pace/context
+wording; JSON shapes, gates, and validators stay in code and keep
+enforcing correctness. User edits overlay individual fields in the
+global custom-only `prompt-packs.json` (atomic writes); reset deletes
+the overlay; empty text falls back to factory. Selection is per
+project (`configuration.promptPackId`, null = `free-fire` default),
+snapshotted main-side into `AI_COMMENTATOR_SETTINGS_JSON.promptPack`
+and re-validated by Python before any paid call. The Prompt Packs
+section (Configuration group) lists packages, shows every prompt with
+factory/custom badges, and edits/saves/resets per field and per pack;
+the editor Configure tab selects the project's active pack.
+Pre-migration projects resolve byte-identical Free Fire behavior
+(verified against HEAD output). See
+`docs/contracts/game-pack-v1.md` and ADR 0012.
+
+Streaming (`--streaming` + workspace toggle, default off; sequential
+stays the default): the vision loop produces validated observations
+into a bounded FIFO while one script thread words incremental windows
+(one bounded LLM call each, same gating/validators) and one TTS thread
+synthesizes utterances sequentially, over bounded in-process queues
+with backpressure. Priority is app-side (echoes > developments >
+scene); urgent utterances supersede routine ones still queued
+(recorded, never silently dropped); in-flight synthesis is never
+recalled. New NDJSON progress messages (`script_segment`,
+`tts_segment`, validated main-side) feed a workspace Script dock
+panel: incremental segment text, generation status, per-segment audio
+status, and superseded/failed states, surviving terminals for
+post-run review. Final `script.json`/`tts.json` keep the exact
+sequential layout (sorted `segment-NNN` ids, segment-named WAVs via
+atomic rename); synthesized bytes pass WAV validation first. Stops
+and vision failures still finalize partials plus a best-effort
+state/events/commentary tail. See the streaming sections of
+`docs/contracts/worker-protocol.md` and ADR 0013.
+
+Verification: Python suite 484 tests OK (new `test_prompt_packs.py`,
+`test_streaming.py`, worker `--game-pack` cases; offline, fakes
+only — including a mocked-vision overlap proof and a supersession
+test); Electron suite 247 tests pass, 0 fail (offline, `node:test`);
+renderer production build (`vite build` with
+`vite.renderer.config.mjs`) succeeds. No live provider calls were
+made. Standalone main/preload `vite build` invocation still fails on
+the pre-existing empty-config alias issue (Forge builds them); `node
+--check` passes on all changed main files. Streaming costs more paid
+calls per run than sequential (one script call per window); manual
+renderer steps (pack edit/save/reset round-trips, streaming run
+progress, Script panel states) remain uncovered beyond the static
+build.
+
+## Temporary dev-only secure-storage bypass (on `feature/tts-generation`, uncommitted)
+
+`credentials-store.mjs` holds an explicit-opt-in, unpackaged-only
+fallback: when `safeStorage` is unavailable and the user enables "Allow
+insecure development credentials" on the API Keys page, credentials
+live in main-process memory only (`devOnly` records), work with
+verification/preview/runs through the unchanged retrieval functions,
+and vanish on disable or quit. Nothing is written to disk; production
+builds reject enabling; bypass off preserves the original
+secure-storage requirement. Multifactor coverage in
+`electron/test/dev-bypass.test.mjs` plus a worker-env proof in
+`processing.test.mjs`. Remove before any production release.
+
+## TTS Studio (M7, on `feature/tts-generation`, uncommitted)
+
+A dedicated TTS Studio sidebar section configures the commentary
+voice: backend-provided catalogue (30 prebuilt voices, pinned models,
+defaults, limits via the offline `python/tts_catalog.py` probe —
+never a renderer copy), model/voice/delivery-style editors with
+per-field inherited/overridden captions, TTS credential selection,
+paid preview synthesis of a fixed phrase, and a custom-text test
+bench. Preview audio returns base64 over IPC while temp WAVs are
+deleted immediately; previews never touch project artifacts.
+
+Configuration has two partial layers — global `settings.json` `tts`
+section and `project.json` `configuration.tts` overrides — resolving
+project override > global default > application default through
+`electron/src/tts-config.mjs`. Runs opt into script/audio with two
+editor checkboxes (default off); the main process resolves the
+effective triple plus the verified vault TTS key, passes
+`--generate-tts --tts-model/--tts-voice/--tts-voice-direction`
+(worker re-validates and fails fast), and injects
+`AI_COMMENTATOR_PROVIDER_API_KEY` only for TTS runs. Credential
+deletion now also guards project TTS overrides and the global TTS
+default. See `docs/contracts/tts-studio-v1.md`. `tts-v1` and
+`script-v1` are unchanged.
+
+Verification: Python suite 447 tests OK (new `test_tts_catalog.py`,
+worker `--tts-*` cases; offline, fakes only); Electron suite 206
+tests pass, 0 fail (offline, `node:test`); renderer production build
+and full `electron-forge package` succeed. No live Gemini calls were made; renderer
+behavior beyond the static hook-import guard is covered by manual
+steps (catalogue load, save/reset round-trips, preview playback,
+opt-in run wiring) in the task handoff.
+
+## Script-to-audio generation pipeline (M6, on `feature/tts-generation`, uncommitted)
+
+`run_generate_tts` (`python/ai_commentator/tts/runner.py`) reads the
+validated `script-v1` artifact (never modifies it), synthesizes each
+segment sequentially with the shared `GeminiTTSClient` (pinned model,
+voice `Kore`, unchanged voice direction), and writes
+`output/audio/segments/<segment-id>.wav` plus the versioned `tts-v1`
+manifest (`output/audio/tts.json`, see
+`docs/contracts/tts-v1.md`). Manifest validation lives in
+`python/ai_commentator/tts/manifest.py`; WAV bytes use the new atomic
+`write_bytes_atomic` storage helper.
+
+Failure handling is per segment: failures are recorded with redacted
+diagnostics, successes are preserved, and the run exits non-zero
+unless every entry succeeded (or the script was silent). Malformed
+scripts, `error`-status scripts, and filename collisions fail before
+any paid call; reruns re-synthesize everything (explicit policy, no
+resume). The TTS key arrives only via
+`AI_COMMENTATOR_PROVIDER_API_KEY`; Electron does not yet inject a
+vault TTS credential, so Electron-spawned runs cannot reach the stage
+until project TTS settings exist.
+
+Triggers: worker `--generate-tts` stage (requires `--with-script`,
+runs after script generation, fails fast without the TTS key) and
+`python/main.py --generate-tts` CLI mode over an existing script.
+`tts_say.py` is unchanged and still works. No Electron changes; no
+playback, mixing, retry, or concurrency work.
+
+Verification: new `tests/test_tts.py` (19 tests) plus 7 new
+`tests/test_worker.py` cases (flag validation, TTS key fail-fast,
+mocked `tts` stage success/failure), all offline with mocked
+synthesis. No live Gemini calls were made.
+
 ## Gemini TTS API configuration (credential setup milestone)
 
 The API Keys page includes a distinct Google Gemini TTS provider. TTS

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   MAX_ADAPTIVE_SAMPLES,
+  MAX_SCRIPT_SEGMENTS,
   MAX_WORKER_LOGS,
   STAGE_LABELS,
   applyWorkerMessage,
@@ -14,15 +15,15 @@ import {
 import { extensionOf, fileNameOf, fileUrlOf, formatBytes, projectMediaUrl, timeAgo } from '../src/lib/format.js';
 
 test('stageLabel maps known stages and passes unknown through', () => {
-  assert.equal(stageLabel('frame_extraction'), 'Frame extraction');
-  assert.equal(stageLabel('vision_analysis'), 'Vision analysis');
-  assert.equal(stageLabel('adaptive_vision'), 'Adaptive vision');
+  assert.equal(stageLabel('adaptive_vision'), 'Adaptive sampling');
+  assert.equal(stageLabel('frame_extraction'), 'frame_extraction');
   assert.equal(stageLabel('state_rebuild'), 'Match-state reconstruction');
   assert.equal(stageLabel('event_detection'), 'Event detection');
   assert.equal(stageLabel('commentary'), 'Commentary generation');
   assert.equal(stageLabel('script'), 'Script generation');
+  assert.equal(stageLabel('tts'), 'Commentary audio');
   assert.equal(stageLabel('mystery_stage'), 'mystery_stage');
-  assert.equal(Object.keys(STAGE_LABELS).length, 7);
+  assert.equal(Object.keys(STAGE_LABELS).length, 6);
 });
 
 test('started resets to a fresh processing state', () => {
@@ -442,4 +443,116 @@ test('adaptive sample history is bounded', () => {
   assert.equal(run.adaptive.samples.length, MAX_ADAPTIVE_SAMPLES);
   assert.equal(run.adaptive.samples[0].timestamp, 100);
   assert.equal(run.adaptive.observations, MAX_ADAPTIVE_SAMPLES + 100);
+});
+
+function scriptMessage(overrides = {}) {
+  return {
+    type: 'script_segment',
+    data: {
+      utterance_id: 'u-0001',
+      timestamp_seconds: 12.5,
+      text: 'The zone starts closing in.',
+      source_claim_ids: ['clm-9f3a2b1c4d5e'],
+      priority: 1,
+      status: 'worded',
+      ...overrides,
+    },
+  };
+}
+
+test('script_segment folds utterances into run state', () => {
+  let run = applyWorkerMessage(createInitialRunState(), { type: 'started' });
+  assert.equal(run.script, null);
+  run = applyWorkerMessage(run, scriptMessage());
+  run = applyWorkerMessage(
+    run,
+    scriptMessage({ utterance_id: 'u-0002', timestamp_seconds: 15, priority: 0 }),
+  );
+  assert.equal(run.script.segments.length, 2);
+  assert.equal(run.script.segments[0].utteranceId, 'u-0001');
+  assert.equal(run.script.segments[0].ttsStatus, null);
+  assert.equal(run.script.segments[1].priority, 0);
+  assert.deepEqual(run.script.segments[0].sourceClaimIds, ['clm-9f3a2b1c4d5e']);
+});
+
+test('script_segment upserts superseded status without duplicating', () => {
+  let run = applyWorkerMessage(createInitialRunState(), { type: 'started' });
+  run = applyWorkerMessage(run, scriptMessage());
+  run = applyWorkerMessage(run, scriptMessage({ status: 'superseded' }));
+  assert.equal(run.script.segments.length, 1);
+  assert.equal(run.script.segments[0].scriptStatus, 'superseded');
+  assert.equal(run.script.segments[0].text, 'The zone starts closing in.');
+});
+
+test('tts_segment folds audio outcomes into the matching segment', () => {
+  let run = applyWorkerMessage(createInitialRunState(), { type: 'started' });
+  run = applyWorkerMessage(run, scriptMessage());
+  run = applyWorkerMessage(run, {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-0001', timestamp_seconds: 12.5, status: 'success', error: null },
+  });
+  assert.equal(run.script.segments[0].ttsStatus, 'success');
+  assert.equal(run.script.segments[0].ttsError, null);
+  run = applyWorkerMessage(
+    run,
+    scriptMessage({ utterance_id: 'u-0002', timestamp_seconds: 15 }),
+  );
+  run = applyWorkerMessage(run, {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-0002', timestamp_seconds: 15, status: 'error', error: 'Synth failed.' },
+  });
+  assert.equal(run.script.segments[1].ttsStatus, 'error');
+  assert.equal(run.script.segments[1].ttsError, 'Synth failed.');
+  run = applyWorkerMessage(
+    run,
+    scriptMessage({ utterance_id: 'u-0003', timestamp_seconds: 18 }),
+  );
+  run = applyWorkerMessage(run, {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-0003', timestamp_seconds: 18, status: 'started', error: null },
+  });
+  assert.equal(run.script.segments[2].ttsStatus, 'started');
+  run = applyWorkerMessage(run, {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-0003', timestamp_seconds: 18, status: 'success', error: null },
+  });
+  assert.equal(run.script.segments[2].ttsStatus, 'success');
+});
+
+test('segment messages ignore malformed and unknown ids', () => {
+  let run = applyWorkerMessage(createInitialRunState(), { type: 'started' });
+  run = applyWorkerMessage(run, scriptMessage({ text: 42 }));
+  run = applyWorkerMessage(run, scriptMessage({ status: 'draft' }));
+  run = applyWorkerMessage(run, { type: 'script_segment', data: null });
+  assert.equal(run.script, null);
+  run = applyWorkerMessage(run, scriptMessage());
+  run = applyWorkerMessage(run, {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-9999', timestamp_seconds: 1, status: 'success', error: null },
+  });
+  run = applyWorkerMessage(run, { type: 'tts_segment', data: { utterance_id: 'u-0001' } });
+  assert.equal(run.script.segments.length, 1);
+  assert.equal(run.script.segments[0].ttsStatus, null);
+});
+
+test('script segments never leak across runs and are bounded', () => {
+  let run = applyWorkerMessage(createInitialRunState(), { type: 'started' });
+  run = applyWorkerMessage(run, scriptMessage());
+  run = applyWorkerMessage(run, { type: 'started' });
+  assert.equal(run.script, null);
+  for (let i = 0; i < MAX_SCRIPT_SEGMENTS + 50; i += 1) {
+    run = applyWorkerMessage(
+      run,
+      scriptMessage({ utterance_id: `u-${String(i).padStart(4, '0')}`, timestamp_seconds: i }),
+    );
+  }
+  assert.equal(run.script.segments.length, MAX_SCRIPT_SEGMENTS);
+});
+
+test('script segments survive terminal messages for post-run review', () => {
+  let run = applyWorkerMessage(createInitialRunState(), { type: 'started' });
+  run = applyWorkerMessage(run, scriptMessage());
+  run = applyWorkerMessage(run, { type: 'result', data: { script: 'success' } });
+  assert.equal(run.status, 'completed');
+  assert.equal(run.script.segments.length, 1);
 });

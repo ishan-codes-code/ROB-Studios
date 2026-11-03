@@ -35,3 +35,59 @@ test('partial existing settings are defaulted during load', (t) => {
   assert.equal(result.game.id, 'free-fire');
   assert.equal(result.prompt.language, 'Japanese');
 });
+
+test('global TTS layer persists, reloads, and trims voice input', (t) => {
+  const dir = temp(t);
+  const saved = saveSettings(dir, {
+    ...DEFAULT_SETTINGS,
+    tts: { model: null, voice: '  Fenrir ', voiceDirection: 'Calm and measured.', credentialId: null },
+  });
+  assert.deepEqual(saved.tts, { model: null, voice: 'Fenrir', voiceDirection: 'Calm and measured.', credentialId: null });
+  // A fresh load (application restart) returns the same layer.
+  assert.deepEqual(loadSettings(dir).tts, saved.tts);
+});
+
+test('legacy settings without a TTS section inherit fully', (t) => {
+  const dir = temp(t);
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ prompt: { language: 'Japanese' } }));
+  assert.deepEqual(loadSettings(dir).tts, { model: null, voice: null, voiceDirection: null, credentialId: null });
+});
+
+test('global TTS layer rejects overlong and unknown fields', () => {
+  assert.throws(
+    () => validateSettings({ ...DEFAULT_SETTINGS, tts: { voice: 'v'.repeat(65) } }),
+    /Invalid TTS configuration field 'voice'/,
+  );
+  assert.throws(
+    () => validateSettings({ ...DEFAULT_SETTINGS, tts: { tempo: 2 } }),
+    /Unknown TTS configuration field/,
+  );
+});
+
+test('onboarding progress defaults, persists, and round-trips', (t) => {
+  const dir = temp(t);
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+  const saved = saveSettings(dir, {
+    ...DEFAULT_SETTINGS,
+    onboarding: { step: 3, credentialId: 'cred-abc123' },
+  });
+  assert.deepEqual(saved.onboarding, { step: 3, credentialId: 'cred-abc123' });
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 3, credentialId: 'cred-abc123' });
+  // Completion does not require clearing; the flag stays authoritative.
+  const done = saveSettings(dir, { ...saved, onboardingCompleted: true });
+  assert.equal(done.onboardingCompleted, true);
+});
+
+test('legacy settings without onboarding progress start at step zero', (t) => {
+  const dir = temp(t);
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ prompt: { language: 'Japanese' } }));
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+});
+
+test('malformed onboarding progress falls back instead of failing load', (t) => {
+  const dir = temp(t);
+  for (const onboarding of [{ step: 9 }, { step: -1, credentialId: 'x'.repeat(65) }, 'done', 42]) {
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ onboarding }));
+    assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+  }
+});
