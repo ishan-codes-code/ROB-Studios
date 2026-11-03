@@ -94,12 +94,14 @@ Message types:
   and `status` (`worded`, or a later `superseded` update when a more
   important utterance pre-empted this one while it was still queued).
   Anything outside this shape is rejected as a protocol error.
-- `tts_segment` — progress message, one per synthesized streaming
+- `tts_segment` — progress messages for one synthesized streaming
   utterance (streaming runs with `--generate-tts` only; never
   terminal). `data` carries the `utterance_id`, `timestamp_seconds`,
-  `status` (`success`, `error`, or `skipped`), and a redacted `error`
-  string (or null). Audio paths are not reported here: the finished
-  `tts-v1` manifest is authoritative after segment-id renaming.
+  `status`, and a redacted `error` string (or null). Each utterance
+  reports `started` when synthesis begins, then exactly one terminal
+  outcome (`success`, `error`, or `skipped`). Audio paths are not
+  reported here: the finished `tts-v1` manifest is authoritative after
+  segment-id renaming.
 - `stopped` — terminal message of a gracefully stopped adaptive run
   (`--adaptive` only). `data` mirrors the `result` shape plus `status`
   (`"stopped"`), `termination` (`"stop-requested"`), request counts, and a

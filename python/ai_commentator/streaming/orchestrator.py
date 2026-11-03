@@ -322,6 +322,9 @@ class StreamingPipeline:
             if item is None:
                 return
             uid = item["utterance_id"]
+            marked = self._ledger.mark_tts(uid, "started", None, None)
+            if marked is not None:
+                self._report(self._on_tts_segment, self._tts_event(marked))
             try:
                 wav = self._tts_client.synthesize(
                     item["text"], voice=voice, style=direction

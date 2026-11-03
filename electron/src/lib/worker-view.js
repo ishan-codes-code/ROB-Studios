@@ -91,7 +91,7 @@ export const ADAPTIVE_SPEEDS = ['HIGH', 'NORMAL', 'LOW'];
 export const MAX_SCRIPT_SEGMENTS = 500;
 
 export const SCRIPT_SEGMENT_STATUSES = ['worded', 'superseded'];
-export const TTS_SEGMENT_STATUSES = ['success', 'error', 'skipped'];
+export const TTS_SEGMENT_STATUSES = ['success', 'error', 'skipped', 'started'];
 
 export function createInitialRunState() {
   return {

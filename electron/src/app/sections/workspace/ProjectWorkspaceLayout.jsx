@@ -1,7 +1,7 @@
 import { motion } from "motion/react";
 import DockedWorkspace from "./DockedWorkspace.jsx";
 
-export default function ProjectWorkspaceLayout({ main, inspector, inspectorOpen, script = null, runStatus = 'idle' }) {
+export default function ProjectWorkspaceLayout({ main, inspector, inspectorOpen, projectId = null, script = null, runStatus = 'idle' }) {
   return (
     <div className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_196px] overflow-hidden">
       <div
@@ -26,7 +26,7 @@ export default function ProjectWorkspaceLayout({ main, inspector, inspectorOpen,
           {inspector}
         </motion.aside>
       </div>
-      <DockedWorkspace script={script} runStatus={runStatus} />
+      <DockedWorkspace projectId={projectId} script={script} runStatus={runStatus} />
     </div>
   );
 }

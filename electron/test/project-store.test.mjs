@@ -273,6 +273,7 @@ test('artifact listing is honest about absent outputs', (t) => {
   assert.deepEqual(listing.state, { present: false, invalid: false });
   assert.deepEqual(listing.events, { present: false, invalid: false, count: 0 });
   assert.deepEqual(listing.commentary, { present: false, invalid: false, lines: 0 });
+  assert.deepEqual(listing.tts, { present: false, invalid: false, count: 0 });
   assert.deepEqual(listing.audio, { files: [] });
   assert.throws(() => listArtifacts(base, 'no-such'), /Project not found/);
   assert.throws(() => listArtifacts(base, '../evil'), /Invalid project id/);
@@ -354,6 +355,78 @@ test('artifact listing validates entries and reads documents', (t) => {
   );
   const eventsDoc = readArtifact(base, created.id, 'events', 'events.json');
   assert.equal(eventsDoc.data.events.length, 1);
+});
+
+test('artifact listing discovers pipeline TTS output and keeps legacy audio', (t) => {
+  const { base, cleanup } = makeUserData();
+  t.after(cleanup);
+  const video = makeSourceVideo(path.join(base, 'incoming'));
+  const created = createProject(base, { name: 'Audio', sourcePath: video });
+  const out = getProjectOutputDir(base, created.id);
+  const segmentsDir = path.join(out, 'audio', 'segments');
+  fs.mkdirSync(segmentsDir, { recursive: true });
+  // Mid-run streaming names plus one finalized segment name.
+  fs.writeFileSync(path.join(segmentsDir, 'u-0001.wav'), Buffer.alloc(64));
+  fs.writeFileSync(path.join(segmentsDir, 'segment-001.wav'), Buffer.alloc(64));
+  fs.writeFileSync(path.join(segmentsDir, 'notes.txt'), 'ignore me');
+  fs.writeFileSync(
+    path.join(out, 'audio', 'tts.json'),
+    JSON.stringify({
+      schema_version: 'tts-v1',
+      status: 'success',
+      entries: [
+        {
+          segment_id: 'segment-001',
+          timestamp_seconds: 3,
+          text: 'The zone starts closing in.',
+          source_claim_ids: ['clm-1'],
+          audio_file: 'segments/segment-001.wav',
+          status: 'success',
+          error: null,
+        },
+      ],
+    }),
+  );
+  const legacyDir = path.join(getProjectsRoot(base), created.id, 'audio');
+  fs.writeFileSync(path.join(legacyDir, 'take.mp3'), Buffer.alloc(8));
+
+  const listing = listArtifacts(base, created.id);
+  assert.deepEqual(listing.tts, { present: true, invalid: false, count: 1 });
+  const byScope = {};
+  for (const file of listing.audio.files) {
+    (byScope[file.scope] ??= []).push(file.name);
+  }
+  assert.deepEqual(byScope['audio/segments'].sort(), ['segment-001.wav', 'u-0001.wav']);
+  assert.deepEqual(byScope.audio, ['take.mp3']);
+  assert.ok(listing.audio.files.every((file) => file.sizeBytes > 0));
+
+  const ttsDoc = readArtifact(base, created.id, 'tts', 'tts.json');
+  assert.equal(ttsDoc.kind, 'tts');
+  assert.equal(ttsDoc.data.entries[0].audio_file, 'segments/segment-001.wav');
+  const ttsDefault = readArtifact(base, created.id, 'tts');
+  assert.equal(ttsDefault.data.status, 'success');
+  assert.throws(() => readArtifact(base, created.id, 'tts', 'other.json'), /Invalid artifact name/);
+
+  const resolved = resolveProjectMedia(base, created.id, 'audio/segments', 'u-0001.wav');
+  assert.equal(resolved, path.join(segmentsDir, 'u-0001.wav'));
+  assert.throws(
+    () => resolveProjectMedia(base, created.id, 'audio/segments', 'notes.txt'),
+    /Unsupported media type/,
+  );
+  assert.throws(
+    () => resolveProjectMedia(base, created.id, 'audio/segments', '../tts.json'),
+    /Invalid media name/,
+  );
+  assert.throws(
+    () => resolveProjectMedia(base, created.id, 'audio/segments', 'missing.wav'),
+    /Media not found/,
+  );
+  // Corrupt manifests stay honest instead of breaking discovery.
+  fs.writeFileSync(path.join(out, 'audio', 'tts.json'), '{broken');
+  const relisted = listArtifacts(base, created.id);
+  assert.deepEqual(relisted.tts, { present: true, invalid: true, count: 0 });
+  assert.equal(relisted.audio.files.length, 3);
+  assert.throws(() => readArtifact(base, created.id, 'tts'), /not valid JSON/);
 });
 
 test('media resolver confines access to listed project files', (t) => {

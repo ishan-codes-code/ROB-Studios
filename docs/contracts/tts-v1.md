@@ -3,9 +3,10 @@
 Versioned schema for the script-to-audio pipeline (roadmap milestone
 M6: `script-v1` segments → one WAV per segment → audio manifest).
 Produced by `run_generate_tts` into `output/audio/tts.json` from the
-validated `output/script/script.json` of the same run. Consumed in the
-future by an audio player; playback itself is out of scope and this
-contract carries no playback state.
+validated `output/script/script.json` of the same run. Consumed by
+the artifact browser and workspace audio panels for playback; the
+contract itself carries no playback state (Ready/Failed/etc. are
+derived by joining entries against listed files).
 
 The script is only read, never modified: every entry quotes the exact
 segment text that was sent to the TTS provider, so the manifest alone
@@ -104,3 +105,9 @@ Electron-spawned runs cannot reach this stage until then.
 - Field or status additions require a new schema version; readers
   must reject unknown top-level, entry, or `generated_from` fields
   rather than guessing.
+- Discovery (Electron): `listArtifacts` reports the manifest as the
+  `tts` summary (readable via the `tts` artifact kind) and lists
+  `output/audio/segments/*.{wav,mp3,ogg,m4a}` under the
+  `audio/segments` scope, served over
+  `project://<id>/audio/segments/<name>`. The legacy `audio/` and
+  `audio/commentary` roots stay listed for older projects.

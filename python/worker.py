@@ -260,7 +260,7 @@ def emit_tts_segment(record: dict) -> None:
                 "error": None if error is None else str(error),
             },
         }
-        if message["data"]["status"] not in ("success", "error", "skipped"):
+        if message["data"]["status"] not in ("success", "error", "skipped", "started"):
             raise ValueError("unknown TTS segment status")
     except (KeyError, TypeError, ValueError) as exc:
         print(f"TTS segment report skipped: {exc}", file=sys.stderr)

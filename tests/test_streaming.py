@@ -278,9 +278,14 @@ class OrchestratorTests(unittest.TestCase):
             # Incremental callbacks fired for every utterance.
             worded = [e for e in script_events if e["status"] == "worded"]
             self.assertEqual(len(worded), result["utterances"])
-            self.assertEqual(len(tts_events), result["utterances"])
+            by_utterance = {}
             for event in tts_events:
-                self.assertEqual(event["status"], "success")
+                by_utterance.setdefault(event["utterance_id"], []).append(
+                    event["status"]
+                )
+            self.assertEqual(len(by_utterance), result["utterances"])
+            for uid, statuses in by_utterance.items():
+                self.assertEqual(statuses, ["started", "success"], uid)
             # Final script.json validates with provenance.
             script_doc = json.loads(
                 Path(result["script_path"]).read_text(encoding="utf-8")
@@ -302,6 +307,40 @@ class OrchestratorTests(unittest.TestCase):
                 self.assertTrue(wav.name.startswith("segment-"))
             leftovers = list((Path(tmp) / "audio" / "segments").glob("u-*.wav"))
             self.assertEqual(leftovers, [])
+
+    def test_tts_reports_started_before_terminal_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script_client = FakeTextClient()
+            tts_client = FakeTtsClient()
+            pipeline = self.make_pipeline(
+                tmp, script_client, tts_client, window_min_observations=2
+            )
+            submissions = [
+                (*scene_obs(0, ENV_A), "NORMAL"),
+                (*scene_obs(3, ENV_B), "NORMAL"),
+                (*scene_obs(6, ENV_A), "NORMAL"),
+            ]
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                script_events, tts_events, result = drain_pipeline(
+                    pipeline, submissions
+                )
+            # Every synthesized utterance reports `started` first, then
+            # exactly one terminal outcome — the UI joins on this order
+            # to show Generating vs Ready/Failed per segment.
+            self.assertGreater(result["utterances"], 0)
+            by_utterance = {}
+            for event in tts_events:
+                by_utterance.setdefault(event["utterance_id"], []).append(
+                    event["status"]
+                )
+            self.assertEqual(len(by_utterance), result["utterances"])
+            for uid, statuses in by_utterance.items():
+                self.assertEqual(
+                    statuses,
+                    ["started", "success"],
+                    f"unexpected TTS event order for {uid}",
+                )
 
     def test_high_priority_supersedes_queued_commentary(self):
         gate = threading.Event()
@@ -423,8 +462,13 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(result["tts_status"], "error")
             self.assertFalse(result["tts_ok"])
             self.assertTrue(tts_events)
+            by_utterance = {}
             for event in tts_events:
-                self.assertEqual(event["status"], "error")
+                by_utterance.setdefault(event["utterance_id"], []).append(
+                    event["status"]
+                )
+            for uid, statuses in by_utterance.items():
+                self.assertEqual(statuses, ["started", "error"], uid)
             tts_doc = json.loads(
                 Path(result["tts_path"]).read_text(encoding="utf-8")
             )
@@ -447,10 +491,15 @@ class OrchestratorTests(unittest.TestCase):
                     pipeline, submissions
                 )
             self.assertEqual(result["tts_status"], "error")
-            self.assertTrue(
-                all(e["status"] == "error" for e in tts_events)
-            )
-            self.assertIn("invalid audio", tts_events[0]["error"])
+            by_utterance = {}
+            for event in tts_events:
+                by_utterance.setdefault(event["utterance_id"], []).append(event)
+            self.assertTrue(by_utterance)
+            for uid, events in by_utterance.items():
+                self.assertEqual(
+                    [e["status"] for e in events], ["started", "error"], uid
+                )
+                self.assertIn("invalid audio", events[-1]["error"])
             self.assertFalse(list((Path(tmp) / "audio" / "segments").glob("*.wav")))
 
     def test_wav_validation(self):
@@ -670,6 +719,21 @@ class WorkerStreamingTests(unittest.TestCase):
             kinds = [message["type"] for message in messages]
             self.assertIn("script_segment", kinds)
             self.assertIn("tts_segment", kinds)
+            # The NDJSON stream reports synthesis start before the
+            # terminal outcome per utterance.
+            by_utterance = {}
+            for message in messages:
+                if message["type"] != "tts_segment":
+                    continue
+                payload = message["data"]
+                by_utterance.setdefault(payload["utterance_id"], []).append(
+                    payload["status"]
+                )
+            self.assertTrue(by_utterance)
+            for uid, statuses in by_utterance.items():
+                self.assertEqual(statuses[0], "started", uid)
+                self.assertEqual(len(statuses), 2, uid)
+                self.assertIn(statuses[1], ("success", "error"), uid)
             # run_pipeline leaves the terminal `result` to main().
             self.assertNotIn("error", kinds)
             totals = {

@@ -1,5 +1,24 @@
 # Current state
 
+## Streaming audio visibility, playback & tray fix (on `feature/tts-generation`, uncommitted)
+
+The pipeline wrote TTS audio under `output/audio/segments/` while
+Electron discovered `<project>/audio/`, so generated segments were
+invisible and unplayable, and the artifact browser had no audio UI at
+all. `listArtifacts` now also lists `output/audio/segments/` (scope
+`audio/segments`, served over `project://`), exposes the `tts`
+manifest summary plus a readable `tts` artifact kind, and keeps the
+legacy `audio/` roots for older projects. The artifact browser gains
+an Audio tab (manifest entries with text/timestamps plus mid-run raw
+files, each with a player and honest missing-file states), and the
+bottom dock's Audio tab lists every segment as Waiting / Generating /
+Ready / Failed / Skipped with per-segment playback while the run
+continues (`Audio: X / Y ready`). The dock now uses two stable
+always-mounted tab panels instead of one conditional panel, so
+switching tabs no longer remounts subtree state, and a new
+`tts_segment` `started` status distinguishes Generating from Waiting.
+No pipeline, provider, prompt, or schema behavior changed.
+
 ## One-click processing simplification (on `feature/tts-generation`, uncommitted)
 
 The workspace Configure tab no longer exposes pipeline-mode choices:

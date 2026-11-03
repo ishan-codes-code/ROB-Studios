@@ -316,6 +316,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       main={mainContent}
       inspector={inspectorContent}
       inspectorOpen={inspectorOpen}
+      projectId={project?.id ?? null}
       script={run.script}
       runStatus={run.status}
     />

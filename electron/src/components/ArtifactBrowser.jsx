@@ -7,7 +7,8 @@ import { Spinner } from "@/components/ui/spinner.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import GlassCard from "@/primitives/GlassCard.jsx";
 import { cn } from "cn";
-import { projectMediaUrl } from "@/lib/format.js";
+import { manifestAudioFileName } from "@/lib/audio-rows.js";
+import { formatBytes, projectMediaUrl } from "@/lib/format.js";
 
 function RawJson({ data }) {
   const [open, setOpen] = useState(false);
@@ -481,6 +482,159 @@ function CommentaryTab({ commentary, readCommentary }) {
   );
 }
 
+function TtsStatusBadge({ status }) {
+  if (status === "success") {
+    return <Badge variant="secondary">Ready</Badge>;
+  }
+  if (status === "error") {
+    return <Badge variant="destructive">Failed</Badge>;
+  }
+  if (status === "skipped") {
+    return <Badge variant="outline">Skipped</Badge>;
+  }
+  return <Badge variant="outline">{typeof status === "string" ? status : "unknown"}</Badge>;
+}
+
+function AudioTab({ projectId, tts, audio, readTts, live }) {
+  const [broken, setBroken] = useState(() => new Set());
+  useEffect(() => {
+    setBroken(new Set());
+  }, [projectId]);
+  const markBroken = useCallback((key) => {
+    setBroken((prev) => new Set(prev).add(key));
+  }, []);
+  const files = Array.isArray(audio?.files) ? audio.files : [];
+  const byPath = new Map(files.map((file) => [`${file.scope}/${file.name}`, file]));
+  const manifestValid = tts?.present === true && tts?.invalid !== true && readTts;
+  const entries = manifestValid && Array.isArray(readTts.entries) ? readTts.entries : [];
+  // The finalized manifest is authoritative: mid-run `u-*.wav` names are
+  // renamed to `segment-*` at finalize, so raw files only render while
+  // no manifest exists yet.
+  const showRawFiles = files.length > 0 && (!manifestValid || entries.length === 0);
+
+  if (entries.length === 0 && !showRawFiles) {
+    return (
+      <p className="text-[13px] text-muted-foreground">
+        {live
+          ? "No audio segments yet. Finished segments appear here while the run continues — the list refreshes when the run status changes."
+          : "No audio generated yet. Request spoken audio when starting a run to synthesize commentary segments."}
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {tts?.present === true && (tts.invalid === true || !readTts) ? (
+        <Alert variant="destructive">
+          <AlertTitle>TTS manifest unreadable</AlertTitle>
+          <AlertDescription>
+            The stored TTS manifest failed validation — showing discovered audio files instead.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {entries.length > 0 ? (
+        <ol className="flex flex-col gap-2" aria-label="Synthesized commentary audio">
+          {entries.map((entry, index) => {
+            const name = manifestAudioFileName(entry?.audio_file);
+            const file =
+              name !== "" ? (byPath.get(`audio/segments/${name}`) ?? null) : null;
+            const key = `audio/segments/${name}`;
+            const playable =
+              entry?.status === "success" && file !== null && !broken.has(key);
+            return (
+              <li
+                key={entry?.segment_id ?? index}
+                className="flex flex-col gap-1.5 rounded-card border border-border bg-background p-3"
+              >
+                <div className="flex items-center gap-2">
+                  {entry?.status === "success" && !playable ? (
+                    <Badge variant="destructive">Unavailable</Badge>
+                  ) : (
+                    <TtsStatusBadge status={entry?.status} />
+                  )}
+                  {typeof entry?.timestamp_seconds === "number" ? (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      t={entry.timestamp_seconds}s
+                    </span>
+                  ) : null}
+                  {typeof entry?.segment_id === "string" ? (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {entry.segment_id}
+                    </span>
+                  ) : null}
+                </div>
+                {typeof entry?.text === "string" && entry.text !== "" ? (
+                  <p className="text-[13px] text-foreground">{entry.text}</p>
+                ) : null}
+                {entry?.status === "error" && typeof entry?.error === "string" ? (
+                  <p className="text-xs text-muted-foreground">{entry.error}</p>
+                ) : null}
+                {playable ? (
+                  <audio
+                    key={key}
+                    controls
+                    preload="none"
+                    src={projectMediaUrl(projectId, file.scope, file.name)}
+                    onError={() => markBroken(key)}
+                    className="mt-1 w-full"
+                    aria-label={`Play ${entry.segment_id ?? "audio segment"}`}
+                  />
+                ) : entry?.status === "success" ? (
+                  <p className="text-xs text-muted-foreground">
+                    The manifest reports success but no playable audio file was found.
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+      {showRawFiles ? (
+        <ul className="flex flex-col gap-2" aria-label="Discovered audio files">
+          {files.map((file) => {
+            const key = `${file.scope}/${file.name}`;
+            const failed = broken.has(key);
+            return (
+              <li
+                key={key}
+                className="flex flex-col gap-1.5 rounded-card border border-border bg-background p-3"
+              >
+                <div className="flex items-center gap-2">
+                  {failed ? (
+                    <Badge variant="destructive">Unavailable</Badge>
+                  ) : (
+                    <Badge variant="secondary">Ready</Badge>
+                  )}
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+                    {file.name}
+                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {formatBytes(file.sizeBytes)}
+                  </span>
+                </div>
+                {failed ? (
+                  <p className="text-xs text-muted-foreground">
+                    The file could not be loaded for playback.
+                  </p>
+                ) : (
+                  <audio
+                    key={key}
+                    controls
+                    preload="none"
+                    src={projectMediaUrl(projectId, file.scope, file.name)}
+                    onError={() => markBroken(key)}
+                    className="mt-1 w-full"
+                    aria-label={`Play ${file.name}`}
+                  />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Project-scoped artifact browser. Everything shown comes from
  * main-process listing/reads of the project's own output tree; absent
@@ -511,7 +665,7 @@ export default function ArtifactBrowser({ projectId, refreshSignal, className })
         }
         setListing(res.artifacts);
         const loaded = {};
-        for (const kind of ["manifest", "state", "events", "commentary"]) {
+        for (const kind of ["manifest", "state", "events", "commentary", "tts"]) {
           const summary = res.artifacts[kind];
           if (summary?.present && !summary?.invalid) {
             try {
@@ -594,6 +748,9 @@ export default function ArtifactBrowser({ projectId, refreshSignal, className })
           <TabsTrigger value="commentary">
             Commentary{listing.commentary.lines > 0 ? ` ${listing.commentary.lines}` : ""}
           </TabsTrigger>
+          <TabsTrigger value="audio">
+            Audio{listing.audio.files.length > 0 ? ` ${listing.audio.files.length}` : ""}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="frames" className="min-h-0 flex-1 overflow-y-auto">
           <FramesTab projectId={projectId} frames={listing.frames} />
@@ -612,6 +769,15 @@ export default function ArtifactBrowser({ projectId, refreshSignal, className })
         </TabsContent>
         <TabsContent value="commentary" className="min-h-0 flex-1 overflow-y-auto">
           <CommentaryTab commentary={listing.commentary} readCommentary={docs.commentary} />
+        </TabsContent>
+        <TabsContent value="audio" className="min-h-0 flex-1 overflow-y-auto">
+          <AudioTab
+            projectId={projectId}
+            tts={listing.tts}
+            audio={listing.audio}
+            readTts={docs.tts}
+            live={refreshSignal === "processing"}
+          />
         </TabsContent>
       </Tabs>
     </GlassCard>

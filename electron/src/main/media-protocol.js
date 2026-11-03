@@ -18,10 +18,15 @@ export function registerProjectMediaProtocol({ protocol, net, pathToFileURL, app
         [name] = rest;
       } else if (kind === 'audio' && rest.length === 2) {
         const [audioScope, audioName] = rest;
-        if (audioScope !== 'audio' && audioScope !== 'commentary') {
+        if (audioScope === 'audio') {
+          scope = 'audio';
+        } else if (audioScope === 'commentary') {
+          scope = 'audio/commentary';
+        } else if (audioScope === 'segments') {
+          scope = 'audio/segments';
+        } else {
           return new Response('Not found', { status: 404 });
         }
-        scope = audioScope === 'audio' ? 'audio' : 'audio/commentary';
         name = audioName;
       } else {
         return new Response('Not found', { status: 404 });

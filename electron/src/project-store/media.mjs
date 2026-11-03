@@ -16,6 +16,10 @@ const MEDIA_SCOPES = {
     dir: ['audio', 'commentary'],
     extensions: new Set(['.mp3', '.wav', '.ogg', '.m4a']),
   },
+  'audio/segments': {
+    dir: ['output', 'audio', 'segments'],
+    extensions: new Set(['.mp3', '.wav', '.ogg', '.m4a']),
+  },
 };
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.avi', '.mov', '.mkv', '.webm']);
 

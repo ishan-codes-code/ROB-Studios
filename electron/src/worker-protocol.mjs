@@ -170,7 +170,7 @@ function isValidAdaptiveSample(message) {
 }
 
 const SCRIPT_SEGMENT_STATUSES = new Set(['worded', 'superseded']);
-const TTS_SEGMENT_STATUSES = new Set(['success', 'error', 'skipped']);
+const TTS_SEGMENT_STATUSES = new Set(['success', 'error', 'skipped', 'started']);
 const SEGMENT_PRIORITIES = new Set([0, 1, 2]);
 const MAX_SEGMENT_TEXT_CHARS = 600;
 const MAX_SEGMENT_CLAIM_IDS = 16;

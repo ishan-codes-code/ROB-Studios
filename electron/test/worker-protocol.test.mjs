@@ -218,6 +218,8 @@ test('tts_segment accepts outcomes and rejects malformed payloads', () => {
     true,
   );
   assert.equal(isValidTtsSegment(validTtsSegment({ status: 'skipped' })), true);
+  assert.equal(isValidTtsSegment(validTtsSegment({ status: 'started', error: null })), true);
+  assert.equal(isValidWorkerMessage(validTtsSegment({ status: 'started' })), true);
   assert.equal(isValidWorkerMessage(validTtsSegment()), true);
   assert.equal(isValidTtsSegment(validTtsSegment({ utterance_id: '' })), false);
   assert.equal(isValidTtsSegment(validTtsSegment({ status: 'queued' })), false);

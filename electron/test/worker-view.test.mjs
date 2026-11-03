@@ -503,6 +503,20 @@ test('tts_segment folds audio outcomes into the matching segment', () => {
   });
   assert.equal(run.script.segments[1].ttsStatus, 'error');
   assert.equal(run.script.segments[1].ttsError, 'Synth failed.');
+  run = applyWorkerMessage(
+    run,
+    scriptMessage({ utterance_id: 'u-0003', timestamp_seconds: 18 }),
+  );
+  run = applyWorkerMessage(run, {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-0003', timestamp_seconds: 18, status: 'started', error: null },
+  });
+  assert.equal(run.script.segments[2].ttsStatus, 'started');
+  run = applyWorkerMessage(run, {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-0003', timestamp_seconds: 18, status: 'success', error: null },
+  });
+  assert.equal(run.script.segments[2].ttsStatus, 'success');
 });
 
 test('segment messages ignore malformed and unknown ids', () => {
