@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines } from "lucide-react";
+import { AudioLines, Check, Download, X } from "lucide-react";
+import { Button } from "@/components/ui/button.jsx";
+import { Progress } from "@/components/ui/progress.jsx";
 import { buildAudioRows } from "@/lib/audio-rows.js";
 import { buildIntervals } from "@/lib/commentary-timeline.js";
 import { formatMediaTime } from "@/lib/format.js";
@@ -175,6 +177,97 @@ export default function CommentaryTimeline({ projectId = null, videoRef = null, 
     return marks;
   }, [scale]);
 
+  const [exportState, setExportState] = useState({
+    status: "idle",
+    percent: 0,
+    outputPath: null,
+    error: null,
+  });
+  const exportLiveRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window.api?.onExportEvent !== "function") {
+      return undefined;
+    }
+    const unsubscribe = window.api.onExportEvent((event) => {
+      if (!event || event.projectId !== projectId) {
+        return;
+      }
+      if (event.phase === "progress") {
+        const total = event.totalUs;
+        const percent =
+          typeof event.completedUs === "number" && typeof total === "number" && total > 0
+            ? Math.min(100, Math.max(0, Math.round((event.completedUs / total) * 100)))
+            : 0;
+        setExportState((prev) => ({ ...prev, status: "exporting", percent }));
+      } else if (event.phase === "done") {
+        exportLiveRef.current = false;
+        setExportState({
+          status: "done",
+          percent: 100,
+          outputPath: typeof event.outputPath === "string" ? event.outputPath : null,
+          error: null,
+        });
+      } else if (event.phase === "error") {
+        exportLiveRef.current = false;
+        setExportState({
+          status: "error",
+          percent: 0,
+          outputPath: null,
+          error: typeof event.error === "string" ? event.error : "Export failed.",
+        });
+      } else if (event.phase === "cancelled") {
+        exportLiveRef.current = false;
+        setExportState({ status: "idle", percent: 0, outputPath: null, error: null });
+      }
+    });
+    return () => {
+      unsubscribe();
+      if (exportLiveRef.current && typeof window.api?.cancelExport === "function") {
+        exportLiveRef.current = false;
+        void window.api.cancelExport();
+      }
+    };
+  }, [projectId]);
+
+  async function startExport() {
+    if (exportState.status === "starting" || exportState.status === "exporting") {
+      return;
+    }
+    setExportState({ status: "starting", percent: 0, outputPath: null, error: null });
+    try {
+      const res = await window.api.exportVideo(projectId, view.rows);
+      if (!res || res.ok !== true) {
+        exportLiveRef.current = false;
+        setExportState({
+          status: "error",
+          percent: 0,
+          outputPath: null,
+          error: res?.error ?? "Export could not start.",
+        });
+      } else if (res.canceled) {
+        exportLiveRef.current = false;
+        setExportState({ status: "idle", percent: 0, outputPath: null, error: null });
+      } else {
+        exportLiveRef.current = true;
+        setExportState((prev) => ({ ...prev, status: "exporting" }));
+      }
+    } catch {
+      exportLiveRef.current = false;
+      setExportState({ status: "error", percent: 0, outputPath: null, error: "Export could not start." });
+    }
+  }
+
+  async function cancelExport() {
+    try {
+      await window.api.cancelExport();
+    } catch {
+      // The cancelled event (or its absence) settles the state below.
+    }
+    exportLiveRef.current = false;
+    setExportState({ status: "idle", percent: 0, outputPath: null, error: null });
+  }
+
   const pendingCount = view.rows.filter(
     (row) => row.state === "waiting" || row.state === "generating",
   ).length;
@@ -201,6 +294,66 @@ export default function CommentaryTimeline({ projectId = null, videoRef = null, 
         <span ref={timeRef} className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
           00:00 / 00:00
         </span>
+        {exportState.status === "exporting" || exportState.status === "starting" ? (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <Progress
+              value={exportState.status === "starting" ? undefined : exportState.percent}
+              max={100}
+              aria-label={exportState.status === "starting" ? "Preparing export" : `Exporting video, ${exportState.percent}%`}
+              className="h-1 w-20"
+            />
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              {exportState.status === "starting" ? "Preparing…" : `${exportState.percent}%`}
+            </span>
+            <Button size="icon-xs" variant="ghost" onClick={cancelExport} title="Cancel export" aria-label="Cancel export">
+              <X aria-hidden />
+            </Button>
+          </span>
+        ) : exportState.status === "done" ? (
+          <span className="flex min-w-0 shrink-0 items-center gap-1.5">
+            <span
+              className="flex min-w-0 items-center gap-1 text-[11px] text-foreground"
+              title={exportState.outputPath ?? "Export complete"}
+            >
+              <Check className="size-3.5 shrink-0" aria-hidden />
+              <span className="max-w-40 truncate">
+                {exportState.outputPath?.split(/[/\\]/).pop() ?? "Export complete"}
+              </span>
+            </span>
+            <Button size="xs" variant="secondary" onClick={startExport} title="Export video again">
+              <Download aria-hidden />
+              Export
+            </Button>
+          </span>
+        ) : (
+          <span className="flex min-w-0 shrink-0 items-center gap-1.5">
+            {exportState.status === "error" ? (
+              <span
+                role="alert"
+                title={exportState.error ?? "Export failed."}
+                className="max-w-48 truncate text-[11px] text-destructive"
+              >
+                {exportState.error ?? "Export failed."}
+              </span>
+            ) : null}
+            <Button
+              size="xs"
+              variant="secondary"
+              onClick={startExport}
+              disabled={view.ready === 0 || !projectId}
+              title={
+                !projectId
+                  ? "Open a project to export."
+                  : view.ready === 0
+                    ? "Generate spoken audio before exporting."
+                    : "Export video with commentary"
+              }
+            >
+              <Download aria-hidden />
+              Export
+            </Button>
+          </span>
+        )}
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden">

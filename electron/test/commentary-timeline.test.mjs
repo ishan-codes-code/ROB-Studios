@@ -6,6 +6,7 @@ import {
   findLateKeys,
   planPlayback,
   samePlaybackWindow,
+  selectSingleChannel,
 } from '../src/lib/commentary-timeline.js';
 
 function readyRow(overrides = {}) {
@@ -133,6 +134,63 @@ test('planPlayback clamps unusable video times to zero', () => {
     const plan = planPlayback({ intervals, now });
     assert.equal(plan.audible.key, 'a', `now=${String(now)}`);
   }
+});
+
+test('selectSingleChannel keeps earliest starters and touching boundaries', () => {
+  const intervals = buildIntervals(
+    [
+      readyRow({ key: 'a', timestamp: 3 }),
+      readyRow({ key: 'b', timestamp: 4 }),
+      readyRow({ key: 'c', timestamp: 5 }),
+      readyRow({ key: 'd', timestamp: 9 }),
+    ],
+    { a: 2, b: 2, c: 2, d: 2 },
+  );
+  const { kept, dropped } = selectSingleChannel(intervals);
+  assert.deepEqual(
+    kept.map((item) => item.key),
+    ['a', 'c', 'd'],
+  );
+  assert.deepEqual(
+    dropped.map((item) => item.key),
+    ['b'],
+  );
+});
+
+test('selectSingleChannel agrees with planPlayback at every boundary', () => {
+  const intervals = buildIntervals(
+    [
+      readyRow({ key: 'a', timestamp: 0 }),
+      readyRow({ key: 'b', timestamp: 1 }),
+      readyRow({ key: 'c', timestamp: 5 }),
+      readyRow({ key: 'd', timestamp: 5 }),
+      readyRow({ key: 'e', timestamp: 9 }),
+    ],
+    { a: 3, b: 3, c: 2, d: 2, e: 2 },
+  );
+  const { kept, dropped } = selectSingleChannel(intervals);
+  const missed = new Set();
+  for (const interval of intervals) {
+    const plan = planPlayback({
+      intervals,
+      now: interval.start,
+      missedKeys: missed,
+      activeWindow: null,
+    });
+    for (const key of plan.skipKeys) {
+      missed.add(key);
+    }
+    if (kept.some((item) => item.key === interval.key)) {
+      assert.equal(plan.audible?.key, interval.key, `kept ${interval.key} must sound at its start`);
+    } else {
+      assert.notEqual(plan.audible?.key, interval.key, `dropped ${interval.key} must never sound`);
+      missed.add(interval.key);
+    }
+  }
+  assert.deepEqual(
+    dropped.map((item) => item.key),
+    ['b', 'd'],
+  );
 });
 
 test('samePlaybackWindow matches renames within a millisecond', () => {

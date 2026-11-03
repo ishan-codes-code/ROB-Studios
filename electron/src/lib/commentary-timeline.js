@@ -114,6 +114,32 @@ function windowMatches(interval, activeWindow) {
 }
 
 /**
+ * Full-pass outcome of the single-channel policy: earliest starter
+ * wins, followers colliding with a kept interval are dropped, and
+ * touching boundaries (start == kept end) are allowed — the same
+ * rule `planPlayback` applies per instant. Shared by live playback
+ * and offline export so both drop exactly the same segments.
+ */
+export function selectSingleChannel(intervals) {
+  const safe = Array.isArray(intervals) ? intervals : [];
+  const kept = [];
+  const dropped = [];
+  let end = Number.NEGATIVE_INFINITY;
+  for (const interval of safe) {
+    if (!interval || typeof interval.start !== 'number' || typeof interval.end !== 'number') {
+      continue;
+    }
+    if (interval.start >= end) {
+      kept.push(interval);
+      end = interval.end;
+    } else {
+      dropped.push(interval);
+    }
+  }
+  return { kept, dropped };
+}
+
+/**
  * Whether two `{ start, end }` windows describe the same sounding
  * audio (millisecond tolerance). Lets the scheduler adopt a renamed
  * key without restarting the source node.

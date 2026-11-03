@@ -5,8 +5,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createWorkerManager } from './python-worker.mjs';
+import { createExportManager } from './export-runner.mjs';
 import { resolvePythonExecutable } from './worker-protocol.mjs';
 import { clearDevCredentials } from './credentials-store.mjs';
+import { registerExportIpc } from './main/ipc/export.js';
 import { registerProjectIpc } from './main/ipc/projects.js';
 import { registerProcessingIpc } from './main/ipc/processing.js';
 import { registerSettingsIpc } from './main/ipc/settings.js';
@@ -48,6 +50,7 @@ function repoRoot() {
 }
 
 const workerManager = createWorkerManager();
+const exportManager = createExportManager();
 let mainWindow = null;
 const processingState = { activeProjectId: null, appQuitting: false };
 
@@ -118,6 +121,12 @@ function sendWorkerEvent(message) {
   }
 }
 
+function sendExportEvent(message) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('export-event', message);
+  }
+}
+
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -159,6 +168,9 @@ app.on('before-quit', () => {
     processingState.appQuitting = true;
     void workerManager.cancel({ killGraceMs: 1000 });
   }
+  if (exportManager.isBusy()) {
+    void exportManager.cancel({ killGraceMs: 1000 });
+  }
 });
 
 const ttsCatalogLoader = createTtsCatalogLoader({ repoRoot });
@@ -167,6 +179,7 @@ const packsLoader = createPromptPackLoader({ repoRoot });
 registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader, packsLoader });
 
 registerProjectIpc({ ipcMain, app, workerManager });
+registerExportIpc({ ipcMain, app, dialog, fs, exportManager, sendExportEvent, getMainWindow: () => mainWindow });
 registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader });
 registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });
 

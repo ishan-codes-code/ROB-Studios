@@ -1,5 +1,29 @@
 # Current state
 
+## MVP video export (uncommitted)
+
+The timeline header has an Export action that mixes timestamped
+commentary WAVs over the source video into an MP4 (copied H.264
+video, AAC stereo) via a bundled `ffmpeg-static` binary (7.0.2):
+game bed at 0.8, commentary at 1.0, limiter ceiling 0.95, one input
+per kept segment placed with absolute `adelay` offsets, output
+capped at the probed source duration. Segment selection reuses the
+timeline's shared single-channel overlap rule
+(`selectSingleChannel`, equivalence-tested against live
+`planPlayback`); only listed, stat-verified, RIFF-duration-parsed
+ready WAVs are eligible. Main-side manager probes, spawns with argv
+arrays, streams `-progress` percentages, and cancels with SIGTERM /
+SIGKILL plus partial-output cleanup; one export at a time. New IPC
+(`export-video`, `cancel-export`, `export-event`) plus matching
+preload bridge follows existing validation patterns. FFmpeg ships
+via npm in dev and `extraResource` beside the asar when packaged
+(verified with a real `electron-forge package`: binary present,
+executable, both resolutions correct). Renderer shows determinate
+progress, cancel, and success/error states. No Python, schema,
+prompt, or playback changes. Verified with unit, fake-process, IPC,
+and real-ffmpeg integration tests — not yet manually verified with
+real gameplay footage end to end.
+
 ## Synchronized commentary timeline (uncommitted)
 
 The Preview tab now shows a compact waveform timeline beneath the

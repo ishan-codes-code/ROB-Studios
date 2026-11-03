@@ -62,4 +62,14 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('worker-event', listener);
     return () => ipcRenderer.removeListener('worker-event', listener);
   },
+  exportVideo: (projectId, rows) => ipcRenderer.invoke('export-video', projectId, rows),
+  cancelExport: () => ipcRenderer.invoke('cancel-export'),
+  onExportEvent: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('callback must be a function.');
+    }
+    const listener = (_event, message) => callback(message);
+    ipcRenderer.on('export-event', listener);
+    return () => ipcRenderer.removeListener('export-event', listener);
+  },
 });
