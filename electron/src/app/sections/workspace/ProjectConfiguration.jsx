@@ -3,12 +3,26 @@ import { ArrowUpRight, Gamepad2, LoaderCircle, MessageSquareText, ScanEye } from
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import { isRunReady, presetsForProfile } from "@/lib/config-display.js";
 
-const selectClassName =
-  "h-8 w-full rounded-sm border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+// Radix items require non-empty values, so meaningful "empty" choices
+// use explicit sentinels mapped back to null on commit.
+const NONE_VALUE = "__none";
+const DEFAULT_PACK_VALUE = "__default";
+
+function FieldSelect({ ariaLabel, value, onValueChange, disabled, placeholder, children }) {
+  return (
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <SelectTrigger aria-label={ariaLabel} size="sm" className="w-full rounded-sm text-[12px]">
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>{children}</SelectContent>
+    </Select>
+  );
+}
 
 function GroupHeading({ icon: Icon, title, actionLabel, onAction }) {
   return (
@@ -145,27 +159,27 @@ export default function ProjectConfiguration({ projectId, onReadinessChange, onN
 
       <section className="flex min-w-0 flex-col gap-2" aria-label="AI vision">
         <GroupHeading icon={ScanEye} title="AI vision" actionLabel="Manage providers" onAction={() => onNavigate?.("api-keys")} />
-        <select
-          aria-label="Vision provider"
-          className={selectClassName}
-          value={configuration?.credentialId ?? ""}
+        <FieldSelect
+          ariaLabel="Vision provider"
+          value={configuration?.credentialId ?? NONE_VALUE}
           disabled={controlsDisabled}
-          onChange={(event) => save("credentialId", event.target.value === "" ? null : event.target.value)}
+          placeholder="Select a provider…"
+          onValueChange={(next) => save("credentialId", next === NONE_VALUE ? null : next)}
         >
-          <option value="">Select a provider…</option>
+          <SelectItem value={NONE_VALUE}>Select a provider…</SelectItem>
           {savedCredentialMissing ? (
-            <option value={configuration.credentialId}>
+            <SelectItem value={configuration.credentialId}>
               {credential ? `${credential.name} · ${credential.model}` : configuration.credentialId}
               {" · unavailable — pick a replacement"}
-            </option>
+            </SelectItem>
           ) : null}
           {credentials.map((entry) => (
-            <option key={entry.id} value={entry.id}>
+            <SelectItem key={entry.id} value={entry.id}>
               {entry.name} · {entry.model}
               {entry.verification?.status === "verified" ? " · verified" : " · unverified"}
-            </option>
+            </SelectItem>
           ))}
-        </select>
+        </FieldSelect>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <Badge variant={credential?.verified ? "secondary" : "outline"}>
             {credential ? (credential.verified ? "Vision verified" : "Unverified") : "No provider"}
@@ -188,41 +202,39 @@ export default function ProjectConfiguration({ projectId, onReadinessChange, onN
 
       <section className="flex min-w-0 flex-col gap-2" aria-label="Game profile">
         <GroupHeading icon={Gamepad2} title="Game profile" actionLabel="Manage games" onAction={() => onNavigate?.("game-profiles")} />
-        <select
-          aria-label="Game profile"
-          className={selectClassName}
+        <FieldSelect
+          ariaLabel="Game profile"
           value={configuration?.gameProfileId ?? "free-fire-default"}
           disabled={controlsDisabled}
-          onChange={(event) => save("gameProfileId", event.target.value)}
+          onValueChange={(next) => save("gameProfileId", next)}
         >
           {profiles.map((entry) => (
-            <option key={entry.id} value={entry.id}>
+            <SelectItem key={entry.id} value={entry.id}>
               {entry.name}
               {entry.builtIn ? "" : " · custom"}
-            </option>
+            </SelectItem>
           ))}
-        </select>
+        </FieldSelect>
         {selectedProfile?.context ? (
           <p className="truncate text-[11px] text-muted-foreground" title={selectedProfile.context}>
             {selectedProfile.context}
           </p>
         ) : null}
-        <select
-          aria-label="Prompt pack"
-          className={selectClassName}
-          value={configuration?.promptPackId ?? ""}
+        <FieldSelect
+          ariaLabel="Prompt pack"
+          value={configuration?.promptPackId ?? DEFAULT_PACK_VALUE}
           disabled={controlsDisabled || packs.length === 0}
-          onChange={(event) => save("promptPackId", event.target.value === "" ? null : event.target.value)}
+          onValueChange={(next) => save("promptPackId", next === DEFAULT_PACK_VALUE ? null : next)}
         >
-          <option value="">Prompt pack: application default</option>
+          <SelectItem value={DEFAULT_PACK_VALUE}>Prompt pack: application default</SelectItem>
           {packs.map((entry) => (
-            <option key={entry.packId} value={entry.packId}>
+            <SelectItem key={entry.packId} value={entry.packId}>
               Prompt pack: {entry.displayName}
               {entry.packId === defaultPackId ? " · default" : ""}
               {entry.customized.length > 0 ? ` · ${entry.customized.length} customized` : ""}
-            </option>
+            </SelectItem>
           ))}
-        </select>
+        </FieldSelect>
         {selectedPack ? (
           <button
             type="button"
@@ -238,22 +250,21 @@ export default function ProjectConfiguration({ projectId, onReadinessChange, onN
 
       <section className="flex min-w-0 flex-col gap-2" aria-label="Commentary style">
         <GroupHeading icon={MessageSquareText} title="Commentary style" actionLabel="Manage styles" onAction={() => onNavigate?.("commentary-presets")} />
-        <select
-          aria-label="Commentary preset"
-          className={selectClassName}
+        <FieldSelect
+          ariaLabel="Commentary preset"
           value={configuration?.commentaryPresetId ?? "default-energetic"}
           disabled={controlsDisabled}
-          onChange={(event) => save("commentaryPresetId", event.target.value)}
+          onValueChange={(next) => save("commentaryPresetId", next)}
         >
           {profilePresets.map((entry) => (
-            <option key={entry.id} value={entry.id}>
+            <SelectItem key={entry.id} value={entry.id}>
               {entry.name}
               {[entry.tone, entry.language].filter(Boolean).join(" · ")
                 ? ` · ${[entry.tone, entry.language].filter(Boolean).join(" · ")}`
                 : ""}
-            </option>
+            </SelectItem>
           ))}
-        </select>
+        </FieldSelect>
         <p className="truncate text-[11px] text-muted-foreground">
           {selectedPreset
             ? ([selectedPreset.personality, selectedPreset.tone, selectedPreset.language].filter(Boolean).join(" · ") || "Default style")

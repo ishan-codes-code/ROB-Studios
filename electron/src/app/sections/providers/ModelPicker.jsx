@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, LoaderCircle, Search } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select.jsx";
 import { validateEndpointInput } from "@/lib/config-validation.js";
 
 const inputClassName =
@@ -92,23 +93,22 @@ export default function ModelPicker({
       ? [...curatedModels, { id: value }]
       : curatedModels;
     return (
-      <label className="flex min-w-0 flex-col gap-1.5 text-[13px]">
-        <span className="font-medium text-foreground">Model</span>
-        <select
-          className={inputClassName}
-          value={value}
-          disabled={disabled || curatedLoading}
-          onChange={(event) => onSelect(event.target.value)}
-        >
-          <option value="">Select a model…</option>
-          {options.map((entry) => (
-            <option key={entry.id} value={entry.id}>{entry.id}</option>
-          ))}
-        </select>
+      <div className="flex min-w-0 flex-col gap-1.5 text-[13px]">
+        <span id="model-picker-label" className="font-medium text-foreground">Model</span>
+        <Select value={value} onValueChange={onSelect} disabled={disabled || curatedLoading}>
+          <SelectTrigger aria-labelledby="model-picker-label" className="h-10 w-full font-mono text-[13px]">
+            <SelectValue placeholder="Select a model…" />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((entry) => (
+              <SelectItem key={entry.id} value={entry.id} className="font-mono">{entry.id}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <span className="text-[12px] text-muted-foreground">
           {curatedLoading ? "Loading models…" : "Choose the model used for image analysis."}
         </span>
-      </label>
+      </div>
     );
   }
 

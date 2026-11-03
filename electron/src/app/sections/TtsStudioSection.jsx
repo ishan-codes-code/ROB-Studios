@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card.jsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import VoicePicker from "./tts-studio/VoicePicker.jsx";
@@ -361,22 +362,26 @@ export default function TtsStudioSection() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <label className="flex min-w-0 max-w-sm flex-col gap-1.5 text-[13px]">
-            <span className="font-medium text-foreground">Editing</span>
-            <select
-              className={inputClassName}
-              value={scopeProjectId ?? ""}
+          <div className="flex min-w-0 max-w-sm flex-col gap-1.5 text-[13px]">
+            <span id="tts-scope-label" className="font-medium text-foreground">Editing</span>
+            <Select
+              value={scopeProjectId ?? "__global"}
               disabled={!!busy || configLoading}
-              onChange={(event) => changeScope(event.target.value === "" ? null : event.target.value)}
+              onValueChange={(next) => changeScope(next === "__global" ? null : next)}
             >
-              <option value="">Global defaults (all projects)</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger aria-labelledby="tts-scope-label" className="w-full text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__global">Global defaults (all projects)</SelectItem>
+                {projects.map((project) => (
+                  <SelectItem key={project.id} value={project.id}>
+                    {project.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {configLoading ? (
             <p className="mt-2 flex items-center gap-2 text-[12px] text-muted-foreground">
               <Spinner /> Loading configuration…
@@ -611,20 +616,23 @@ export default function TtsStudioSection() {
             </p>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label="TTS credential"
-                className={`${inputClassName} min-w-0 max-w-sm flex-1`}
-                value={draft.credentialId ?? ""}
+              <Select
+                value={draft.credentialId ?? "__none"}
                 disabled={!!busy || configLoading}
-                onChange={(event) => setDraftField("credentialId", event.target.value === "" ? null : event.target.value)}
+                onValueChange={(next) => setDraftField("credentialId", next === "__none" ? null : next)}
               >
-                <option value="">No credential selected</option>
-                {ttsCredentials.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.name}{entry.verification?.status === "verified" ? " (verified)" : " (unverified)"}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger aria-label="TTS credential" className="min-w-0 max-w-sm flex-1 text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">No credential selected</SelectItem>
+                  {ttsCredentials.map((entry) => (
+                    <SelectItem key={entry.id} value={entry.id}>
+                      {entry.name}{entry.verification?.status === "verified" ? " (verified)" : " (unverified)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {snapshot?.credential ? (
                 <Badge variant={snapshot.credential.verified ? "secondary" : "outline"}>
                   {snapshot.credential.verified ? "Verified" : "Unverified"}

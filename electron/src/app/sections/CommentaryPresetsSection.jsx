@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.jsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select.jsx";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import useGameLibrary from "@/hooks/useGameLibrary.js";
 import { validateName } from "@/lib/config-validation.js";
@@ -150,21 +151,24 @@ export default function CommentaryPresetsSection({ onBackToEditor }) {
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <label className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
+        <span id="preset-profile-filter-label" className="text-[12px] text-muted-foreground">
           Profile
-          <select
-            aria-label="Filter presets by game profile"
-            className={`${inputClassName} h-8 w-auto`}
-            value={profileFilter}
-            disabled={loading || !!busy}
-            onChange={(event) => setProfileFilter(event.target.value)}
-          >
-            <option value="">All profiles</option>
+        </span>
+        <Select
+          value={profileFilter === "" ? "__all" : profileFilter}
+          disabled={loading || !!busy}
+          onValueChange={(next) => setProfileFilter(next === "__all" ? "" : next)}
+        >
+          <SelectTrigger aria-labelledby="preset-profile-filter-label" size="sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all">All profiles</SelectItem>
             {profiles.map((entry) => (
-              <option key={entry.id} value={entry.id}>{entry.name}</option>
+              <SelectItem key={entry.id} value={entry.id}>{entry.name}</SelectItem>
             ))}
-          </select>
-        </label>
+          </SelectContent>
+        </Select>
       </div>
 
       {loading ? (
@@ -353,16 +357,16 @@ export default function CommentaryPresetsSection({ onBackToEditor }) {
             </Field>
             {!(selectedId && !selected?.builtIn) ? (
               <Field label="Game profile" hint="Presets belong to one profile and cannot move later.">
-                <select
-                  className={inputClassName}
-                  value={draftProfileId}
-                  disabled={!!busy}
-                  onChange={(event) => setDraftProfileId(event.target.value)}
-                >
-                  {profiles.map((entry) => (
-                    <option key={entry.id} value={entry.id}>{entry.name}</option>
-                  ))}
-                </select>
+                <Select value={draftProfileId} onValueChange={setDraftProfileId} disabled={!!busy}>
+                  <SelectTrigger aria-label="Game profile" className="w-full text-[13px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((entry) => (
+                      <SelectItem key={entry.id} value={entry.id}>{entry.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </Field>
             ) : null}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

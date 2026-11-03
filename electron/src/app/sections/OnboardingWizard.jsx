@@ -22,6 +22,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card.jsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import { presetsForProfile } from "@/lib/config-display.js";
@@ -711,17 +712,16 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
             </div>
           ) : (
             <Field label="Model" hint="Support is proven by verification below, never by the model name.">
-              <select
-                className={inputClassName}
-                value={model}
-                disabled={!!busy || modelsLoading}
-                onChange={(event) => changeModel(event.target.value)}
-              >
-                <option value="">Select a model…</option>
-                {(models.length > 0 ? models : [{ id: model }].filter((entry) => entry.id)).map((entry) => (
-                  <option key={entry.id} value={entry.id}>{entry.id}</option>
-                ))}
-              </select>
+              <Select value={model} onValueChange={changeModel} disabled={!!busy || modelsLoading}>
+                <SelectTrigger aria-label="Model" className="h-10 w-full font-mono text-[13px]">
+                  <SelectValue placeholder="Select a model…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(models.length > 0 ? models : [{ id: model }].filter((entry) => entry.id)).map((entry) => (
+                    <SelectItem key={entry.id} value={entry.id} className="font-mono">{entry.id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
           )}
           {!credential ? (
@@ -773,37 +773,40 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
             </p>
           ) : null}
           <Field label="Game profile" hint={selectedProfile?.context || "Match context the commentary reacts to."}>
-            <select
-              className={inputClassName}
+            <Select
               value={gameProfileId}
               disabled={!!busy}
-              onChange={(event) => {
-                const next = event.target.value;
+              onValueChange={(next) => {
                 setGameProfileId(next);
                 if (!presetsForProfile(presets, next).some((entry) => entry.id === commentaryPresetId)) {
                   setCommentaryPresetId("default-energetic");
                 }
               }}
             >
-              {(profiles.length > 0 ? profiles : [{ id: "free-fire-default", name: "Free Fire — Default", builtIn: true }]).map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name}</option>
-              ))}
-            </select>
+              <SelectTrigger aria-label="Game profile" className="h-10 w-full text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(profiles.length > 0 ? profiles : [{ id: "free-fire-default", name: "Free Fire — Default", builtIn: true }]).map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>{entry.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <Field
             label="Commentary preset"
             hint={selectedPreset ? `Tone: ${selectedPreset.tone || "default"} · Language: ${selectedPreset.language || "default"}` : "Personality and tone for generated lines."}
           >
-            <select
-              className={inputClassName}
-              value={commentaryPresetId}
-              disabled={!!busy}
-              onChange={(event) => setCommentaryPresetId(event.target.value)}
-            >
-              {(visiblePresets.length > 0 ? visiblePresets : [{ id: "default-energetic", name: "Default — Energetic" }]).map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name}</option>
-              ))}
-            </select>
+            <Select value={commentaryPresetId} onValueChange={setCommentaryPresetId} disabled={!!busy}>
+              <SelectTrigger aria-label="Commentary preset" className="h-10 w-full text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(visiblePresets.length > 0 ? visiblePresets : [{ id: "default-energetic", name: "Default — Energetic" }]).map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>{entry.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <p className="text-[12px] leading-relaxed text-muted-foreground">
             Style guides wording only — observation checks and evidence rules stay enforced.
