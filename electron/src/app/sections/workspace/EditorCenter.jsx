@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import ArtifactBrowser from "@/components/ArtifactBrowser.jsx";
+import CommentaryTimeline from "./CommentaryTimeline.jsx";
 import VideoPreview from "./VideoPreview.jsx";
 
-export default function EditorCenter({ project, refreshSignal, onBack }) {
+export default function EditorCenter({ project, refreshSignal, script = null, runStatus = "idle", onBack }) {
   const [tab, setTab] = useState("preview");
   const videoRef = useRef(null);
 
@@ -33,7 +34,14 @@ export default function EditorCenter({ project, refreshSignal, onBack }) {
       </div>
 
       <TabsContent value="preview" forceMount className="m-0 min-h-0 min-w-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
-        <VideoPreview project={project} videoRef={videoRef} />
+        <div className="flex h-full min-h-0 min-w-0 flex-col">
+          <div className="min-h-0 min-w-0 flex-1">
+            <VideoPreview project={project} videoRef={videoRef} />
+          </div>
+          <div className="h-[148px] shrink-0 border-t border-border">
+            <CommentaryTimeline projectId={project.id} videoRef={videoRef} script={script} runStatus={runStatus} />
+          </div>
+        </div>
       </TabsContent>
       <TabsContent value="artifacts" forceMount className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto p-3 data-[state=inactive]:hidden">
         <ArtifactBrowser projectId={project.id} refreshSignal={refreshSignal} className="min-h-full" />

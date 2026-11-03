@@ -277,7 +277,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       </Alert>
     </div>
   ) : (
-    <EditorCenter project={project} refreshSignal={run.status} onBack={onBack} />
+    <EditorCenter project={project} refreshSignal={run.status} script={run.script} runStatus={run.status} onBack={onBack} />
   );
 
   const inspectorContent = project ? (

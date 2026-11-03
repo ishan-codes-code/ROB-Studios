@@ -1,5 +1,25 @@
 # Current state
 
+## Synchronized commentary timeline (uncommitted)
+
+The Preview tab now shows a compact waveform timeline beneath the
+video: one region per generated speech segment positioned by its
+`timestamp_seconds`, with real Web Audio-decoded peaks (96 per
+segment, single SVG path each), a video-driven playhead, and
+per-segment playback through one commentary channel scheduled
+against `video.currentTime` (play/pause/seek/rate/ended aware, no
+setInterval clock). Segments decoded after their start passed while
+playing are missed for the pass and replayable after seek/replay;
+overlaps resolve to the earliest starter; renames and decode gaps
+never interrupt sounding audio. Timing assumption (no contract
+change): evidence timestamps are already on the video clock, so they
+serve as intended playback starts; generation time is never used.
+No Python, provider, prompt, schema, or storage changes; the dock,
+artifact browser, and video preview are untouched apart from shared
+prop/format plumbing. Verified with targeted unit tests plus jsdom
+harnesses with fake media boundaries — not yet manually verified
+with real video/audio sync.
+
 ## Streaming audio visibility, playback & tray fix (on `feature/tts-generation`, uncommitted)
 
 The pipeline wrote TTS audio under `output/audio/segments/` while

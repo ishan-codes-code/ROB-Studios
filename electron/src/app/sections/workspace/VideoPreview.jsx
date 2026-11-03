@@ -1,18 +1,7 @@
 import { useRef, useState } from "react";
 import { AlertCircle, Film, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
-import { extensionOf, fileNameOf, formatBytes, projectMediaUrl } from "@/lib/format.js";
-
-function formatTime(seconds) {
-  if (!Number.isFinite(seconds) || seconds < 0) return "--:--";
-  const whole = Math.floor(seconds);
-  const secondsPart = String(whole % 60).padStart(2, "0");
-  const minutes = Math.floor(whole / 60);
-  if (minutes >= 60) {
-    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}:${secondsPart}`;
-  }
-  return `${String(minutes).padStart(2, "0")}:${secondsPart}`;
-}
+import { extensionOf, fileNameOf, formatBytes, formatMediaTime, projectMediaUrl } from "@/lib/format.js";
 
 function EmptyPreview() {
   return (
@@ -121,7 +110,7 @@ export default function VideoPreview({ project, videoRef }) {
         </span>
         {hasSource ? (
           <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground" aria-label="Playback time">
-            {formatTime(currentTime)} / {formatTime(duration)}
+            {formatMediaTime(currentTime)} / {formatMediaTime(duration)}
           </span>
         ) : null}
       </footer>
