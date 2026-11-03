@@ -67,8 +67,9 @@ def run_cli(engine, argv=None):
         type=engine.parse_max_frames_argument,
         default=None,
         metavar="N",
-        help="Maximum sampled frames for --adaptive (positive integer, "
-        f"default {engine.ADAPTIVE_DEFAULT_MAX_FRAMES}).",
+        help="Maximum sampled frames for --adaptive (positive integer up "
+        f"to {engine.ADAPTIVE_HARD_MAX_FRAMES}; omit for unlimited, which "
+        "samples to video end unless stopped).",
     )
     parser.add_argument(
         "--video",
@@ -201,11 +202,9 @@ def run_cli(engine, argv=None):
         result = engine.run_adaptive_vision(
             video_path=args.video,
             observations_dir=obs_dir,
-            max_frames=(
-                args.adaptive_max_frames
-                if args.adaptive_max_frames is not None
-                else engine.ADAPTIVE_DEFAULT_MAX_FRAMES
-            ),
+            # None is the unlimited sentinel (omitted flag): no
+            # user-imposed bound; video end or stop terminates.
+            max_frames=args.adaptive_max_frames,
         )
         print(
             f"Adaptive run {result['status']}: {result['observations']} "

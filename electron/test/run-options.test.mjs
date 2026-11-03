@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  ADAPTIVE_DEFAULT_MAX_FRAMES,
   ADAPTIVE_HARD_MAX_FRAMES,
   RUN_MODES,
   buildProcessOptions,
   clampAdaptiveMaxFrames,
   defaultRunMode,
   isAdaptiveMode,
+  isValidAdaptiveMaxFrames,
 } from '../src/lib/run-options.js';
 
 test('adaptive is the only run mode', () => {
@@ -18,10 +18,10 @@ test('adaptive is the only run mode', () => {
   assert.equal(defaultRunMode(), RUN_MODES.ADAPTIVE);
 });
 
-test('adaptive options carry the validated sampling bound', () => {
+test('adaptive options default to unlimited vision requests', () => {
   assert.deepEqual(buildProcessOptions(RUN_MODES.ADAPTIVE), {
     adaptive: true,
-    adaptiveMaxFrames: ADAPTIVE_DEFAULT_MAX_FRAMES,
+    adaptiveMaxFrames: null,
     withScript: false,
     streaming: true,
     requestTts: false,
@@ -30,7 +30,8 @@ test('adaptive options carry the validated sampling bound', () => {
     buildProcessOptions(RUN_MODES.ADAPTIVE, { adaptiveMaxFrames: 5 }),
     { adaptive: true, adaptiveMaxFrames: 5, withScript: false, streaming: true, requestTts: false },
   );
-  // Fractions floor; the hard cap holds; garbage falls back to default.
+  // Fractions floor; the hard cap holds; nothing silently becomes a
+  // numeric default — invalid input normalizes to unlimited (null).
   assert.equal(
     buildProcessOptions(RUN_MODES.ADAPTIVE, { adaptiveMaxFrames: 5.9 })
       .adaptiveMaxFrames,
@@ -41,12 +42,28 @@ test('adaptive options carry the validated sampling bound', () => {
       .adaptiveMaxFrames,
     ADAPTIVE_HARD_MAX_FRAMES,
   );
-  for (const bad of [0, -3, '', 'many', NaN, null, undefined]) {
+  for (const unlimited of [null, undefined, '']) {
+    assert.equal(
+      buildProcessOptions(RUN_MODES.ADAPTIVE, { adaptiveMaxFrames: unlimited })
+        .adaptiveMaxFrames,
+      null,
+    );
+  }
+  for (const bad of [0, -3, 'many', NaN]) {
     assert.equal(
       buildProcessOptions(RUN_MODES.ADAPTIVE, { adaptiveMaxFrames: bad })
         .adaptiveMaxFrames,
-      ADAPTIVE_DEFAULT_MAX_FRAMES,
+      null,
     );
+  }
+});
+
+test('invalid bounds are detectable so the UI can reject them', () => {
+  for (const good of [null, undefined, '', '   ', 1, 5, '7', ' 12 ', 5.9, 10 ** 9]) {
+    assert.equal(isValidAdaptiveMaxFrames(good), true, JSON.stringify(good));
+  }
+  for (const bad of [0, -3, NaN, 'many', '0', '-3']) {
+    assert.equal(isValidAdaptiveMaxFrames(bad), false, JSON.stringify(bad));
   }
 });
 
@@ -76,9 +93,11 @@ test('explicit sequential fallback stays available internally', () => {
 });
 
 test('clamp keeps bounds inside the engine hard cap', () => {
-  assert.equal(ADAPTIVE_DEFAULT_MAX_FRAMES, 10);
   assert.equal(ADAPTIVE_HARD_MAX_FRAMES, 10000);
   assert.equal(clampAdaptiveMaxFrames(1), 1);
   assert.equal(clampAdaptiveMaxFrames('7'), 7);
   assert.equal(clampAdaptiveMaxFrames(' 12 '), 12);
+  assert.equal(clampAdaptiveMaxFrames(null), null);
+  assert.equal(clampAdaptiveMaxFrames(undefined), null);
+  assert.equal(clampAdaptiveMaxFrames(''), null);
 });

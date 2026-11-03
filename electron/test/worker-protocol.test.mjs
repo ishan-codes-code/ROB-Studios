@@ -330,6 +330,28 @@ test('buildWorkerArgv rejects non-positive adaptiveMaxFrames', () => {
   }
 });
 
+test('buildWorkerArgv rejects explicit bounds above the engine hard cap', () => {
+  for (const adaptiveMaxFrames of [10001, 10 ** 9, '20000']) {
+    assert.throws(
+      () => buildWorkerArgv('worker.py', 'clip.mp4', { adaptiveMaxFrames }),
+      /up to 10000/,
+    );
+  }
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', { adaptive: true, adaptiveMaxFrames: 10000 }),
+    ['worker.py', 'clip.mp4', '--adaptive', '--adaptive-max-frames', '10000'],
+  );
+});
+
+test('buildWorkerArgv omits the flag for unlimited runs', () => {
+  for (const adaptiveMaxFrames of [null, undefined]) {
+    assert.deepEqual(
+      buildWorkerArgv('worker.py', 'clip.mp4', { adaptive: true, adaptiveMaxFrames }),
+      ['worker.py', 'clip.mp4', '--adaptive'],
+    );
+  }
+});
+
 test('buildWorkerArgv omits vision flags when not adaptive', () => {
   assert.deepEqual(
     buildWorkerArgv('worker.py', 'clip.mp4', {

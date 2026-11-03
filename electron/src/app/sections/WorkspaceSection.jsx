@@ -8,7 +8,7 @@ import {
   applyWorkerMessage,
   createInitialRunState,
 } from "@/lib/worker-view.js";
-import { ADAPTIVE_DEFAULT_MAX_FRAMES, RUN_MODES, buildProcessOptions, defaultRunMode, isAdaptiveMode } from "@/lib/run-options.js";
+import { RUN_MODES, buildProcessOptions, defaultRunMode, isAdaptiveMode, isValidAdaptiveMaxFrames } from "@/lib/run-options.js";
 import useProjectAudio from "@/hooks/useProjectAudio.js";
 import EditorCenter from "./workspace/EditorCenter.jsx";
 import ProcessingInspector from "./workspace/ProcessingInspector.jsx";
@@ -50,9 +50,9 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState(null);
-  const [adaptiveMaxFrames, setAdaptiveMaxFrames] = useState(
-    ADAPTIVE_DEFAULT_MAX_FRAMES,
-  );
+  // null = unlimited (the default): sample to video end unless
+  // stopped. A positive integer caps paid vision requests instead.
+  const [adaptiveMaxFrames, setAdaptiveMaxFrames] = useState(null);
   const [requestTts, setRequestTts] = useState(false);
   // True while a cooperative stop was accepted and the run is still
   // alive. Set only after the main process confirms acceptance; the
@@ -202,8 +202,9 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   }, []);
 
   const processing = run.status === "processing";
+  const limitValid = isValidAdaptiveMaxFrames(adaptiveMaxFrames);
   const canStart =
-    project && !starting && !cancelling && run.settled && !processing;
+    project && !starting && !cancelling && run.settled && !processing && limitValid;
 
   async function handleStart() {
     if (!canStart) {

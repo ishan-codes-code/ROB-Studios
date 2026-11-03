@@ -1,5 +1,48 @@
 # Current state
 
+## Processing workspace redesign + unlimited requests (uncommitted)
+
+Processing tab rebuilt around real lifecycle state; the vision-request
+limit contract is now `null` = unlimited (the default) with explicit
+1–10000 bounds, propagated through renderer, run-options, main argv
+gate (which now also enforces the upper cap it previously skipped),
+worker/CLI passthrough, and the adaptive engine (loop skips the
+max-frames check when unbounded; manifest records `max_frames: null`).
+No numeric fallback exists anywhere: invalid renderer input blocks
+Start with inline guidance, and main/Python reject invalid explicit
+values. Termination for unlimited runs is structural (video end, stop,
+first failure — scheduled timestamps strictly increase). The legacy
+`ADAPTIVE_DEFAULT_MAX_FRAMES = 60` constant is retained for facade
+compatibility only and drives nothing.
+
+UI: ready state (mode/limit/TTS summary, incomplete-config guidance
+with Configure link, advanced-settings path), hero current-stage card
+(`AITextLoading` on the real stage label), `AILoadingState` steps
+derived from observed stages only (new honest `skipped` status; no
+pending invention; conditional script/tts appear only when the worker
+reports them), sampling activity in `ScrollFade` with an unbordered
+idle placeholder, collapsible worker-log diagnostics, and full
+empty-state coverage (idle/starting/cancelling/failed/cancelled/
+stopped/no-observations). RunPanel keeps terminal/result/error/starting
+blocks plus stopped/cancelled stage history (`showStages` prop) so
+stages never render twice. Sonner lifecycle audited: stable run toast
+id per project was already correct; export toasts gained a stable id
+so repeats replace instead of stacking. Export was already correctly
+placed in the Editor toolbar — verified, unchanged. No original-audio
+checkbox exists (game audio always ships in export; the Configure
+checkbox is the paid TTS opt-in), so nothing was removed per the
+audio-scope boundary.
+
+Verification: Electron suite 382 tests pass, 0 fail; Python suite 526
+tests pass, OK; renderer production build succeeds. Manual visual
+verification in a running shell was not completed (cut short per
+operator request after Xvfb proved unusable in the sandbox and before
+the CDP screenshot pass ran). Unverified visually: every redesigned
+surface — ready/failed/narrow/reduced-motion states, sampling
+activity, toasts, Export toolbar. Not verifiable without a live
+provider regardless: active-processing stages, completion/success
+toast, and export progress over a real file.
+
 ## Configuration UX redesign C1–C5 + custom provider (uncommitted)
 
 Complete configuration-experience redesign over preserved backend

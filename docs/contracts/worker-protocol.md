@@ -15,7 +15,11 @@ and the tests together.
   [--tts-voice-direction TEXT]]`
   (Windows interpreter: `.venv/Scripts/python.exe`).
 - The video path is a positional argument. `--adaptive` is required:
-  adaptive sampling is the only supported analysis mode; `--generate-tts`
+  adaptive sampling is the only supported analysis mode.
+  `--adaptive-max-frames N` (1–10000) is optional: when omitted the run
+  is unlimited and samples to video end unless stopped; the main
+  process omits the flag for unlimited runs and rejects malformed or
+  out-of-range explicit bounds before spawning. `--generate-tts`
   synthesizes commentary audio from the generated script (requires
   `--with-script`; see `docs/contracts/tts-v1.md`). The `--tts-*` options
   carry the effective Studio voice configuration resolved main-side from

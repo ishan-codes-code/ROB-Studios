@@ -505,6 +505,43 @@ class AdaptiveRunTests(unittest.TestCase):
 
         return fake_adaptive
 
+    def test_omitted_flag_passes_unlimited_to_engine(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            out = root / "out"
+            with mock.patch.object(
+                worker.engine,
+                "run_adaptive_vision",
+                side_effect=self.fake_success(out / "observations"),
+            ) as loop:
+                self.run_pipeline_quiet(
+                    self.adaptive_args(str(video), str(out))
+                )
+            # No silent numeric fallback: omitted means unlimited (None).
+            self.assertIsNone(loop.call_args.kwargs["max_frames"])
+
+    def test_explicit_flag_passes_bound_to_engine(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            out = root / "out"
+            with mock.patch.object(
+                worker.engine,
+                "run_adaptive_vision",
+                side_effect=self.fake_success(out / "observations"),
+            ) as loop:
+                self.run_pipeline_quiet(
+                    self.adaptive_args(
+                        str(video), str(out), adaptive_max_frames=7
+                    )
+                )
+            self.assertEqual(loop.call_args.kwargs["max_frames"], 7)
+
     def test_adaptive_success_completes_pipeline(self):
         import tempfile
 

@@ -95,7 +95,8 @@ Stored beside the observations
 (`output/observations/adaptive_run.json`), written atomically after
 every iteration so partial progress survives a stop. Schema version
 `adaptive-run-v1`. Records: source video reference, sampling
-configuration, duration, every requested timestamp, per-iteration speed
+configuration (including `max_frames`, `null` for unlimited runs),
+duration, every requested timestamp, per-iteration speed
 / bounded reason / sampling diagnostics / observation filename, request
 and failure counts, speed counts, termination reason (`video-end`,
 `max-frames`, `stop-requested`, or a `*-failed` phase), final status
@@ -114,8 +115,13 @@ repeated stops are idempotent.
 ## Cost discipline
 
 At most one vision request per sampled frame; at most `max_frames`
-frames per run (default 60, hard cap 10000); one finite SDK timeout per
-request; zero retries. Tests use mocks and never touch the paid API.
+frames per run when an explicit bound is given (`None`/omitted means
+unlimited — sampling runs to video end unless stopped — and explicit
+values must stay within 1–10000); one finite SDK timeout per request;
+zero retries. Tests use mocks and never touch the paid API. Runaway
+protection is structural, not numeric: scheduled timestamps strictly
+increase toward the video duration, so an unlimited run always
+terminates at video end, on stop, or on the first failure.
 
 ## Compatibility
 

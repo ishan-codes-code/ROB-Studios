@@ -5,7 +5,8 @@ the scheduled timestamp, send it to the real Baseten vision model, strictly
 validate the wrapper response, atomically persist the validated
 ``observation-v1`` document, and schedule the next timestamp from the
 validated speed label. The loop ends at the video duration, at the
-``max_frames`` bound, on the first failure, or on a cooperative stop.
+``max_frames`` bound (or, when ``max_frames`` is None, until video
+end), on the first failure, or on a cooperative stop.
 
 Cooperative stop: a thread-safe :class:`StopToken` is checked before every
 capture and before every paid request, and again after each persisted
@@ -164,7 +165,7 @@ def record_iteration(manifest, timestamp, destination, speed, reason, diagnostic
 def run_adaptive_vision(
     video_path=None,
     observations_dir=None,
-    max_frames=ADAPTIVE_DEFAULT_MAX_FRAMES,
+    max_frames=None,
     intervals=None,
     client=None,
     stop_token=None,
@@ -173,9 +174,12 @@ def run_adaptive_vision(
     """Run the adaptive sampling loop; return a result dict (never None).
 
     ``video_path`` defaults to the project gameplay video; observations
-    land in ``observations_dir`` as ``frame_<timestamp>.json``. At most
-    ``max_frames`` paid requests are made; the first failure terminates the
-    run (no retries, no repair calls). ``client`` and ``stop_token`` exist
+    land in ``observations_dir`` as ``frame_<timestamp>.json``.
+    ``max_frames`` is None for unlimited (the default: sampling runs to
+    video end unless stopped) or a positive integer bound validated by
+    ``parse_max_frames_argument``; at most that many paid requests are
+    made. The first failure terminates the run (no retries, no repair
+    calls). ``client`` and ``stop_token`` exist
     for tests and the worker; a live client is created (and closed) only
     when none is injected. ``on_iteration`` is an optional reporting hook
     called once per validated, persisted iteration with a plain dict
@@ -189,7 +193,9 @@ def run_adaptive_vision(
 
     video = VIDEO_PATH if video_path is None else Path(video_path)
     obs_dir = OBSERVATIONS_DIR if observations_dir is None else Path(observations_dir)
-    limit = parse_max_frames_argument(max_frames)
+    # None is the unlimited sentinel: no user-imposed bound, so the loop
+    # ends at video end (or stop/failure). Explicit values stay strict.
+    limit = None if max_frames is None else parse_max_frames_argument(max_frames)
     validated_intervals = validate_intervals(intervals)
     token = stop_token if stop_token is not None else StopToken()
 
@@ -283,7 +289,7 @@ def run_adaptive_vision(
                     f"{speed}={validated_intervals[speed]}s"
                     for speed in ("HIGH", "NORMAL", "LOW")
                 )
-                + f", max {limit} frames."
+                + (f", max {limit} frames." if limit is not None else ", no frame limit.")
             )
             timestamp = scheduler.first_timestamp()
             previous = None
@@ -358,15 +364,16 @@ def run_adaptive_vision(
                     save_manifest()
                 except OSError as exc:
                     return fail(TERMINATION_MANIFEST_FAILED, str(exc))
+                bound = str(limit) if limit is not None else "unlimited"
                 if sampling_diagnostics:
                     print(
-                        f"[{manifest['observations']}/{limit}] Sampled "
+                        f"[{manifest['observations']}/{bound}] Sampled "
                         f"{timestamp}s -> {speed} "
                         f"({'; '.join(sampling_diagnostics)})."
                     )
                 else:
                     print(
-                        f"[{manifest['observations']}/{limit}] Sampled "
+                        f"[{manifest['observations']}/{bound}] Sampled "
                         f"{timestamp}s -> {speed}."
                     )
                 next_timestamp = scheduler.next_timestamp(timestamp, speed)
@@ -397,7 +404,7 @@ def run_adaptive_vision(
                         f"({reader.duration:.2f}s)."
                     )
                     return finish("completed", TERMINATION_VIDEO_END)
-                if len(manifest["requested_timestamps"]) >= limit:
+                if limit is not None and len(manifest["requested_timestamps"]) >= limit:
                     print(
                         f"Adaptive run finished: sampled {limit} frame(s) "
                         "(max-frames bound)."

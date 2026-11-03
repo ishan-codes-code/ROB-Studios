@@ -207,6 +207,23 @@ function StepIcon({
               />
             </svg>
           )}
+          {status === "skipped" && (
+            <svg
+              aria-hidden="true"
+              className="size-3.5 text-zinc-400 dark:text-zinc-500"
+              fill="none"
+              viewBox="0 0 16 16"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="6.25"
+                stroke="currentColor"
+                strokeDasharray="2.5 2.5"
+                strokeWidth="1.5"
+              />
+            </svg>
+          )}
         </motion.span>
       </AnimatePresence>
     </span>
@@ -356,7 +373,7 @@ function useStepTimes(steps) {
         changed = true;
       }
       starts[step.id] ??= now;
-      if (step.status === "done" || step.status === "error") {
+      if (step.status === "done" || step.status === "error" || step.status === "skipped") {
         finished[step.id] = times[step.id] ?? now - starts[step.id];
         changed ||= !(step.id in times);
       }
@@ -374,6 +391,7 @@ const LABEL_COLORS = {
   running: "text-zinc-900 dark:text-zinc-100",
   done: "text-zinc-500 dark:text-zinc-400",
   error: "text-red-600 dark:text-red-400",
+  skipped: "text-zinc-400 dark:text-zinc-500",
 };
 
 function StepRow({
@@ -451,7 +469,8 @@ export default function AILoadingState({
   const running = steps.find((step) => step.status === "running");
   const failed = steps.find((step) => step.status === "error");
   const isDone =
-    steps.length > 0 && steps.every((step) => step.status === "done");
+    steps.length > 0 &&
+    steps.every((step) => step.status === "done" || step.status === "skipped");
   const isActive = Boolean(running);
   const seconds = useElapsed(isActive, isDone);
   const times = useStepTimes(steps);

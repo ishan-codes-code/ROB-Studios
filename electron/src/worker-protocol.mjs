@@ -34,6 +34,14 @@ const MESSAGE_TYPES = new Set([
  */
 const WORKER_CONTROL_VERSION = 1;
 
+/**
+ * Engine hard cap for an explicit `--adaptive-max-frames` bound
+ * (mirrors `ADAPTIVE_HARD_MAX_FRAMES` in `config.py`). `null` /
+ * `undefined` means unlimited and omits the flag entirely, so the only
+ * values rejected here are malformed or out-of-range explicit bounds.
+ */
+const ADAPTIVE_HARD_MAX_FRAMES = 10000;
+
 function buildStopControlLine() {
   return JSON.stringify({ type: 'stop', version: WORKER_CONTROL_VERSION }) + '\n';
 }
@@ -354,8 +362,10 @@ function buildWorkerArgv(script, videoPath, opts = {}) {
       typeof options.adaptiveMaxFrames === 'number'
         ? options.adaptiveMaxFrames
         : Number(String(options.adaptiveMaxFrames).trim());
-    if (!Number.isInteger(maxFrames) || maxFrames < 1) {
-      throw new Error('adaptiveMaxFrames must be a positive integer.');
+    if (!Number.isInteger(maxFrames) || maxFrames < 1 || maxFrames > ADAPTIVE_HARD_MAX_FRAMES) {
+      throw new Error(
+        `adaptiveMaxFrames must be a positive integer up to ${ADAPTIVE_HARD_MAX_FRAMES}.`,
+      );
     }
     argv.push('--adaptive-max-frames', String(maxFrames));
   }

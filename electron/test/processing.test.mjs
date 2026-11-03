@@ -273,6 +273,43 @@ test('an adaptive run carries sampling bounds and settles stopped', async (t) =>
   assert.equal(getProject(s.userData, projectId).processingStatus, 'stopped');
 });
 
+test('an unlimited adaptive run omits the max-frames flag', async (t) => {
+  for (const adaptiveMaxFrames of [null, undefined]) {
+    const s = setup(t);
+    const credential = createCredential(s.userData, testSafeStorage, {
+      name: 'Meta Test', provider: 'meta', model: 'muse-spark-1.3', key: 'test-dummy-key',
+    });
+    markCredentialVerified(s.userData, testSafeStorage, credential.id, credential.model);
+    const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+    const draft = createProject(s.userData, { name: 'unlimited test', sourcePath: video });
+    updateProject(s.userData, draft.id, { configuration: { credentialId: credential.id } });
+    const started = await s.handlers['process-video'](
+      {}, video, { projectId: draft.id, adaptive: true, adaptiveMaxFrames },
+    );
+    assert.equal(started.ok, true);
+    const start = s.getStart();
+    assert.ok(start.argv.includes('--adaptive'));
+    assert.equal(start.argv.includes('--adaptive-max-frames'), false);
+  }
+});
+
+test('an over-cap adaptive bound is rejected before spawning', async (t) => {
+  const s = setup(t);
+  const credential = createCredential(s.userData, testSafeStorage, {
+    name: 'Meta Test', provider: 'meta', model: 'muse-spark-1.3', key: 'test-dummy-key',
+  });
+  markCredentialVerified(s.userData, testSafeStorage, credential.id, credential.model);
+  const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+  const draft = createProject(s.userData, { name: 'over-cap test', sourcePath: video });
+  updateProject(s.userData, draft.id, { configuration: { credentialId: credential.id } });
+  const started = await s.handlers['process-video'](
+    {}, video, { projectId: draft.id, adaptive: true, adaptiveMaxFrames: 10001 },
+  );
+  assert.equal(started.ok, false);
+  assert.match(started.error ?? '', /positive integer/);
+  assert.equal(s.getStart(), null);
+});
+
 test('a paid project run without a selected credential fails closed', async (t) => {
   const s = setup(t);
   const video = makeFixtureVideo(path.join(s.userData, 'incoming'));

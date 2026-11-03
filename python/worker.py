@@ -139,8 +139,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=engine.parse_max_frames_argument,
         default=None,
         metavar="N",
-        help="Maximum sampled frames for --adaptive (positive integer, "
-        f"default {engine.ADAPTIVE_DEFAULT_MAX_FRAMES}).",
+        help="Maximum sampled frames for --adaptive (positive integer up "
+        f"to {engine.ADAPTIVE_HARD_MAX_FRAMES}; omit for unlimited, which "
+        "samples to video end unless stopped).",
     )
     parser.add_argument(
         "--game-pack",
@@ -287,12 +288,9 @@ def run_adaptive_stage(args, video: Path, obs_dir: Path, on_iteration) -> dict:
             return engine.run_adaptive_vision(
                 video_path=video,
                 observations_dir=obs_dir,
-                max_frames=(
-                    args.adaptive_max_frames
-                    if getattr(args, "adaptive_max_frames", None)
-                    is not None
-                    else engine.ADAPTIVE_DEFAULT_MAX_FRAMES
-                ),
+                # None is the unlimited sentinel: omitted flag means no
+                # user-imposed bound (video end or stop terminates).
+                max_frames=getattr(args, "adaptive_max_frames", None),
                 stop_token=stop_token,
                 on_iteration=on_iteration,
             )

@@ -20,6 +20,9 @@ export default function useVideoExport(projectId) {
   });
   const exportLiveRef = useRef(false);
   const busyRef = useRef(false);
+  // One export-notification slot per project: terminal toasts replace
+  // each other instead of stacking across repeated exports.
+  const exportToastId = `export-${projectId}`;
 
   useEffect(() => {
     setExportState({ status: "idle", percent: 0, outputPath: null, error: null });
@@ -50,6 +53,7 @@ export default function useVideoExport(projectId) {
           error: null,
         });
         toast.success("Export complete", {
+          id: exportToastId,
           description: outputPath?.split(/[/\\]/).pop() ?? undefined,
         });
       } else if (event.phase === "error") {
@@ -62,7 +66,7 @@ export default function useVideoExport(projectId) {
           outputPath: null,
           error: message,
         });
-        toast.error("Export failed", { description: message });
+        toast.error("Export failed", { id: exportToastId, description: message });
       } else if (event.phase === "cancelled") {
         exportLiveRef.current = false;
         busyRef.current = false;

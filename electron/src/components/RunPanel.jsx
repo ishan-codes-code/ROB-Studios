@@ -78,6 +78,10 @@ export default function RunPanel({
   chooseDifferentLabel = "Choose different video",
   showActions = true,
   showStatus = true,
+  // The inspector renders live stages through the loading-state steps
+  // and keeps this list for stopped/cancelled history only, so stages
+  // are never shown twice for one run.
+  showStages = true,
   className,
 }) {
   const indicatorStatus =
@@ -114,7 +118,7 @@ export default function RunPanel({
         </div>
       ) : null}
 
-      {orderedStages.length > 0 ? (
+      {showStages && orderedStages.length > 0 ? (
         <>
           <Separator />
           <ul className="flex flex-col divide-y divide-border">
@@ -160,6 +164,12 @@ export default function RunPanel({
             </p>
           ) : null}
           <ResultRows result={run.result} />
+          {run.result.observations === 0 ? (
+            <p className="text-[13px] text-muted-foreground">
+              No observations were recorded for this run — downstream
+              stages ran on empty input, not on an error.
+            </p>
+          ) : null}
         </>
       ) : null}
 

@@ -75,8 +75,8 @@ export function stageDetailText(detail) {
 export const MAX_WORKER_LOGS = 50;
 
 /**
- * Maximum adaptive samples kept per run. Runs are bounded server-side
- * (UI default 10, engine default 60), so this cap only guards against
+ * Maximum adaptive samples kept per run. Runs end at video end, an
+ * explicit bound, stop, or failure, so this cap only guards against
  * unbounded growth, never truncates a normal run.
  */
 export const MAX_ADAPTIVE_SAMPLES = 500;
