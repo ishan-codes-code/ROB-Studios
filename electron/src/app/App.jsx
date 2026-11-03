@@ -7,8 +7,11 @@ import Sidebar from "@/layout/Sidebar.jsx";
 import DashboardSection from "@/app/sections/DashboardSection.jsx";
 import MatchesSection from "@/app/sections/MatchesSection.jsx";
 import CommentarySection from "@/app/sections/CommentarySection.jsx";
+import OnboardingWizard from "@/app/sections/OnboardingWizard.jsx";
 import ApiKeysSection from "@/app/sections/ApiKeysSection.jsx";
-import GamesPromptsSection from "@/app/sections/GamesPromptsSection.jsx";
+import GameProfilesSection from "@/app/sections/GameProfilesSection.jsx";
+import CommentaryPresetsSection from "@/app/sections/CommentaryPresetsSection.jsx";
+import OverviewSection from "@/app/sections/OverviewSection.jsx";
 import PromptPacksSection from "@/app/sections/PromptPacksSection.jsx";
 import PreferencesSection from "@/app/sections/PreferencesSection.jsx";
 import TtsStudioSection from "@/app/sections/TtsStudioSection.jsx";
@@ -21,8 +24,10 @@ const SECTION_VIEWS = {
   matches: MatchesSection,
   commentary: CommentarySection,
   audio: StudioPlaceholder,
+  overview: OverviewSection,
   "api-keys": ApiKeysSection,
-  "games-prompts": GamesPromptsSection,
+  "game-profiles": GameProfilesSection,
+  "commentary-presets": CommentaryPresetsSection,
   "prompt-packs": PromptPacksSection,
   "tts-studio": TtsStudioSection,
   preferences: PreferencesSection,
@@ -33,11 +38,13 @@ const SECTION_META = {
   matches: { title: "AI Analysis", context: "Validated observations and events" },
   commentary: { title: "Commentary", context: "Generated lines and scripts" },
   audio: { title: "Audio", context: "Playback lanes are not available yet" },
-  "api-keys": { title: "API Keys", context: "Saved provider configurations" },
-  "games-prompts": { title: "Games & Prompts", context: "Game profiles and commentary presets" },
+  overview: { title: "Overview", context: "Configuration status at a glance" },
+  "api-keys": { title: "AI Providers", context: "Vision and speech provider configurations" },
+  "game-profiles": { title: "Game Profiles", context: "Match-context records" },
+  "commentary-presets": { title: "Commentary Presets", context: "Commentary personalities and tones" },
   "prompt-packs": { title: "Prompt Packs", context: "Game-specific prompt wording and defaults" },
-  "tts-studio": { title: "TTS Studio", context: "Commentary voice configuration and previews" },
-  preferences: { title: "Preferences", context: "Application preferences" },
+  "tts-studio": { title: "Voice Providers", context: "Commentary voice configuration and previews" },
+  preferences: { title: "General", context: "Application preferences" },
 };
 
 export default function App() {
@@ -46,6 +53,10 @@ export default function App() {
   const [projectName, setProjectName] = useState(null);
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  // First-launch guided setup: takes over the window until completed or
+  // deferred ("Finish later" returns to the dashboard; progress resumes
+  // next launch). Null while the settings check is in flight.
+  const [onboarding, setOnboarding] = useState(null);
   // Sidebar state before the editor auto-collapsed it; restored when
   // leaving the workspace so the toggle stays predictable.
   const savedNavigationCollapsed = useRef(null);
@@ -53,10 +64,43 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     window.api?.loadSettings?.().then((result) => {
-      if (alive && result?.ok && !result.settings?.onboardingCompleted) setActiveSection("api-keys");
-    }).catch(() => {});
+      if (!alive) return;
+      if (result?.ok && !result.settings?.onboardingCompleted) {
+        setOnboarding({ settings: result.settings });
+      } else {
+        setOnboarding(false);
+      }
+    }).catch(() => {
+      if (alive) setOnboarding(false);
+    });
     return () => { alive = false; };
   }, []);
+
+  const handleOnboardingComplete = useCallback(({ projectId } = {}) => {
+    setOnboarding(false);
+    if (projectId) {
+      handleOpenProjectRef.current?.(projectId);
+    } else {
+      setActiveSection("dashboard");
+    }
+  }, []);
+
+  const handleOpenProject = useCallback((id) => {
+    setProjectName(null);
+    setWorkspaceId(id);
+    setActiveSection("editor");
+    // The editor gets the available width; the user can still reopen
+    // the sidebar manually, and leaving restores the previous state.
+    setNavigationCollapsed((current) => {
+      if (savedNavigationCollapsed.current === null) {
+        savedNavigationCollapsed.current = current;
+      }
+      return true;
+    });
+  }, []);
+
+  const handleOpenProjectRef = useRef(handleOpenProject);
+  handleOpenProjectRef.current = handleOpenProject;
 
   // The open project is preserved while visiting management pages so a
   // "Manage …" link never loses the editor's workspace state.
@@ -80,20 +124,6 @@ export default function App() {
     }
   }, []);
 
-  const handleOpenProject = useCallback((id) => {
-    setProjectName(null);
-    setWorkspaceId(id);
-    setActiveSection("editor");
-    // The editor gets the available width; the user can still reopen
-    // the sidebar manually, and leaving restores the previous state.
-    setNavigationCollapsed((current) => {
-      if (savedNavigationCollapsed.current === null) {
-        savedNavigationCollapsed.current = current;
-      }
-      return true;
-    });
-  }, []);
-
   const handleProjectLoaded = useCallback((project) => {
     setProjectName(project.name);
   }, []);
@@ -101,6 +131,19 @@ export default function App() {
   const handleBackToEditor = useCallback(() => {
     if (workspaceId !== null) setActiveSection("editor");
   }, [workspaceId]);
+
+  if (onboarding) {
+    return (
+      <>
+        <OnboardingWizard
+          initialSettings={onboarding.settings}
+          onComplete={handleOnboardingComplete}
+          onExit={() => setOnboarding(false)}
+        />
+        <Toaster theme="dark" position="bottom-right" />
+      </>
+    );
+  }
 
   return (
     <>
@@ -140,6 +183,7 @@ export default function App() {
               inspectorOpen={inspectorOpen}
               onProjectLoaded={handleProjectLoaded}
               onBack={handleBackToProjects}
+              onNavigate={handleSelectSection}
             />
           ) : (
             <div className="h-full min-h-0 overflow-y-auto px-5 py-4">
@@ -151,8 +195,12 @@ export default function App() {
                   ? { section: activeSection }
                   : {})}
                 {...(workspaceId !== null &&
-                (activeSection === "api-keys" || activeSection === "games-prompts" || activeSection === "prompt-packs")
+                (activeSection === "api-keys" || activeSection === "game-profiles"
+                  || activeSection === "commentary-presets" || activeSection === "prompt-packs")
                   ? { onBackToEditor: handleBackToEditor }
+                  : {})}
+                {...(activeSection === "overview"
+                  ? { onNavigate: handleSelectSection }
                   : {})}
               />
             </div>

@@ -5,4 +5,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   prompt: { personality: 'Esports commentator', tone: 'energetic', language: 'English', instructions: '' },
   tts: { model: null, voice: null, voiceDirection: null, credentialId: null },
   onboardingCompleted: false,
+  // Guided-setup progress: furthest step reached (0-4) plus the vault
+  // credential created inside the wizard, so resuming never duplicates
+  // it. Cleared logically once onboardingCompleted flips true.
+  onboarding: { step: 0, credentialId: null },
 });

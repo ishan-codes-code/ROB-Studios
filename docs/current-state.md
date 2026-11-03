@@ -1,5 +1,74 @@
 # Current state
 
+## Configuration UX redesign C1–C5 + custom provider (uncommitted)
+
+Complete configuration-experience redesign over preserved backend
+contracts, plus one genuine backend addition: a user-configured
+OpenAI-compatible `custom` vision provider (see
+[ADR 0014](decisions/0014-custom-openai-compatible-provider.md)).
+
+C1 onboarding: first launch renders a resumable 5-step guided wizard
+(`OnboardingWizard`: welcome, provider, model, commentator style,
+summary) instead of redirecting to settings. Progress persists to
+`settings.json` `onboarding: {step, credentialId}` (tolerant reads,
+legacy files start at step 0); the in-progress credential is adopted
+on resume, never duplicated. Completion requires a verified vision
+credential plus a game profile and preset — saving alone never
+completes — and optionally creates a first project with the setup
+applied. TTS stays optional.
+
+C2 providers: the API Keys page is now AI Providers (Meta, Baseten,
+Custom, Gemini TTS) with one shared status vocabulary
+(`lib/provider-status.js`: not-connected, saved, connected,
+model-selected, vision-verified, needs-attention), inline validation,
+skeleton loading, and a detail panel with separate test-connection /
+verify-image actions. Custom records carry a validated public-HTTPS
+endpoint (localhost/private blocked, curated records reject the
+field); verification pins key version + model + endpoint, and
+changing any resets it. Model discovery (`custom-models` IPC, live
+`GET /models`) degrades honestly to manual entry with
+`discovery_unsupported`. Keys stay main-side encrypted; discovery and
+verification never run automatically.
+
+C3 Configure: the editor inspector is a compact overview (AI vision,
+game profile + prompt pack, commentary style, processing, readiness
+summary via `isRunReady`). The nested management dialogs are gone:
+"Manage …" links navigate to the owning settings section with the
+workspace preserved and a back-to-editor return.
+
+C4 libraries: Games & Prompts is split into Game Profiles and
+Commentary Presets sections over one shared `useGameLibrary` hook
+(same IPC, IDs, and storage; built-ins immutable; reference-guarded
+deletes). Profiles gain duplicate; presets gain a sized editor dialog
+and an honest preview (deterministic prompt wording plus a labeled
+style-illustration template, never presented as model output).
+
+C5 settings: sidebar Configuration group is now Overview (new
+read-only readiness page), AI Providers, Voice Providers (TTS Studio
+content, unchanged behavior), Game Profiles, Commentary Presets,
+Prompt Packs (kept: the pack editor has no other home), General
+(Preferences content). Voice stays separate from vision; existing
+remediation strings point at the new names.
+
+Python: new `vision/providers/custom.py` adapter (plain Chat
+Completions, request-time URL validation, minimal text connection
+probe, shared live image probe, bounded discovery) routed through
+`provider_setup.py` and every engine live-client site (batch,
+adaptive, writer, script); `AI_COMMENTATOR_BASE_URL` reaches the
+worker only for custom runs. Meta/Baseten behavior, catalogues, and
+the legacy `BASETEN_*` fallback are unchanged.
+
+Verification: Electron suite 377 tests pass, 0 fail (offline,
+`node:test`, incl. new catalog/vault/IPC/discovery/onboarding/
+status/validation/section suites and rewritten static guards for the
+new structure); Python suite 519 tests pass, OK (offline, fakes only,
+incl. new `test_custom_provider.py`); renderer production build
+succeeds. No live provider calls were made; custom-endpoint behavior
+against a real server (discovery shapes, redirect handling, image
+probe acceptance) is untested beyond fakes. Manually unverified:
+wizard walkthrough in a running shell, dialog/drawer feel at minimum
+width, and the reduced-motion walkthrough.
+
 ## Editor refinement pass (on `feature/tts-generation`, uncommitted)
 
 Polish on the existing three-region Editor; no structural rebuild, no

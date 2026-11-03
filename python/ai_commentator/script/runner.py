@@ -54,6 +54,12 @@ def _live_text_client(provider, model, api_key):
         from ..vision.providers.meta import MetaAdapter
 
         return MetaAdapter(model=model, api_key=api_key)
+    if provider == "custom":
+        from ..vision.providers.custom import CustomAdapter
+        from ..vision.providers.registry import custom_base_url_from_env
+
+        return CustomAdapter(model=model, api_key=api_key,
+                             base_url=custom_base_url_from_env())
     return OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
 
 

@@ -271,6 +271,7 @@ from ai_commentator.config import (
     META_API_BASE_URL,
     META_MODELS,
     PROVIDER_BASETEN,
+    PROVIDER_CUSTOM,
     PROVIDER_META,
     SUPPORTED_PROVIDERS,
     provider_runtime_config,

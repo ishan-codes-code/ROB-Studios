@@ -220,6 +220,21 @@ test('run resolution snapshots the prompt pack with customs', async (t) => {
   assert.deepEqual(fallback.preferences.promptPack, { packId: 'free-fire', custom: {} });
 });
 
+test('run resolution snapshots the custom endpoint from the record', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Gateway', provider: 'custom', model: 'qwen-vl', key: 'run-key',
+    baseUrl: 'https://llm.example.com/v1',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model, credential.baseUrl);
+  const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.equal(resolved.provider, 'custom');
+  assert.equal(resolved.baseUrl, 'https://llm.example.com/v1');
+  assert.equal(resolved.verified, true);
+});
+
 test('host secrets are stripped from the worker environment', async () => {
   const clean = stripHostSecrets({
     PATH: '/usr/bin', BASETEN_API_KEY: 'x', AI_COMMENTATOR_API_KEY: 'y',

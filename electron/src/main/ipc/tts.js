@@ -158,7 +158,7 @@ async function credentialMetadata(userDataPath, safeStorage, credentialId) {
     },
     warning: verified
       ? null
-      : 'This TTS credential is not verified. Verify it on the API Keys page before previewing.',
+      : 'This TTS credential is not verified. Verify it under AI Providers before previewing.',
   };
 }
 
@@ -339,7 +339,7 @@ export function registerTtsIpc({
       if (!isCredentialVerifiedForRun(snapshot.record)) {
         return {
           ok: false,
-          error: 'Verify this TTS credential on the API Keys page before previewing.',
+          error: 'Verify this TTS credential under AI Providers before previewing.',
           code: 'unverified',
         };
       }

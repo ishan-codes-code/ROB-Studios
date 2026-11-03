@@ -38,7 +38,7 @@ function resultSummary(result) {
   }
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
-export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLoaded, onBack }) {
+export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLoaded, onBack, onNavigate }) {
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -357,6 +357,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       onCancel={handleCancel}
       onStop={handleStop}
       onReadinessChange={handleReadinessChange}
+      onNavigate={onNavigate}
     />
   ) : (
     <div className="flex h-full items-center justify-center px-4 text-[12px] text-muted-foreground">

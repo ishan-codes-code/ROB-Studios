@@ -24,6 +24,7 @@ export function validateSettings(value) {
   if (!g || g.id !== 'free-fire' || !validText(g.context, 2000)) throw new Error('Unsupported game configuration.');
   if (!c || !validText(c.personality, 80) || !validText(c.tone, 80) || !validText(c.language, 80) || !validText(c.instructions, 2000)) throw new Error('Invalid prompt configuration.');
   if (typeof value.onboardingCompleted !== 'boolean') throw new Error('Invalid onboarding state.');
+  const onboarding = normalizeOnboardingProgress(value.onboarding);
   return {
     version: SETTINGS_VERSION,
     provider: { type: p.type, baseUrl: url.toString().replace(/\/$/, ''), model: p.model.trim(), modelVisionVerified: p.modelVisionVerified },
@@ -31,7 +32,26 @@ export function validateSettings(value) {
     prompt: { personality: c.personality, tone: c.tone, language: c.language, instructions: c.instructions },
     tts: normalizePartialTtsConfig(value.tts ?? null),
     onboardingCompleted: value.onboardingCompleted,
+    onboarding,
   };
+}
+
+/**
+ * Normalize guided-setup progress. Tolerant by design: legacy files
+ * without the section, malformed shapes, and out-of-range steps all
+ * fall back to the start instead of failing the whole settings load.
+ * Credential ids are validated loosely here (format only); existence
+ * is checked against the vault when the wizard resumes.
+ */
+export function normalizeOnboardingProgress(value) {
+  const fallback = { step: 0, credentialId: null };
+  if (value === undefined || value === null) return { ...fallback };
+  if (typeof value !== 'object' || Array.isArray(value)) return { ...fallback };
+  const step = Number.isInteger(value.step) && value.step >= 0 && value.step <= 4 ? value.step : 0;
+  const credentialId = typeof value.credentialId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value.credentialId)
+    ? value.credentialId
+    : null;
+  return { step, credentialId };
 }
 
 export function settingsPath(userDataPath) { return path.join(userDataPath, 'settings.json'); }

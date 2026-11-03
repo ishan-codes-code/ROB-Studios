@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('api', {
   setDevBypass: (enabled) => ipcRenderer.invoke('dev-bypass-set', enabled === true),
   testCredential: (id) => ipcRenderer.invoke('credential-test', id),
   verifyCredential: (id) => ipcRenderer.invoke('credential-verify', id),
+  setCredentialEndpoint: (id, baseUrl) => ipcRenderer.invoke('credential-set-endpoint', id, baseUrl),
+  discoverCustomModels: (input) => ipcRenderer.invoke('custom-models', input ?? {}),
   providerModels: (providerId) => ipcRenderer.invoke('provider-models', providerId),
   listGameProfiles: () => ipcRenderer.invoke('game-profile-list'),
   createGameProfile: (input) => ipcRenderer.invoke('game-profile-create', input),

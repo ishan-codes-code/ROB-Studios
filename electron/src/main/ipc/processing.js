@@ -110,12 +110,12 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       return { ok: false, error: runConfigError };
     }
     if (runConfig !== null && paidRequested && !runConfig.verified) {
-      return { ok: false, error: 'The selected API configuration is not verified for image input. Open API Keys and run image verification.' };
+      return { ok: false, error: 'The selected API configuration is not verified for image input. Open AI Providers and run image verification.' };
     }
     if (paidRequested && runConfig === null && !hasStoredCredential && !legacyCredential) {
       return {
         ok: false,
-        error: 'Adaptive sampling needs an API key. Open API Keys to configure a provider.',
+        error: 'Adaptive sampling needs an API key. Open AI Providers to configure a provider.',
       };
     }
     // TTS runs resolve here, never from renderer values: the renderer only
@@ -175,6 +175,12 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
         workerEnv.BASETEN_BASE_URL = runConfig.baseUrl;
         workerEnv.BASETEN_MODEL = runConfig.model;
       }
+      // Custom runs resolve their endpoint from the saved record only;
+      // curated runs never see this variable, so a custom URL can never
+      // leak into (or be picked up by) another provider's run.
+      if (runConfig.provider === 'custom') {
+        workerEnv.AI_COMMENTATOR_BASE_URL = runConfig.baseUrl;
+      }
       // The TTS key is injected only for runs that requested audio, and
       // only from the resolved vault credential — never renderer input.
       if (ttsRun !== null) {
@@ -189,10 +195,10 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     } catch { credential = ''; }
     if (!credential) credential = legacyCredential;
     if (paidRequested && !credential) {
-      return { ok: false, error: 'Secure API credential is unavailable. Check API Keys and secure storage.' };
+      return { ok: false, error: 'Secure API credential is unavailable. Check AI Providers and secure storage.' };
     }
     if (paidRequested && hasStoredCredential && userSettings && !userSettings.provider.modelVisionVerified) {
-      return { ok: false, error: 'The selected model has not been verified for image input. Open API Keys and run Verify image support.' };
+      return { ok: false, error: 'The selected model has not been verified for image input. Open AI Providers and run Verify image support.' };
     }
     workerEnv = stripHostSecrets(process.env);
     if (credential) workerEnv.BASETEN_API_KEY = credential;

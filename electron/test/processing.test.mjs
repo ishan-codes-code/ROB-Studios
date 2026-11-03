@@ -207,6 +207,27 @@ test('quitting still settles as interrupted after a stop', async (t) => {
   assert.equal(getProject(s.userData, projectId).processingStatus, 'interrupted');
 });
 
+test('a custom-endpoint run injects the saved endpoint URL only', async (t) => {
+  const s = setup(t);
+  const credential = createCredential(s.userData, testSafeStorage, {
+    name: 'Gateway Test', provider: 'custom', model: 'qwen-vl', key: 'test-dummy-key',
+    baseUrl: 'https://llm.example.com/v1',
+  });
+  markCredentialVerified(s.userData, testSafeStorage, credential.id, credential.model, credential.baseUrl);
+  const video = makeFixtureVideo(path.join(s.userData, 'incoming'));
+  const draft = createProject(s.userData, { name: 'custom test', sourcePath: video });
+  updateProject(s.userData, draft.id, { configuration: { credentialId: credential.id } });
+  const started = await s.handlers['process-video'](
+    {}, video, { projectId: draft.id, adaptive: true, adaptiveMaxFrames: 5 },
+  );
+  assert.equal(started.ok, true);
+  const start = s.getStart();
+  assert.equal(start.env?.AI_COMMENTATOR_PROVIDER, 'custom');
+  assert.equal(start.env?.AI_COMMENTATOR_BASE_URL, 'https://llm.example.com/v1');
+  assert.equal(start.argv.includes('test-dummy-key'), false);
+  assert.equal(JSON.stringify(start.argv).includes('llm.example.com'), false);
+});
+
 test('an adaptive run carries sampling bounds and settles stopped', async (t) => {
   const s = setup(t);
   // Paid project runs use the project's selected vault credential -
@@ -231,6 +252,7 @@ test('an adaptive run carries sampling bounds and settles stopped', async (t) =>
   assert.equal(start.env?.AI_COMMENTATOR_PROVIDER, 'meta');
   assert.equal(start.env?.AI_COMMENTATOR_MODEL, 'muse-spark-1.3');
   assert.equal(start.env?.AI_COMMENTATOR_API_KEY, 'test-dummy-key');
+  assert.equal(start.env?.AI_COMMENTATOR_BASE_URL, undefined);
   const flagAt = start.argv.indexOf('--adaptive-max-frames');
   assert.notEqual(flagAt, -1);
   assert.equal(start.argv[flagAt + 1], '5');

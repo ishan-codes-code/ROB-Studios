@@ -240,6 +240,16 @@ def run_adaptive_vision(
                 api_key=api_key,
                 timeout=ADAPTIVE_REQUEST_TIMEOUT_S,
             )
+        elif provider == "custom":
+            from .providers.custom import CustomAdapter
+            from .providers.registry import custom_base_url_from_env
+
+            owned_client = CustomAdapter(
+                model=model,
+                api_key=api_key,
+                base_url=custom_base_url_from_env(),
+                timeout=ADAPTIVE_REQUEST_TIMEOUT_S,
+            )
         else:
             owned_client = OpenAI(
                 api_key=api_key,

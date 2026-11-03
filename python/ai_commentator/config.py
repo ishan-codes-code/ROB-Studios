@@ -24,7 +24,8 @@ BASETEN_BASE_URL = os.environ.get("BASETEN_BASE_URL", "https://inference.baseten
 BASETEN_MODEL = os.environ.get("BASETEN_MODEL", "meta-models/muse-spark-open")
 PROVIDER_META = "meta"
 PROVIDER_BASETEN = "baseten"
-SUPPORTED_PROVIDERS = (PROVIDER_META, PROVIDER_BASETEN)
+PROVIDER_CUSTOM = "custom"
+SUPPORTED_PROVIDERS = (PROVIDER_META, PROVIDER_BASETEN, PROVIDER_CUSTOM)
 META_API_BASE_URL = "https://api.meta.ai/v1"
 META_MODELS = ("muse-spark-1.3", "muse-wonder-1.0")
 

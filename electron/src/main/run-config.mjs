@@ -81,11 +81,19 @@ export function resolveProjectRunConfig(userDataPath, safeStorage, projectId, pa
       'The selected prompt pack is invalid. Choose another pack.',
     );
   }
+  let baseUrl;
+  try {
+    baseUrl = getProviderBaseUrl(resolved.provider, resolved.record);
+  } catch {
+    throw new Error(
+      'The selected API configuration has an invalid endpoint URL. Update the endpoint.',
+    );
+  }
   return {
     provider: resolved.provider,
     model: resolved.model,
     apiKey: resolved.apiKey,
-    baseUrl: getProviderBaseUrl(resolved.provider),
+    baseUrl,
     preferences,
     credentialName: resolved.record.name,
     verified,
@@ -135,7 +143,7 @@ export function resolveTtsRunConfig(userDataPath, safeStorage, projectId, catalo
   }
   if (!isCredentialVerifiedForRun(credential.record)) {
     throw new Error(
-      'The selected TTS credential is not verified. Verify it on the API Keys page first.',
+      'The selected TTS credential is not verified. Verify it under AI Providers first.',
     );
   }
   return {

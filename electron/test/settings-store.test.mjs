@@ -63,3 +63,31 @@ test('global TTS layer rejects overlong and unknown fields', () => {
     /Unknown TTS configuration field/,
   );
 });
+
+test('onboarding progress defaults, persists, and round-trips', (t) => {
+  const dir = temp(t);
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+  const saved = saveSettings(dir, {
+    ...DEFAULT_SETTINGS,
+    onboarding: { step: 3, credentialId: 'cred-abc123' },
+  });
+  assert.deepEqual(saved.onboarding, { step: 3, credentialId: 'cred-abc123' });
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 3, credentialId: 'cred-abc123' });
+  // Completion does not require clearing; the flag stays authoritative.
+  const done = saveSettings(dir, { ...saved, onboardingCompleted: true });
+  assert.equal(done.onboardingCompleted, true);
+});
+
+test('legacy settings without onboarding progress start at step zero', (t) => {
+  const dir = temp(t);
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ prompt: { language: 'Japanese' } }));
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+});
+
+test('malformed onboarding progress falls back instead of failing load', (t) => {
+  const dir = temp(t);
+  for (const onboarding of [{ step: 9 }, { step: -1, credentialId: 'x'.repeat(65) }, 'done', 42]) {
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ onboarding }));
+    assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+  }
+});

@@ -2,13 +2,15 @@ import {
   AudioLines,
   AudioWaveform,
   Clapperboard,
+  Gamepad2,
   KeyRound,
+  LayoutDashboard,
   MessagesSquare,
+  MessageSquareText,
   Mic,
   ScanSearch,
   ScrollText,
   Settings,
-  Sparkles,
 } from "lucide-react";
 import { cn } from "cn";
 import { Separator } from "@/components/ui/separator.jsx";
@@ -21,11 +23,13 @@ const WORKSPACE_ITEMS = [
 ];
 
 const CONFIGURATION_ITEMS = [
-  { id: "api-keys", label: "API Keys", icon: KeyRound },
-  { id: "games-prompts", label: "Games & Prompts", icon: Sparkles },
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "api-keys", label: "AI Providers", icon: KeyRound },
+  { id: "tts-studio", label: "Voice Providers", icon: Mic },
+  { id: "game-profiles", label: "Game Profiles", icon: Gamepad2 },
+  { id: "commentary-presets", label: "Commentary Presets", icon: MessageSquareText },
   { id: "prompt-packs", label: "Prompt Packs", icon: ScrollText },
-  { id: "tts-studio", label: "TTS Studio", icon: Mic },
-  { id: "preferences", label: "Preferences", icon: Settings },
+  { id: "preferences", label: "General", icon: Settings },
 ];
 
 function NavButton({ id, label, Icon, selected, collapsed, onSelect }) {

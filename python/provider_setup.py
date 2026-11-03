@@ -1,11 +1,15 @@
 """One-shot, main-process-invoked provider setup operations (JSON stdout).
 
-Provider-aware: ``--provider meta|baseten`` (default ``baseten``) with a
-curated model catalogue per provider — no generic model discovery and no
-arbitrary base URLs. ``models`` returns the catalogue (every model marked
-``unverified`` until the user runs ``verify-vision``). ``connection``
-and ``verify-vision`` perform real, minimal provider requests through
-the matching adapter; ``verify-vision`` sends a small image request and
+Provider-aware: ``--provider meta|baseten|custom`` (default ``baseten``).
+Meta and Baseten use a curated model catalogue — ``models`` returns it
+(every model marked ``unverified`` until the user runs
+``verify-vision``) with no key or network. ``custom`` carries a
+user-configured base URL (``--base-url``): ``models`` performs live
+``GET /models`` discovery (key required) and reports
+``discovery_unsupported`` when the endpoint does not implement listing,
+so the caller can offer manual model entry. ``connection`` and
+``verify-vision`` perform real, minimal provider requests through the
+matching adapter; ``verify-vision`` sends a small image request and
 may incur provider charges.
 
 Failures are structured, not generic: ``{"ok": false, "error", "code",
@@ -22,6 +26,7 @@ import sys
 from ai_commentator.errors import ObservationError
 from ai_commentator.vision.providers.registry import (
     PROVIDER_BASETEN,
+    PROVIDER_CUSTOM,
     get_provider_models,
     validate_provider_model,
 )
@@ -39,6 +44,7 @@ USER_MESSAGES = {
     "network": "Could not reach Google. Check the network connection.",
     "bad_response": "The provider returned an empty or invalid response.",
     "output_exhausted": "The model used up its output budget before answering. Try again.",
+    "discovery_unsupported": "This endpoint does not list models. Enter the model ID manually.",
     "provider_error": "Provider request failed. Check the key, model, and provider compatibility.",
     "unknown": "Provider request failed. Check the key, model, and provider compatibility.",
 }
@@ -95,6 +101,8 @@ def failure_result(operation, provider, exc) -> dict:
 def run(operation, base_url=None, model="", provider="baseten"):
     provider = (provider or "").strip() or PROVIDER_BASETEN
     if operation == "models":
+        if provider == PROVIDER_CUSTOM:
+            return _discover_custom_models(base_url)
         names = get_provider_models(provider)
         if model:
             validate_provider_model(provider, model)
@@ -115,6 +123,11 @@ def run(operation, base_url=None, model="", provider="baseten"):
         from ai_commentator.vision.providers.meta import MetaAdapter
 
         adapter = MetaAdapter(model=clean_model, api_key=key, timeout=20.0)
+    elif provider == PROVIDER_CUSTOM:
+        from ai_commentator.vision.providers.custom import CustomAdapter
+
+        adapter = CustomAdapter(model=clean_model, api_key=key,
+                                base_url=base_url or "", timeout=20.0)
     else:
         from ai_commentator.vision.providers.baseten import BasetenAdapter
 
@@ -130,6 +143,32 @@ def run(operation, base_url=None, model="", provider="baseten"):
             adapter.close()
         except Exception:
             pass
+
+
+def _discover_custom_models(base_url):
+    """Live ``GET /models`` discovery for a custom endpoint.
+
+    Keyed (unlike the curated keyless path): the key arrives only via
+    the ``AI_COMMENTATOR_PROVIDER_API_KEY`` child environment. Models
+    are explicitly marked ``unverified`` — discovery membership never
+    implies image capability.
+    """
+    from ai_commentator.vision.providers.custom import CustomAdapter
+
+    adapter = CustomAdapter(model="discovery-probe", api_key=_key(),
+                            base_url=base_url or "", timeout=20.0)
+    try:
+        names = adapter.list_models()
+    finally:
+        try:
+            adapter.close()
+        except Exception:
+            pass
+    return {
+        "ok": True,
+        "provider": PROVIDER_CUSTOM,
+        "models": [{"id": name, "vision": "unverified"} for name in names],
+    }
 
 
 def main():

@@ -308,7 +308,7 @@ export default function TtsStudioSection() {
     return (
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-8">
         <div className="min-w-0">
-          <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">TTS Studio</h1>
+          <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">Voice Providers</h1>
           <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
             Voices, delivery style, and preview generation for commentary audio.
           </p>
@@ -324,7 +324,7 @@ export default function TtsStudioSection() {
     return (
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-8">
         <div className="min-w-0">
-          <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">TTS Studio</h1>
+          <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">Voice Providers</h1>
         </div>
         <Alert variant="destructive">
           <AlertTitle>Studio unavailable</AlertTitle>
@@ -346,7 +346,7 @@ export default function TtsStudioSection() {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-8">
       <div className="min-w-0">
-        <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">TTS Studio</h1>
+        <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">Voice Providers</h1>
         <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
           Configure the commentary voice, preview it with real synthesis, and save
           defaults. Saved settings flow into project audio generation.
@@ -607,7 +607,7 @@ export default function TtsStudioSection() {
             </p>
           ) : ttsCredentials.length === 0 ? (
             <p className="text-[12px] leading-relaxed text-muted-foreground">
-              No TTS credentials yet. Add a Google Gemini TTS configuration on the API Keys page.
+              No TTS credentials yet. Add a Google Gemini TTS configuration under AI Providers.
             </p>
           ) : (
             <div className="flex flex-wrap items-center gap-2">

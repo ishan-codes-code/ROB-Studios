@@ -218,11 +218,20 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
   );
 }
 
-function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, requestTts, setRequestTts, onReadinessChange }) {
+function GroupTitle({ children }) {
+  return (
+    <p className="pt-2 text-[10px] font-medium uppercase tracking-[0.12em] text-subtle">
+      {children}
+    </p>
+  );
+}
+
+function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, requestTts, setRequestTts, onReadinessChange, onNavigate }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 p-3">
-      <ProjectConfiguration projectId={projectId} onReadinessChange={onReadinessChange} />
+      <ProjectConfiguration projectId={projectId} onReadinessChange={onReadinessChange} onNavigate={onNavigate} />
       <Separator />
+      <GroupTitle>Processing</GroupTitle>
       <section className="flex min-w-0 flex-col gap-2" aria-labelledby="processing-mode-title">
         <SectionHeading id="processing-mode-title">Processing mode</SectionHeading>
         <div className="flex min-w-0 items-center gap-2 rounded-sm border border-border bg-muted/40 px-2.5 py-2">
@@ -280,11 +289,20 @@ function ConfigurationContent({ projectId, visionConfigured, visionChecked, canS
           <span className="min-w-0">
             <span className="block text-[12px] text-foreground">Generate spoken audio</span>
             <span className="block text-[11px] leading-relaxed text-muted-foreground">
-              Speak each commentary line as it arrives, using this project&apos;s TTS Studio voice.
+              Speak each commentary line as it arrives, using this project&apos;s voice.
               Needs a verified TTS credential.
             </span>
           </span>
         </label>
+        {onNavigate ? (
+          <button
+            type="button"
+            onClick={() => onNavigate("tts-studio")}
+            className="self-start rounded-sm text-[11px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Open voice providers
+          </button>
+        ) : null}
       </section>
 
       <Separator />
@@ -371,6 +389,7 @@ export default function ProcessingInspector({
   onCancel,
   onStop,
   onReadinessChange,
+  onNavigate,
 }) {
   const [tab, setTab] = useState("processing");
   return (
@@ -431,6 +450,7 @@ export default function ProcessingInspector({
           requestTts={requestTts}
           setRequestTts={setRequestTts}
           onReadinessChange={onReadinessChange}
+          onNavigate={onNavigate}
         />
       </TabsContent>
       <TabsContent value="project" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none">

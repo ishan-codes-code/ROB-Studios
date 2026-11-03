@@ -7,6 +7,7 @@ import {
   renameCredential as vaultRename,
   setCredentialKey as vaultSetKey,
   setCredentialModel as vaultSetModel,
+  setCredentialEndpoint as vaultSetEndpoint,
   deleteCredential as vaultDelete,
   markCredentialVerified,
   markCredentialUnverified,
@@ -18,6 +19,7 @@ import {
 import {
   getProvider,
   getProviderBaseUrl,
+  validateCustomBaseUrl,
 } from '../../provider-catalog.mjs';
 import {
   listGameProfiles,
@@ -123,15 +125,21 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
 
   async function runCredentialCheck(id, operation) {
     // Read the credential once: the snapshot pins the exact configuration
-    // under test (id, provider, model, version) so a mid-flight key or
-    // model change cannot mark the wrong configuration as verified.
+    // under test (id, provider, model, endpoint, version) so a mid-flight
+    // key, model, or endpoint change cannot mark the wrong configuration
+    // as verified.
     let snapshot;
     try {
       snapshot = getCredentialForRun(userDataPath(), safeStorage, id);
     } catch {
       return { ok: false, error: 'Secure API credential is unavailable. Check secure storage.', code: 'config', tested: null };
     }
-    const baseUrl = getProviderBaseUrl(snapshot.provider);
+    let baseUrl;
+    try {
+      baseUrl = getProviderBaseUrl(snapshot.provider, snapshot.record);
+    } catch {
+      return { ok: false, error: 'The saved endpoint URL is invalid. Update the endpoint and try again.', code: 'config', tested: null };
+    }
     const setupOperation = operation === 'verify-vision' && snapshot.record.purpose === 'tts'
       ? 'verify-tts-auth'
       : operation;
@@ -157,6 +165,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
       id: snapshot.record.id,
       provider: snapshot.provider,
       model: snapshot.model,
+      baseUrl: snapshot.record.baseUrl ?? null,
       credentialVersion: snapshot.record.credentialVersion,
     };
     if (!result || typeof result !== 'object' || result.ok !== true) {
@@ -272,6 +281,73 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
       return { ok: true, credential };
     } catch (err) { return safe(err); }
   });
+  ipcMain.handle('credential-set-endpoint', async (_event, id, baseUrl) => {
+    try {
+      const credential = vaultSetEndpoint(userDataPath(), safeStorage, id, baseUrl);
+      return { ok: true, credential };
+    } catch (err) { return safe(err); }
+  });
+  // Best-effort live model discovery for custom endpoints. Either
+  // resolves a saved credential (key decrypted main-side, never over
+  // IPC) or runs one-shot with a caller-supplied endpoint + key during
+  // creation (validated, used once, never stored or logged). Structured
+  // failures mirror credential-test so the renderer can distinguish
+  // "listing unsupported" (offer manual entry) from real errors.
+  ipcMain.handle('custom-models', async (_event, input) => {
+    try {
+      let baseUrl;
+      let key;
+      if (input && typeof input === 'object' && typeof input.credentialId === 'string' && input.credentialId !== '') {
+        let snapshot;
+        try {
+          snapshot = getCredentialForRun(userDataPath(), safeStorage, input.credentialId);
+        } catch {
+          return { ok: false, error: 'Secure API credential is unavailable. Check secure storage.', code: 'config' };
+        }
+        if (snapshot.provider !== 'custom') {
+          return { ok: false, error: 'Model discovery is only available for custom endpoints.', code: 'config' };
+        }
+        baseUrl = snapshot.record.baseUrl;
+        key = snapshot.apiKey;
+      } else {
+        try {
+          baseUrl = validateCustomBaseUrl(input?.baseUrl);
+        } catch (err) {
+          return { ok: false, error: err?.message ?? 'Custom endpoint URL is invalid.', code: 'config' };
+        }
+        key = input?.key;
+        if (typeof key !== 'string' || key.trim() === '' || key.length > 4096) {
+          return { ok: false, error: 'API key must be a non-empty string under 4096 characters.', code: 'config' };
+        }
+      }
+      let result;
+      try {
+        result = await spawnSetup({
+          operation: 'models',
+          provider: { id: 'custom', baseUrl },
+          model: '',
+          key,
+        });
+      } catch {
+        result = { ok: false, error: 'Model discovery process failed. Try again.', code: 'setup' };
+      }
+      if (!result || typeof result !== 'object' || result.ok !== true) {
+        return {
+          ok: false,
+          error: (result && typeof result.error === 'string' && result.error)
+            || 'Could not list models for this endpoint.',
+          code: (result && typeof result.code === 'string' && result.code) || 'unknown',
+          detail: (result && typeof result.detail === 'string' && result.detail)
+            ? result.detail.slice(0, 500)
+            : null,
+        };
+      }
+      const models = Array.isArray(result.models)
+        ? result.models.filter((entry) => entry && typeof entry.id === 'string').map((entry) => ({ id: entry.id }))
+        : [];
+      return { ok: true, provider: 'custom', models };
+    } catch (err) { return safe(err); }
+  });
   ipcMain.handle('credential-remove', async (_event, id) => {
     try {
       if (typeof id !== 'string' || id === '') throw new Error('Invalid credential id.');
@@ -312,6 +388,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
             if (fresh.record.id === tested.id
               && fresh.record.provider === tested.provider
               && fresh.record.model === tested.model
+              && (fresh.record.baseUrl ?? null) === (tested.baseUrl ?? null)
               && fresh.record.credentialVersion === tested.credentialVersion) {
               markCredentialUnverified(userDataPath(), safeStorage, id);
             }
@@ -333,12 +410,14 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
         || fresh.record.id !== tested.id
         || fresh.record.provider !== tested.provider
         || fresh.record.model !== tested.model
+        || (fresh.record.baseUrl ?? null) !== (tested.baseUrl ?? null)
         || fresh.record.credentialVersion !== tested.credentialVersion) {
         return { ok: false, error: 'The configuration changed during verification. Review the current values and verify again.', code: 'stale' };
       }
       const credential = markCredentialVerified(
         userDataPath(), safeStorage, id,
         fresh.record.purpose === 'tts' ? null : fresh.record.model,
+        fresh.record.baseUrl ?? null,
       );
       return { ok: true, credential };
     } catch (err) { return safe(err); }
@@ -445,6 +524,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
             name: resolved.record.name,
             provider: resolved.record.provider,
             model: resolved.record.model,
+            baseUrl: resolved.record.baseUrl ?? null,
             verified: isCredentialVerifiedForRun(resolved.record),
           };
           if (!credential.verified) {

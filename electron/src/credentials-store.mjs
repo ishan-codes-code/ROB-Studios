@@ -24,6 +24,7 @@ import crypto from 'node:crypto';
 
 import {
   validateProviderModel,
+  validateCustomBaseUrl,
   getProvider,
 } from './provider-catalog.mjs';
 
@@ -141,11 +142,16 @@ function validateVerification(value, where) {
     if (!Number.isInteger(value.verifiedCredentialVersion) || value.verifiedCredentialVersion < 1) {
       throw new Error(`Invalid verified credential version (${where}).`);
     }
+    const verifiedBaseUrl = value.verifiedBaseUrl ?? null;
+    if (verifiedBaseUrl !== null && typeof verifiedBaseUrl !== 'string') {
+      throw new Error(`Invalid verification endpoint (${where}).`);
+    }
     return {
       status: 'verified',
       verifiedAt: value.verifiedAt,
       verifiedCredentialVersion: value.verifiedCredentialVersion,
       verifiedModel: value.verifiedModel ?? null,
+      verifiedBaseUrl,
     };
   }
   return { ...unverifiedState() };
@@ -177,12 +183,28 @@ function validateRecord(value) {
     // the current model, so verification must run again.
     verification = { ...unverifiedState() };
   }
+  // Custom records carry their own endpoint (non-secret metadata, safe
+  // for the vault index); curated records must not carry one, so a
+  // stored URL can never redirect a curated provider's key elsewhere.
+  const isCustom = getProvider(provider).customEndpoint === true;
+  let baseUrl = null;
+  if (isCustom) {
+    baseUrl = validateCustomBaseUrl(value.baseUrl);
+    if (verification.status === 'verified'
+      && typeof verification.verifiedBaseUrl === 'string'
+      && verification.verifiedBaseUrl !== baseUrl) {
+      verification = { ...unverifiedState() };
+    }
+  } else if (value.baseUrl !== undefined && value.baseUrl !== null) {
+    throw new Error('Only custom endpoints store a base URL.');
+  }
   return {
     id: value.id,
     name,
     provider,
     purpose,
     model,
+    baseUrl,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     credentialVersion: value.credentialVersion,
@@ -296,6 +318,8 @@ export function toPublicRecord(record, keyAvailable, devOnly = false) {
     providerDisplayName: getProvider(record.provider).displayName,
     purpose: getProvider(record.provider).purpose ?? 'vision',
     model: record.model,
+    // Non-secret endpoint metadata; null for curated providers.
+    baseUrl: record.baseUrl ?? null,
     credentialVersion: record.credentialVersion,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -369,7 +393,7 @@ function devMemoryByName(name) {
   return null;
 }
 
-export function createCredential(userDataPath, safeStorage, { name, provider, model, key } = {}) {
+export function createCredential(userDataPath, safeStorage, { name, provider, model, key, baseUrl = null } = {}) {
   const backend = assertStoreAvailable(safeStorage);
   const cleanName = validateName(name);
   const validated = validateProviderModel(provider, model);
@@ -384,6 +408,9 @@ export function createCredential(userDataPath, safeStorage, { name, provider, mo
     name: cleanName,
     provider: validated.provider,
     model: validated.model,
+    // validateRecord requires the endpoint for custom records and
+    // rejects it for curated ones (never silently dropped or kept).
+    baseUrl: baseUrl ?? null,
     createdAt: timestamp,
     updatedAt: timestamp,
     credentialVersion: 1,
@@ -497,6 +524,51 @@ export function setCredentialModel(userDataPath, safeStorage, id, model) {
   return toPublicRecord(next, probeKeyAvailable(userDataPath, safeStorage, id));
 }
 
+/**
+ * Change a custom record's endpoint URL. Resets verification: the old
+ * image check cannot vouch for a different host. Curated providers
+ * have pinned endpoints and reject this call.
+ */
+export function setCredentialEndpoint(userDataPath, safeStorage, id, baseUrl) {
+  assertStoreAvailable(safeStorage);
+  validateId(id);
+  const clean = validateCustomBaseUrl(baseUrl);
+  const memory = devMemoryCredentials.get(id);
+  if (memory) {
+    if (getProvider(memory.record.provider).customEndpoint !== true) {
+      throw new Error('Only custom endpoints can change their URL.');
+    }
+    if (clean === memory.record.baseUrl) {
+      return toPublicRecord(memory.record, true, true);
+    }
+    const next = {
+      ...memory.record,
+      baseUrl: clean,
+      verification: { ...unverifiedState() },
+      updatedAt: nowIso(),
+    };
+    devMemoryCredentials.set(id, { record: next, key: memory.key });
+    return toPublicRecord(next, true, true);
+  }
+  assertSafeStorage(safeStorage);
+  const vault = loadVault(userDataPath);
+  const record = findRecordOrThrow(vault.credentials, id);
+  if (getProvider(record.provider).customEndpoint !== true) {
+    throw new Error('Only custom endpoints can change their URL.');
+  }
+  if (clean === record.baseUrl) {
+    return toPublicRecord(record, probeKeyAvailable(userDataPath, safeStorage, id));
+  }
+  const next = {
+    ...record,
+    baseUrl: clean,
+    verification: { ...unverifiedState() },
+    updatedAt: nowIso(),
+  };
+  saveVault(userDataPath, vault.credentials.map((entry) => (entry.id === id ? next : entry)));
+  return toPublicRecord(next, probeKeyAvailable(userDataPath, safeStorage, id));
+}
+
 export function deleteCredential(userDataPath, safeStorage, id) {
   assertStoreAvailable(safeStorage);
   validateId(id);
@@ -512,27 +584,37 @@ export function deleteCredential(userDataPath, safeStorage, id) {
   return { deleted: true, id };
 }
 
-export function markCredentialVerified(userDataPath, safeStorage, id, model) {
+export function markCredentialVerified(userDataPath, safeStorage, id, model, baseUrl = null) {
   assertStoreAvailable(safeStorage);
   validateId(id);
-  const memory = devMemoryCredentials.get(id);
-  if (memory) {
-    if (memory.record.purpose === 'tts'
+  const checkTarget = (record) => {
+    if (record.purpose === 'tts'
       ? model !== null
-      : (typeof model !== 'string' || model !== memory.record.model)) {
+      : (typeof model !== 'string' || model !== record.model)) {
       throw new Error('Verification target does not match the saved configuration.');
     }
+    // Custom verification pins the endpoint too: a check against one
+    // host must never mark a record that now points at another.
+    if (getProvider(record.provider).customEndpoint === true && baseUrl !== record.baseUrl) {
+      throw new Error('Verification target does not match the saved configuration.');
+    }
+  };
+  const verifiedState = (record) => ({
+    status: 'verified',
+    verifiedAt: nowIso(),
+    verifiedCredentialVersion: record.credentialVersion,
+    verifiedModel: record.model,
+    verifiedBaseUrl: getProvider(record.provider).customEndpoint === true ? record.baseUrl : null,
+  });
+  const memory = devMemoryCredentials.get(id);
+  if (memory) {
+    checkTarget(memory.record);
     if (typeof memory.key !== 'string' || memory.key === '') {
       throw new Error('Secure API credential is unavailable. Check secure storage.');
     }
     const next = {
       ...memory.record,
-      verification: {
-        status: 'verified',
-        verifiedAt: nowIso(),
-        verifiedCredentialVersion: memory.record.credentialVersion,
-        verifiedModel: memory.record.model,
-      },
+      verification: verifiedState(memory.record),
       updatedAt: nowIso(),
     };
     devMemoryCredentials.set(id, { record: next, key: memory.key });
@@ -541,22 +623,13 @@ export function markCredentialVerified(userDataPath, safeStorage, id, model) {
   assertSafeStorage(safeStorage);
   const vault = loadVault(userDataPath);
   const record = findRecordOrThrow(vault.credentials, id);
-  if (record.purpose === 'tts'
-    ? model !== null
-    : (typeof model !== 'string' || model !== record.model)) {
-    throw new Error('Verification target does not match the saved configuration.');
-  }
+  checkTarget(record);
   if (!probeKeyAvailable(userDataPath, safeStorage, id)) {
     throw new Error('Secure API credential is unavailable. Check secure storage.');
   }
   const next = {
     ...record,
-    verification: {
-      status: 'verified',
-      verifiedAt: nowIso(),
-      verifiedCredentialVersion: record.credentialVersion,
-      verifiedModel: record.model,
-    },
+    verification: verifiedState(record),
     updatedAt: nowIso(),
   };
   saveVault(userDataPath, vault.credentials.map((entry) => (entry.id === id ? next : entry)));
@@ -595,17 +668,28 @@ export function markCredentialUnverified(userDataPath, safeStorage, id) {
 }
 
 export function isCredentialVerifiedForRun(record) {
-  return record.verification.status === 'verified'
-    && record.verification.verifiedModel === record.model
-    && record.verification.verifiedCredentialVersion === record.credentialVersion;
+  if (record.verification.status !== 'verified'
+    || record.verification.verifiedModel !== record.model
+    || record.verification.verifiedCredentialVersion !== record.credentialVersion) {
+    return false;
+  }
+  try {
+    if (getProvider(record.provider).customEndpoint === true
+      && record.verification.verifiedBaseUrl !== record.baseUrl) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 /**
  * Resolve a credential for one processing run. Returns
- * `{ provider, model, apiKey }`. Throws when the record is missing,
- * the ciphertext is absent/corrupt/undecryptable, or the stored secret
- * is empty. Verification gating stays with the caller so it can report
- * the precise "run image verification" remediation.
+ * `{ provider, model, apiKey, baseUrl }`. Throws when the record is
+ * missing, the ciphertext is absent/corrupt/undecryptable, or the
+ * stored secret is empty. Verification gating stays with the caller so
+ * it can report the precise "run image verification" remediation.
  */
 export function getCredentialForRun(userDataPath, safeStorage, id) {
   assertStoreAvailable(safeStorage);
@@ -619,6 +703,7 @@ export function getCredentialForRun(userDataPath, safeStorage, id) {
       provider: memory.record.provider,
       model: memory.record.model,
       apiKey: memory.key,
+      baseUrl: memory.record.baseUrl ?? null,
       record: memory.record,
     };
   }
@@ -634,5 +719,5 @@ export function getCredentialForRun(userDataPath, safeStorage, id) {
   if (typeof apiKey !== 'string' || apiKey === '') {
     throw new Error('Secure API credential is unavailable. Check secure storage.');
   }
-  return { provider: record.provider, model: record.model, apiKey, record };
+  return { provider: record.provider, model: record.model, apiKey, baseUrl: record.baseUrl ?? null, record };
 }
