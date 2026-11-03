@@ -243,15 +243,38 @@ function isValidTtsSegment(message) {
   return true;
 }
 
+/**
+ * Classify why a worker message is unusable, for honest diagnostics.
+ * Returns null when the message is valid, `{ kind: 'unknown-type' }`
+ * when the type itself is not in the protocol, or `{ kind:
+ * 'invalid-payload', type }` when a known type carries a malformed
+ * payload. Never echoes payload data: only the (capped) type travels
+ * into error reports, so untrusted content and secrets stay out.
+ */
+function describeWorkerMessageIssue(message) {
+  if (message === null || typeof message !== 'object') {
+    return { kind: 'unknown-type', type: null };
+  }
+  if (!MESSAGE_TYPES.has(message.type)) {
+    return {
+      kind: 'unknown-type',
+      type: typeof message.type === 'string' ? message.type.slice(0, 120) : null,
+    };
+  }
+  if (message.type === 'adaptive_sample' && !isValidAdaptiveSample(message)) {
+    return { kind: 'invalid-payload', type: message.type };
+  }
+  if (message.type === 'script_segment' && !isValidScriptSegment(message)) {
+    return { kind: 'invalid-payload', type: message.type };
+  }
+  if (message.type === 'tts_segment' && !isValidTtsSegment(message)) {
+    return { kind: 'invalid-payload', type: message.type };
+  }
+  return null;
+}
+
 function isValidWorkerMessage(message) {
-  return (
-    message !== null &&
-    typeof message === 'object' &&
-    MESSAGE_TYPES.has(message.type) &&
-    (message.type !== 'adaptive_sample' || isValidAdaptiveSample(message)) &&
-    (message.type !== 'script_segment' || isValidScriptSegment(message)) &&
-    (message.type !== 'tts_segment' || isValidTtsSegment(message))
-  );
+  return describeWorkerMessageIssue(message) === null;
 }
 
 /** Resolve the project-root .venv interpreter (Windows and POSIX). */
@@ -357,6 +380,7 @@ export {
   isVisionConfigured,
   validateVideoInput,
   isValidWorkerMessage,
+  describeWorkerMessageIssue,
   isValidAdaptiveSample,
   isValidScriptSegment,
   isValidTtsSegment,

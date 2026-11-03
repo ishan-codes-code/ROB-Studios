@@ -8,6 +8,7 @@ import {
   buildStopControlLine,
   buildWorkerArgv,
   createLineParser,
+  describeWorkerMessageIssue,
   isValidAdaptiveSample,
   isValidScriptSegment,
   isValidTtsSegment,
@@ -225,6 +226,38 @@ test('tts_segment accepts outcomes and rejects malformed payloads', () => {
   assert.equal(isValidTtsSegment(validTtsSegment({ status: 'queued' })), false);
   assert.equal(isValidTtsSegment(validTtsSegment({ error: 42 })), false);
   assert.equal(isValidWorkerMessage(validTtsSegment({ status: 'nope' })), false);
+});
+
+test('describeWorkerMessageIssue separates unknown types from bad payloads', () => {
+  assert.equal(describeWorkerMessageIssue({ type: 'started' }), null);
+  assert.equal(describeWorkerMessageIssue(validTtsSegment()), null);
+  assert.equal(describeWorkerMessageIssue(validTtsSegment({ status: 'started' })), null);
+  assert.deepEqual(describeWorkerMessageIssue({ type: 'mystery' }), {
+    kind: 'unknown-type',
+    type: 'mystery',
+  });
+  assert.deepEqual(describeWorkerMessageIssue(null), { kind: 'unknown-type', type: null });
+  assert.deepEqual(describeWorkerMessageIssue({ type: 42 }), {
+    kind: 'unknown-type',
+    type: null,
+  });
+  assert.deepEqual(describeWorkerMessageIssue(validTtsSegment({ status: 'queued' })), {
+    kind: 'invalid-payload',
+    type: 'tts_segment',
+  });
+  assert.deepEqual(describeWorkerMessageIssue(validScriptSegment({ status: 'draft' })), {
+    kind: 'invalid-payload',
+    type: 'script_segment',
+  });
+  // Untrusted payload data never travels into the diagnostic, and
+  // overlong types are capped.
+  const sneaky = validTtsSegment({ status: 'queued', error: 'sk-SECRET-VALUE' });
+  const issue = describeWorkerMessageIssue(sneaky);
+  assert.equal(issue.kind, 'invalid-payload');
+  assert.ok(!JSON.stringify(issue).includes('SECRET'));
+  const long = describeWorkerMessageIssue({ type: `x${'y'.repeat(500)}` });
+  assert.equal(long.kind, 'unknown-type');
+  assert.equal(long.type.length, 120);
 });
 
 test('resolvePythonExecutable reports the venv interpreter or its absence', () => {
