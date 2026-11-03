@@ -23,12 +23,12 @@ test('adaptive options carry the validated sampling bound', () => {
     adaptive: true,
     adaptiveMaxFrames: ADAPTIVE_DEFAULT_MAX_FRAMES,
     withScript: false,
-    streaming: false,
+    streaming: true,
     requestTts: false,
   });
   assert.deepEqual(
     buildProcessOptions(RUN_MODES.ADAPTIVE, { adaptiveMaxFrames: 5 }),
-    { adaptive: true, adaptiveMaxFrames: 5, withScript: false, streaming: false, requestTts: false },
+    { adaptive: true, adaptiveMaxFrames: 5, withScript: false, streaming: true, requestTts: false },
   );
   // Fractions floor; the hard cap holds; garbage falls back to default.
   assert.equal(
@@ -50,31 +50,29 @@ test('adaptive options carry the validated sampling bound', () => {
   }
 });
 
-test('script and TTS opt-ins default off; audio requires the script', () => {
-  assert.deepEqual(buildProcessOptions(RUN_MODES.ADAPTIVE, { withScript: true }), {
-    adaptive: true,
-    adaptiveMaxFrames: ADAPTIVE_DEFAULT_MAX_FRAMES,
-    withScript: true,
-    streaming: false,
-    requestTts: false,
-  });
-  const both = buildProcessOptions(RUN_MODES.ADAPTIVE, { withScript: true, requestTts: true });
-  assert.equal(both.withScript, true);
-  assert.equal(both.requestTts, true);
-  // Audio without the script is coerced off (the main process re-checks).
-  const audioAlone = buildProcessOptions(RUN_MODES.ADAPTIVE, { requestTts: true });
-  assert.equal(audioAlone.withScript, false);
-  assert.equal(audioAlone.requestTts, false);
+test('streaming is the standard experience; audio needs no script toggle', () => {
+  const plain = buildProcessOptions(RUN_MODES.ADAPTIVE, {});
+  assert.equal(plain.streaming, true);
+  assert.equal(plain.withScript, false);
+  assert.equal(plain.requestTts, false);
+  // One checkbox: audio passes through whenever checked (streaming
+  // always words the script underneath; the main process re-checks).
+  const audio = buildProcessOptions(RUN_MODES.ADAPTIVE, { requestTts: true });
+  assert.equal(audio.streaming, true);
+  assert.equal(audio.withScript, false);
+  assert.equal(audio.requestTts, true);
 });
 
-test('streaming defaults off and also unlocks audio', () => {
-  const plain = buildProcessOptions(RUN_MODES.ADAPTIVE, {});
-  assert.equal(plain.streaming, false);
-  assert.equal(plain.requestTts, false);
-  const streamed = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: true, requestTts: true });
-  assert.equal(streamed.streaming, true);
-  assert.equal(streamed.withScript, false);
-  assert.equal(streamed.requestTts, true);
+test('explicit sequential fallback stays available internally', () => {
+  const sequential = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: false });
+  assert.equal(sequential.streaming, false);
+  assert.equal(sequential.requestTts, false);
+  const sequentialScript = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: false, withScript: true, requestTts: true });
+  assert.equal(sequentialScript.withScript, true);
+  assert.equal(sequentialScript.requestTts, true);
+  // Audio without the script or streaming is coerced off.
+  const audioAlone = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: false, requestTts: true });
+  assert.equal(audioAlone.requestTts, false);
 });
 
 test('clamp keeps bounds inside the engine hard cap', () => {

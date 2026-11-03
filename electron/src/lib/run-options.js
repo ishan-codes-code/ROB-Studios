@@ -49,17 +49,19 @@ export function clampAdaptiveMaxFrames(value) {
 
 /**
  * Map the UI mode to worker options. Adaptive mode always carries the
- * validated maximum vision-request bound. Script, streaming, and TTS
- * generation are explicit paid opt-ins (all default off); audio
- * requires the script or streaming here and is re-checked in the main
- * process before spawning.
+ * validated maximum vision-request bound. Streaming is the standard
+ * experience (default on): script generation always runs underneath
+ * it, so the UI offers no script or mode toggle. Audio stays an
+ * explicit paid opt-in and is re-checked in the main process before
+ * spawning. Pass `streaming: false` explicitly for the internal
+ * sequential fallback (not user-facing).
  */
 export function buildProcessOptions(
   mode,
-  { adaptiveMaxFrames, withScript = false, requestTts = false, streaming = false } = {},
+  { adaptiveMaxFrames, withScript = false, requestTts = false, streaming = true } = {},
 ) {
   const script = withScript === true;
-  const stream = streaming === true;
+  const stream = streaming !== false;
   return {
     adaptive: true,
     adaptiveMaxFrames: clampAdaptiveMaxFrames(

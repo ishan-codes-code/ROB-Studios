@@ -33,9 +33,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   const [adaptiveMaxFrames, setAdaptiveMaxFrames] = useState(
     ADAPTIVE_DEFAULT_MAX_FRAMES,
   );
-  const [withScript, setWithScript] = useState(false);
   const [requestTts, setRequestTts] = useState(false);
-  const [streaming, setStreaming] = useState(false);
   // True while a cooperative stop was accepted and the run is still
   // alive. Set only after the main process confirms acceptance; the
   // worker's terminal message clears it.
@@ -169,7 +167,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
     setStopping(false);
     setRunIsAdaptive(adaptive);
     try {
-      const runOptions = buildProcessOptions(runMode, { adaptiveMaxFrames, withScript, requestTts, streaming });
+      const runOptions = buildProcessOptions(runMode, { adaptiveMaxFrames, requestTts });
       const res = await window.api.processVideo(project.sourceVideo.path, {
         projectId: project.id,
         ...runOptions,
@@ -300,12 +298,8 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       runIsAdaptive={runIsAdaptive}
       adaptiveMaxFrames={adaptiveMaxFrames}
       setAdaptiveMaxFrames={setAdaptiveMaxFrames}
-      withScript={withScript}
-      setWithScript={setWithScript}
       requestTts={requestTts}
       setRequestTts={setRequestTts}
-      streaming={streaming}
-      setStreaming={setStreaming}
       onStart={handleStart}
       onCancel={handleCancel}
       onStop={handleStop}

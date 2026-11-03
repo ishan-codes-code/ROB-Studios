@@ -59,8 +59,8 @@ function ScriptWorkspace({ script, runStatus }) {
         <p className="text-[12px] font-medium text-foreground">No script segments yet</p>
         <p className="max-w-xl text-[11px] leading-relaxed text-muted-foreground">
           {live
-            ? "Streaming commentary is running — worded lines appear here as they are generated."
-            : "Run with Streaming commentary to watch lines appear here, or open script.json under Artifacts after a script run."}
+            ? "Commentary is being generated — lines appear here as they arrive."
+            : "Start processing to watch commentary lines appear here, or open script.json under Artifacts after a run."}
         </p>
       </div>
     );

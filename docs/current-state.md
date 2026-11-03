@@ -1,5 +1,17 @@
 # Current state
 
+## One-click processing simplification (on `feature/tts-generation`, uncommitted)
+
+The workspace Configure tab no longer exposes pipeline-mode choices:
+the "Streaming commentary" and "Final casting script" checkboxes are
+removed, and streaming (with incremental script generation
+underneath) is the standard experience via the
+`buildProcessOptions` default. The only remaining run extra is the
+"Generate spoken audio" checkbox (explicit paid opt-in, unchanged
+main-side validation). Sequential mode, the `--with-script` worker
+path, and all script/TTS schemas and artifacts are preserved as
+internal fallbacks; no engine, TTS, or prompt-pack code changed.
+
 ## Game Prompt Packs + streaming commentary pipeline (on `feature/tts-generation`, uncommitted)
 
 Game-specific Prompt Packs (Free Fire, Call of Duty, BGMI) plus an
