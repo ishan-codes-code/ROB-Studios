@@ -49,21 +49,24 @@ export function clampAdaptiveMaxFrames(value) {
 
 /**
  * Map the UI mode to worker options. Adaptive mode always carries the
- * validated maximum vision-request bound. Script and TTS generation are
- * explicit paid opt-ins (both default off); audio requires the script
- * here and is re-checked in the main process before spawning.
+ * validated maximum vision-request bound. Script, streaming, and TTS
+ * generation are explicit paid opt-ins (all default off); audio
+ * requires the script or streaming here and is re-checked in the main
+ * process before spawning.
  */
 export function buildProcessOptions(
   mode,
-  { adaptiveMaxFrames, withScript = false, requestTts = false } = {},
+  { adaptiveMaxFrames, withScript = false, requestTts = false, streaming = false } = {},
 ) {
   const script = withScript === true;
+  const stream = streaming === true;
   return {
     adaptive: true,
     adaptiveMaxFrames: clampAdaptiveMaxFrames(
       adaptiveMaxFrames ?? ADAPTIVE_DEFAULT_MAX_FRAMES,
     ),
     withScript: script,
-    requestTts: requestTts === true && script,
+    streaming: stream,
+    requestTts: requestTts === true && (script || stream),
   };
 }

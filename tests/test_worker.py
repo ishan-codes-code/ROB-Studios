@@ -198,6 +198,43 @@ class WorkerCliTests(unittest.TestCase):
                 )
                 self.assertEqual(proc.returncode, 2, msg=extra)
 
+    def test_unknown_game_pack_exits_2_with_validation_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            proc = run_worker(
+                str(video),
+                "--output-dir",
+                str(root / "out"),
+                "--adaptive",
+                "--game-pack",
+                "unknown-game",
+            )
+        self.assertEqual(proc.returncode, 2)
+        messages = parse_stdout_lines(proc)
+        self.assertEqual(messages[0]["type"], "error")
+        self.assertEqual(messages[0]["stage"], "validation")
+        self.assertIn("Unknown prompt pack", messages[0]["message"])
+
+    def test_valid_game_pack_is_accepted_before_key_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = write_test_video(root / "clip.mp4")
+            proc = run_worker(
+                str(video),
+                "--output-dir",
+                str(root / "out"),
+                "--adaptive",
+                "--game-pack",
+                "cod",
+            )
+        # No key in the offline env: reaches the paid fail-fast, so the
+        # pack flag itself was accepted and threaded.
+        self.assertEqual(proc.returncode, 1)
+        messages = parse_stdout_lines(proc)
+        self.assertEqual(messages[0]["type"], "error")
+        self.assertEqual(messages[0]["stage"], "adaptive_vision")
+
     def test_missing_key_blocks_opt_in_script(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

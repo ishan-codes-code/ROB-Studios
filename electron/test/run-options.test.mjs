@@ -23,11 +23,12 @@ test('adaptive options carry the validated sampling bound', () => {
     adaptive: true,
     adaptiveMaxFrames: ADAPTIVE_DEFAULT_MAX_FRAMES,
     withScript: false,
+    streaming: false,
     requestTts: false,
   });
   assert.deepEqual(
     buildProcessOptions(RUN_MODES.ADAPTIVE, { adaptiveMaxFrames: 5 }),
-    { adaptive: true, adaptiveMaxFrames: 5, withScript: false, requestTts: false },
+    { adaptive: true, adaptiveMaxFrames: 5, withScript: false, streaming: false, requestTts: false },
   );
   // Fractions floor; the hard cap holds; garbage falls back to default.
   assert.equal(
@@ -54,6 +55,7 @@ test('script and TTS opt-ins default off; audio requires the script', () => {
     adaptive: true,
     adaptiveMaxFrames: ADAPTIVE_DEFAULT_MAX_FRAMES,
     withScript: true,
+    streaming: false,
     requestTts: false,
   });
   const both = buildProcessOptions(RUN_MODES.ADAPTIVE, { withScript: true, requestTts: true });
@@ -63,6 +65,16 @@ test('script and TTS opt-ins default off; audio requires the script', () => {
   const audioAlone = buildProcessOptions(RUN_MODES.ADAPTIVE, { requestTts: true });
   assert.equal(audioAlone.withScript, false);
   assert.equal(audioAlone.requestTts, false);
+});
+
+test('streaming defaults off and also unlocks audio', () => {
+  const plain = buildProcessOptions(RUN_MODES.ADAPTIVE, {});
+  assert.equal(plain.streaming, false);
+  assert.equal(plain.requestTts, false);
+  const streamed = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: true, requestTts: true });
+  assert.equal(streamed.streaming, true);
+  assert.equal(streamed.withScript, false);
+  assert.equal(streamed.requestTts, true);
 });
 
 test('clamp keeps bounds inside the engine hard cap', () => {

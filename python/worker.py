@@ -17,6 +17,7 @@ import json
 import os
 import signal
 import sys
+import threading
 import traceback
 from pathlib import Path
 
@@ -27,12 +28,19 @@ import main as engine  # noqa: E402
 SUPPORTED_VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv", ".webm")
 
 REAL_STDOUT = sys.stdout
+_EMIT_LOCK = threading.Lock()
 
 
 def emit(message: dict) -> None:
-    """Write one protocol message as a single JSON line on stdout."""
-    REAL_STDOUT.write(json.dumps(message, ensure_ascii=False) + "\n")
-    REAL_STDOUT.flush()
+    """Write one protocol message as a single JSON line on stdout.
+
+    Locked: streaming stages report from worker threads, and NDJSON
+    lines must never interleave.
+    """
+    line = json.dumps(message, ensure_ascii=False) + "\n"
+    with _EMIT_LOCK:
+        REAL_STDOUT.write(line)
+        REAL_STDOUT.flush()
 
 
 def emit_error(stage: str, message: str) -> None:
@@ -134,6 +142,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum sampled frames for --adaptive (positive integer, "
         f"default {engine.ADAPTIVE_DEFAULT_MAX_FRAMES}).",
     )
+    parser.add_argument(
+        "--game-pack",
+        default=None,
+        metavar="PACK",
+        help="Game prompt pack for LLM wording (free-fire, cod, bgmi; "
+        "default free-fire). Electron runs pass the resolved pack "
+        "through the child environment instead.",
+    )
+    parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help="Run Vision, script generation, and TTS concurrently over "
+        "bounded queues (requires --adaptive; implies the script "
+        "stage; --generate-tts adds streaming audio).",
+    )
     return parser
 
 
@@ -160,35 +183,157 @@ def count_observations(obs_dir: Path) -> int:
     return len(engine.discover_observation_files(obs_dir))
 
 
+def emit_adaptive_sample(summary) -> None:
+    """Forward one persisted iteration as an NDJSON message.
+
+    Reporting-only: the engine contains hook errors, and this
+    function never triggers requests. Malformed summaries are
+    noted on stderr and skipped so the stream stays clean.
+    """
+    try:
+        message = {
+            "type": "adaptive_sample",
+            "data": {
+                "timestamp": float(summary["timestamp"]),
+                "speed": summary["speed"],
+                "reason": str(summary.get("reason") or ""),
+                "next_timestamp": (
+                    None
+                    if summary.get("next_timestamp") is None
+                    else float(summary["next_timestamp"])
+                ),
+                "observations": int(summary["observations"]),
+                "requests": int(summary["requests"]),
+            },
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        print(
+            f"Adaptive progress report skipped: {exc}",
+            file=sys.stderr,
+        )
+        return
+    emit(message)
+
+
+def emit_script_segment(record: dict) -> None:
+    """Forward one validated script utterance as an NDJSON message.
+
+    Reporting-only from the streaming script thread. Malformed records
+    are noted on stderr and skipped so the stream stays clean.
+    """
+    try:
+        message = {
+            "type": "script_segment",
+            "data": {
+                "utterance_id": str(record["utterance_id"]),
+                "timestamp_seconds": float(record["timestamp_seconds"]),
+                "text": str(record["text"]),
+                "source_claim_ids": [str(i) for i in record["source_claim_ids"]],
+                "priority": int(record["priority"]),
+                "status": str(record["status"]),
+            },
+        }
+        if message["data"]["status"] not in ("worded", "superseded"):
+            raise ValueError("unknown script segment status")
+        if message["data"]["priority"] not in (0, 1, 2):
+            raise ValueError("unknown script segment priority")
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"Script segment report skipped: {exc}", file=sys.stderr)
+        return
+    emit(message)
+
+
+def emit_tts_segment(record: dict) -> None:
+    """Forward one TTS utterance outcome as an NDJSON message.
+
+    Reporting-only from the streaming TTS thread. Malformed records
+    are noted on stderr and skipped so the stream stays clean.
+    """
+    try:
+        error = record.get("error")
+        message = {
+            "type": "tts_segment",
+            "data": {
+                "utterance_id": str(record["utterance_id"]),
+                "timestamp_seconds": float(record["timestamp_seconds"]),
+                "status": str(record["status"]),
+                "error": None if error is None else str(error),
+            },
+        }
+        if message["data"]["status"] not in ("success", "error", "skipped"):
+            raise ValueError("unknown TTS segment status")
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"TTS segment report skipped: {exc}", file=sys.stderr)
+        return
+    emit(message)
+
+
+def run_adaptive_stage(args, video: Path, obs_dir: Path, on_iteration) -> dict:
+    """Run the adaptive vision loop; return the engine result dict.
+
+    Shared by the sequential and streaming paths: one captured frame at
+    a time from the video, one observation + sampling decision per
+    frame, cooperative stop via the stdin control channel. No extracted
+    JPEG set is written beforehand.
+    """
+    stop_token = engine.StopToken()
+    previous_handler = install_stop_handler(stop_token)
+    # Stdin control channel (M4.2-A): a daemon thread pumps control
+    # lines into the same token without blocking the loop. Detached
+    # in the finally below; late commands then become no-ops.
+    control_listener = engine.start_control_listener(stop_token)
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            return engine.run_adaptive_vision(
+                video_path=video,
+                observations_dir=obs_dir,
+                max_frames=(
+                    args.adaptive_max_frames
+                    if getattr(args, "adaptive_max_frames", None)
+                    is not None
+                    else engine.ADAPTIVE_DEFAULT_MAX_FRAMES
+                ),
+                stop_token=stop_token,
+                on_iteration=on_iteration,
+            )
+    finally:
+        engine.detach_control_listener(control_listener)
+        restore_stop_handler(previous_handler)
+
+
 def plan_stages(args):
     """Determine the stage plan for an adaptive run.
 
     Returns ``(stage, mode)`` pairs with mode ``"run"``. Adaptive
     sampling is the only supported analysis mode: on adaptive success
     the deterministic downstream stages always run (a stopped or failed
-    adaptive stage returns before they start).
+    adaptive stage returns before they start). Streaming runs always
+    include the script stage; ``--generate-tts`` adds TTS to either mode.
     """
     if not getattr(args, "adaptive", False):
         raise ValueError(
             "Adaptive sampling is the only supported analysis mode."
         )
+    streaming = bool(getattr(args, "streaming", False))
     plan = [
         ("adaptive_vision", "run"),
         ("state_rebuild", "run"),
         ("event_detection", "run"),
         ("commentary", "run"),
     ]
-    if getattr(args, "with_script", False):
+    if streaming or getattr(args, "with_script", False):
         plan.append(("script", "run"))
     if getattr(args, "generate_tts", False):
-        if not getattr(args, "with_script", False):
+        if not streaming and not getattr(args, "with_script", False):
             raise ValueError("--generate-tts requires --with-script.")
         plan.append(("tts", "run"))
     return plan
 
 
-def run_mode(plan):
-    """Classify a run from its plan: always adaptive sampling."""
+def run_mode(plan, args=None):
+    """Classify a run: ``"streaming"`` for concurrent runs, else adaptive."""
+    if args is not None and getattr(args, "streaming", False):
+        return "streaming"
     return "adaptive"
 
 
@@ -197,6 +342,71 @@ def read_json_summary(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+class StageTracker:
+    """Emit stage-level progress for one run (sequential or streaming)."""
+
+    def __init__(self, plan_list):
+        self.plan = dict(plan_list)
+        self.total = len(plan_list)
+        self.done: list[str] = []
+
+    def progress(self, stage: str) -> None:
+        if stage not in self.plan:
+            return
+        emit(
+            {
+                "type": "progress",
+                "stage": stage,
+                "completed": len(self.done),
+                "total": self.total,
+                "progress": round(100 * len(self.done) / self.total),
+            }
+        )
+
+    def complete(self, stage: str, detail: dict | None = None) -> None:
+        if stage not in self.plan:
+            return
+        self.done.append(stage)
+        message: dict = {
+            "type": "stage_completed",
+            "stage": stage,
+            "completed": len(self.done),
+            "total": self.total,
+        }
+        if detail:
+            message["detail"] = detail
+        emit(message)
+
+
+def close_client_quietly(client) -> None:
+    try:
+        client.close()
+    except Exception:
+        pass
+
+
+def submit_stream_observation(pipeline, obs_dir: Path, summary) -> None:
+    """Submit one persisted iteration to the streaming consumers.
+
+    Best-effort: the observation file was just validated and written by
+    the vision loop, so failures are unexpected; they are noted on
+    stderr and never break vision. Skipped observations stay out of the
+    script's ``generated_from`` so coverage stays honest.
+    """
+    try:
+        timestamp = summary["timestamp"]
+        source_path = engine.observation_path_for_timestamp(timestamp, obs_dir)
+        validated = engine.validate_observation(
+            json.loads(source_path.read_text(encoding="utf-8"))
+        )
+        engine.ensure_observation_timestamp(validated, timestamp)
+        pipeline.submit_observation(
+            timestamp, source_path.name, validated, summary.get("speed")
+        )
+    except Exception as exc:
+        print(f"Streaming submit skipped: {exc}", file=sys.stderr)
 
 
 def require_key() -> str | None:
@@ -239,6 +449,8 @@ def resolve_tts_config(args) -> tuple[str, str, str]:
 
 def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
     """Run every stage; return (exit_code, result_data)."""
+    if getattr(args, "streaming", False):
+        return run_streaming_pipeline(args)
     base = (
         Path(args.output_dir)
         if args.output_dir is not None
@@ -292,65 +504,14 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
     emit({"type": "started", "message": f"Processing video {video.name}"})
 
     if getattr(args, "adaptive", False):
-        # Adaptive vision (paid, sequential): capture one frame at a time
-        # from the video, request one observation + sampling decision per
-        # frame, and schedule the next timestamp from that decision. No
+        # Adaptive vision (paid): capture one frame at a time from the
+        # video, request one observation + sampling decision per frame,
+        # and schedule the next timestamp from that decision. No
         # extracted JPEG set is written beforehand.
         progress("adaptive_vision")
-        stop_token = engine.StopToken()
-        previous_handler = install_stop_handler(stop_token)
-        # Stdin control channel (M4.2-A): a daemon thread pumps control
-        # lines into the same token without blocking the loop. Detached
-        # in the finally below; late commands then become no-ops.
-        control_listener = engine.start_control_listener(stop_token)
-
-        def report_iteration(summary) -> None:
-            """Forward one persisted iteration as an NDJSON message.
-
-            Reporting-only: the engine contains hook errors, and this
-            function never triggers requests. Malformed summaries are
-            noted on stderr and skipped so the stream stays clean.
-            """
-            try:
-                message = {
-                    "type": "adaptive_sample",
-                    "data": {
-                        "timestamp": float(summary["timestamp"]),
-                        "speed": summary["speed"],
-                        "reason": str(summary.get("reason") or ""),
-                        "next_timestamp": (
-                            None
-                            if summary.get("next_timestamp") is None
-                            else float(summary["next_timestamp"])
-                        ),
-                        "observations": int(summary["observations"]),
-                        "requests": int(summary["requests"]),
-                    },
-                }
-            except (KeyError, TypeError, ValueError) as exc:
-                print(
-                    f"Adaptive progress report skipped: {exc}",
-                    file=sys.stderr,
-                )
-                return
-            emit(message)
-        try:
-            with contextlib.redirect_stdout(sys.stderr):
-                adaptive_result = engine.run_adaptive_vision(
-                    video_path=video,
-                    observations_dir=obs_dir,
-                    max_frames=(
-                        args.adaptive_max_frames
-                        if getattr(args, "adaptive_max_frames", None)
-                        is not None
-                        else engine.ADAPTIVE_DEFAULT_MAX_FRAMES
-                    ),
-                    stop_token=stop_token,
-                    on_iteration=report_iteration,
-                )
-        finally:
-            engine.detach_control_listener(control_listener)
-            restore_stop_handler(previous_handler)
+        adaptive_result = run_adaptive_stage(
+            args, video, obs_dir, emit_adaptive_sample
+        )
         if adaptive_result["status"] == "failed":
             failure = adaptive_result.get("error")
             if not isinstance(failure, dict):
@@ -535,7 +696,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
         "output_dir": str(base),
         "stages": done,
         "skipped": skipped,
-        "mode": run_mode(plan_list),
+        "mode": run_mode(plan_list, args),
         "frames": count_frames(frames_dir),
         "observations": count_observations(obs_dir),
         "events": len(events),
@@ -559,6 +720,301 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
     return 0, data
 
 
+def run_streaming_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
+    """Run Vision, script, and TTS concurrently; return (exit, result).
+
+    The vision loop produces validated observations into a bounded
+    queue while the script and TTS consumers make progress on earlier
+    observations. Script/TTS artifacts finalize from the ledger when
+    vision ends (completed, stopped, or failed); then the deterministic
+    state/events/commentary tail runs once over the final observation
+    set so even partial runs leave consistent artifacts.
+    """
+    base = (
+        Path(args.output_dir)
+        if args.output_dir is not None
+        else engine.PROJECT_ROOT / "output"
+    )
+    frames_dir = base / "frames"
+    obs_dir = base / "observations"
+    state_path = obs_dir / engine.MATCH_STATE_FILENAME
+    events_path = base / "events" / engine.EVENTS_FILENAME
+    commentary_path = base / "commentary" / engine.COMMENTARY_FILENAME
+    script_path = base / "script" / engine.SCRIPT_FILENAME
+    audio_dir = base / engine.TTS_AUDIO_DIRNAME
+    tts_path = audio_dir / engine.TTS_MANIFEST_FILENAME
+
+    plan_list = plan_stages(args)
+    tracker = StageTracker(plan_list)
+    want_tts = bool(getattr(args, "generate_tts", False))
+
+    def tail_stages(best_effort: bool) -> tuple[int, list, list]:
+        """Run the offline state/events/commentary tail once.
+
+        Returns ``(exit_code, events, lines)``. Strict on the success
+        path (a tail failure fails the run, like the sequential mode);
+        best-effort on stopped/failed runs (noted on stderr, original
+        terminal preserved) so partial runs still gain artifacts.
+        """
+        events: list = []
+        lines: list = []
+        tracker.progress("state_rebuild")
+        with contextlib.redirect_stdout(sys.stderr):
+            code = engine.run_state_rebuild(
+                observations_dir=obs_dir,
+                state_path=state_path,
+                frames_dir=frames_dir,
+            )
+        if code != 0:
+            message = "State rebuild failed; see worker stderr."
+            if best_effort:
+                print(f"Streaming tail skipped: {message}", file=sys.stderr)
+                return 0, events, lines
+            emit_error("state_rebuild", message)
+            return 1, events, lines
+        tracker.complete("state_rebuild", {"state": str(state_path)})
+        tracker.progress("event_detection")
+        with contextlib.redirect_stdout(sys.stderr):
+            code = engine.run_detect_events(
+                observations_dir=obs_dir,
+                state_path=state_path,
+                events_path=events_path,
+                frames_dir=frames_dir,
+            )
+        if code != 0:
+            message = "Event detection failed; see worker stderr."
+            if best_effort:
+                print(f"Streaming tail skipped: {message}", file=sys.stderr)
+                return 0, events, lines
+            emit_error("event_detection", message)
+            return 1, events, lines
+        events_doc = read_json_summary(events_path) or {}
+        events = events_doc.get("events", [])
+        tracker.complete("event_detection", {"events": len(events)})
+        tracker.progress("commentary")
+        with contextlib.redirect_stdout(sys.stderr):
+            code = engine.run_generate_commentary(
+                observations_dir=obs_dir,
+                state_path=state_path,
+                events_path=events_path,
+                commentary_path=commentary_path,
+                frames_dir=frames_dir,
+            )
+        if code != 0:
+            message = "Commentary generation failed; see worker stderr."
+            if best_effort:
+                print(f"Streaming tail skipped: {message}", file=sys.stderr)
+                return 0, events, lines
+            emit_error("commentary", message)
+            return 1, events, lines
+        commentary_doc = read_json_summary(commentary_path) or {}
+        lines = commentary_doc.get("lines", [])
+        tracker.complete("commentary", {"lines": len(lines)})
+        return 0, events, lines
+
+    video = Path(args.video)
+    emit({"type": "started", "message": f"Processing video {video.name}"})
+    tracker.progress("adaptive_vision")
+    tracker.progress("script")
+    if want_tts:
+        tracker.progress("tts")
+    try:
+        script_cm, _script_key = engine.open_live_text_client()
+    except (RuntimeError, ValueError) as exc:
+        emit_error("script", f"Script generation failed: {exc}")
+        return 1, {}
+    tts_cfg = None
+    if want_tts:
+        try:
+            tts_cfg = resolve_tts_config(args)
+        except ValueError as exc:
+            emit_error("tts", f"Invalid TTS configuration: {exc}")
+            return 1, {}
+    with contextlib.ExitStack() as stack:
+        script_client = stack.enter_context(script_cm)
+        tts_client = None
+        if want_tts:
+            tts_key = os.environ.get(engine.TTS_API_KEY_ENV_VAR, "")
+            if not tts_key:
+                emit_error(
+                    "tts",
+                    f"{engine.TTS_API_KEY_ENV_VAR} is not set in the environment.",
+                )
+                return 1, {}
+            try:
+                tts_client = engine.GeminiTTSClient(
+                    api_key=tts_key, model=tts_cfg[0]
+                )
+            except Exception as exc:
+                detail = str(exc) or type(exc).__name__
+                emit_error(
+                    "tts",
+                    "Commentary audio generation failed: "
+                    f"{detail.replace(tts_key, '[REDACTED]')}",
+                )
+                return 1, {}
+            stack.callback(close_client_quietly, tts_client)
+        pipeline = engine.StreamingPipeline(
+            script_path=script_path,
+            commentary_path=commentary_path,
+            audio_dir=audio_dir,
+            tts_config=tts_cfg,
+            on_script_segment=emit_script_segment,
+            on_tts_segment=emit_tts_segment,
+            script_client=script_client,
+            tts_client=tts_client,
+        )
+        pipeline.start()
+
+        def on_iteration(summary) -> None:
+            emit_adaptive_sample(summary)
+            submit_stream_observation(pipeline, obs_dir, summary)
+
+        try:
+            adaptive_result = run_adaptive_stage(args, video, obs_dir, on_iteration)
+        except BaseException:
+            # Cancel or crash: halt consumers without finalizing so a
+            # cancelled run gains no fresh downstream artifacts, then
+            # let the terminal handling in main() report it.
+            pipeline.halt()
+            raise
+        pipeline.finish_vision()
+        stream = pipeline.wait()
+
+    adaptive_observations = count_observations(obs_dir)
+    script_status = stream["script_status"]
+    tts_status = stream["tts_status"]
+    if adaptive_result["status"] == "failed":
+        failure = adaptive_result.get("error")
+        if not isinstance(failure, dict):
+            failure = {}
+        failure_message = failure.get("message")
+        tracker.complete(
+            "script",
+            {"status": script_status, "segments": stream["segments"]},
+        )
+        if want_tts:
+            tracker.complete("tts", {"status": tts_status})
+        tail_stages(best_effort=True)
+        emit_error(
+            "adaptive_vision",
+            "Adaptive sampling failed "
+            f"({adaptive_result['termination']})"
+            + (
+                f": {failure_message}"
+                if failure_message
+                else "; see worker stderr."
+            ),
+        )
+        return 1, {}
+    if adaptive_result["status"] == "stopped":
+        tracker.complete(
+            "script",
+            {"status": script_status, "segments": stream["segments"]},
+        )
+        if want_tts:
+            tracker.complete("tts", {"status": tts_status})
+        tail_stages(best_effort=True)
+        commentary_doc = read_json_summary(commentary_path) or {}
+        stopped_data = {
+            "video": str(video),
+            "output_dir": str(base),
+            "stages": tracker.done,
+            "skipped": [],
+            "mode": "streaming",
+            "frames": count_frames(frames_dir),
+            "observations": adaptive_observations,
+            "events": len((read_json_summary(events_path) or {}).get("events", [])),
+            "commentary_lines": len(commentary_doc.get("lines", [])),
+            "script": script_status,
+            "tts": tts_status,
+            "status": "stopped",
+            "termination": adaptive_result["termination"],
+            "requests": adaptive_result["requests"],
+            "artifacts": {
+                "state": str(state_path) if state_path.is_file() else None,
+                "events": str(events_path) if events_path.is_file() else None,
+                "commentary": (
+                    str(commentary_path) if commentary_path.is_file() else None
+                ),
+                "script": stream["script_path"],
+                "tts": stream["tts_path"],
+                "manifest": str(adaptive_result["manifest"]),
+            },
+        }
+        emit({"type": "stopped", "data": stopped_data})
+        return 0, stopped_data
+    tracker.complete(
+        "adaptive_vision",
+        {
+            "observations": adaptive_observations,
+            "requests": adaptive_result["requests"],
+            "termination": adaptive_result["termination"],
+        },
+    )
+    tracker.complete(
+        "script",
+        {
+            "status": script_status,
+            "segments": stream["segments"],
+            "utterances": stream["utterances"],
+            "superseded": stream["superseded"],
+        },
+    )
+    if want_tts:
+        tts_doc = read_json_summary(tts_path) or {}
+        tts_entries = tts_doc.get("entries", [])
+        if not isinstance(tts_entries, list):
+            tts_entries = []
+        tracker.complete(
+            "tts",
+            {
+                "status": tts_status,
+                "segments": len(tts_entries),
+                "succeeded": sum(
+                    1 for e in tts_entries
+                    if isinstance(e, dict) and e.get("status") == "success"
+                ),
+                "failed": sum(
+                    1 for e in tts_entries
+                    if isinstance(e, dict) and e.get("status") == "error"
+                ),
+            },
+        )
+    tail_code, events, lines = tail_stages(best_effort=False)
+    if tail_code != 0:
+        return 1, {}
+    if script_status == "error":
+        emit_error("script", "Script generation failed; see worker stderr.")
+        return 1, {}
+    if want_tts and tts_status not in ("success", "silence"):
+        emit_error("tts", "Commentary audio generation failed; see worker stderr.")
+        return 1, {}
+    data = {
+        "video": str(video),
+        "output_dir": str(base),
+        "stages": tracker.done,
+        "skipped": [],
+        "mode": "streaming",
+        "frames": count_frames(frames_dir),
+        "observations": adaptive_observations,
+        "events": len(events),
+        "commentary_lines": len(lines),
+        "script": script_status,
+        "tts": tts_status,
+        "artifacts": {
+            "state": str(state_path) if state_path.is_file() else None,
+            "events": str(events_path) if events_path.is_file() else None,
+            "commentary": (
+                str(commentary_path) if commentary_path.is_file() else None
+            ),
+            "script": stream["script_path"],
+            "tts": stream["tts_path"],
+        },
+    }
+    return 0, data
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     problem = validate_video(Path(args.video))
@@ -572,7 +1028,19 @@ def main(argv: list[str] | None = None) -> int:
     if problem is not None:
         emit_error("validation", problem)
         return 2
-    if getattr(args, "generate_tts", False) and not getattr(args, "with_script", False):
+    if getattr(args, "game_pack", None) is not None:
+        try:
+            engine.get_factory_pack(args.game_pack)
+        except ValueError as exc:
+            emit_error("validation", str(exc))
+            return 2
+        os.environ["AI_COMMENTATOR_PACK_ID"] = args.game_pack
+    streaming = bool(getattr(args, "streaming", False))
+    if (
+        getattr(args, "generate_tts", False)
+        and not getattr(args, "with_script", False)
+        and not streaming
+    ):
         emit_error(
             "validation",
             "--generate-tts requires --with-script.",
@@ -584,7 +1052,7 @@ def main(argv: list[str] | None = None) -> int:
         # structured output, never the key itself.
         emit_error("adaptive_vision", key_problem)
         return 1
-    if args.with_script:
+    if args.with_script or streaming:
         key_problem = require_key()
         if key_problem is not None:
             emit_error("script", key_problem)

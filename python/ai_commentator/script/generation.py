@@ -56,42 +56,26 @@ def script_segment_id(index: int) -> str:
     return f"segment-{index + 1:03d}"
 
 
-def build_script_prompt(claims: list, history_texts: list) -> str:
+def build_script_prompt(claims: list, history_texts: list, pack=None) -> str:
     """Build the bounded prompt for the final-script model call.
 
     The model sees only evidence-gated claims plus recent spoken lines.
     It never sees raw frames, raw observations, or full match history,
     and it must return JSON mapping source claim ids to spoken segments.
+    Wording comes from the game prompt pack; the JSON shape stays here.
     """
+    from ..prompts import coerce_pack
+
+    fields = coerce_pack(pack)["fields"]
     parts = [
-        "You are a skilled live esports commentator covering Free Fire. ",
-        "Write broadcast-ready spoken lines, one segment per moment below. ",
-        "Use concise, energetic sentences that are comfortable to speak aloud. ",
-        "Prefer active voice and natural contractions. Vary sentence openings ",
-        "and transitions. Keep it exciting without melodrama. ",
-        "Prioritize confirmed eliminations and major combat developments, ",
-        "then significant status changes, then match-state developments, ",
-        "then continuity. Skip visually obvious but unimportant HUD details. ",
-        "Never speak just to fill silence: if an item cannot support an ",
-        "interesting, useful line, omit it. ",
-        "Strict evidence rules: use only the quoted evidence below. Never add ",
-        "kills, knocks, assists, damage, identities, teams, positions, ",
-        "movements, weapons, strategies, intentions, zone status, rotations, ",
-        "map control, placement, victory, defeat, causes, or effects beyond ",
-        "the quotes. Never say a player is pushing, retreating, healing, ",
-        "fighting, camping, rotating, or aiming unless the quote says so. ",
-        "A candidate event is NOT confirmed: echo segments must keep an ",
-        "uncertainty marker such as 'unconfirmed' or 'possible'. Never ",
-        "present a candidate as a confirmed kill, knock, or victory, and ",
-        "never name a killer, victim, or outcome the quotes do not give. ",
-        "Mention a player name only when the quote contains it. Do not read ",
-        "JSON, field names, UI labels, or long detail lists aloud. No ",
-        "markdown, headings, emojis, or excessive exclamation marks. ",
+        fields["script_persona"] + " ",
+        fields["script_priorities"] + " ",
+        fields["script_rules"] + " ",
         "Respond with ONLY a single JSON object, no markdown fences, no ",
         "commentary, matching this shape: ",
         '{"segments": [{"source_claim_ids": [<one or more ids below>], ',
         '"text": <the spoken line>}]}. ',
-        "Omit any item you cannot word safely. ",
+        fields["script_closing"] + " ",
     ]
     for claim in claims:
         evidence = " / ".join(claim["evidence"])[:WRITER_MAX_EVIDENCE_CHARS]

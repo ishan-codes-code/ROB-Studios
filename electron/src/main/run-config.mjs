@@ -17,6 +17,7 @@ import {
   DEFAULT_GAME_PROFILE_ID,
 } from '../game-store.mjs';
 import { getProviderBaseUrl } from '../provider-catalog.mjs';
+import { buildPackSnapshot } from '../prompt-packs.mjs';
 import { loadSettings } from '../settings-store.mjs';
 import { resolveTtsConfig } from '../tts-config.mjs';
 
@@ -26,9 +27,10 @@ import { resolveTtsConfig } from '../tts-config.mjs';
  * errors that the IPC handler returns directly: missing selection,
  * missing or unreadable credential, or unknown game/prompt references.
  * `verified` reports image-input verification; paid runs require it.
- * Never silently substitutes another key.
+ * Never silently substitutes another key. `packsFactory` may be null
+ * when the prompt-pack probe is unavailable (Python backstops).
  */
-export function resolveProjectRunConfig(userDataPath, safeStorage, projectId) {
+export function resolveProjectRunConfig(userDataPath, safeStorage, projectId, packsFactory = null) {
   if (typeof projectId !== 'string' || projectId === '') {
     throw new Error('Project not found.');
   }
@@ -68,6 +70,15 @@ export function resolveProjectRunConfig(userDataPath, safeStorage, projectId) {
   } catch {
     throw new Error(
       'The selected game profile or commentary preset is missing. Choose another configuration.',
+    );
+  }
+  try {
+    preferences.promptPack = buildPackSnapshot(
+      userDataPath, packsFactory, config.promptPackId ?? null,
+    );
+  } catch {
+    throw new Error(
+      'The selected prompt pack is invalid. Choose another pack.',
     );
   }
   return {

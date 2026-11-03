@@ -14,7 +14,8 @@ assumption.
 | `AI_COMMENTATOR_MODEL` | Curated model ID for that provider |
 | `AI_COMMENTATOR_API_KEY` | Decrypted key for the selected credential only |
 | `AI_COMMENTATOR_PROVIDER_API_KEY` | Decrypted TTS key, only for runs with `--generate-tts` |
-| `AI_COMMENTATOR_SETTINGS_JSON` | Non-secret `{game, prompt}` preferences |
+| `AI_COMMENTATOR_SETTINGS_JSON` | Non-secret `{game, prompt, promptPack}` preferences |
+| `AI_COMMENTATOR_PACK_ID` | Standalone pack selection for CLI runs (Electron passes `promptPack`) |
 | `BASETEN_API_KEY` | Legacy mirror of the run key (fallback compat) |
 | `BASETEN_BASE_URL` / `BASETEN_MODEL` | Mirrored only for Baseten runs |
 
@@ -24,6 +25,12 @@ those, a legacy `BASETEN_*` pair resolves as a Baseten configuration
 (never cross-provider guessing); absent keys fail fast before any paid
 call or extraction work. The worker `require_key` message names both
 variables so legacy setups stay diagnosable.
+
+`AI_COMMENTATOR_SETTINGS_JSON.promptPack` is the resolved pack
+snapshot `{packId, custom}` (`custom` maps field names to user text for
+the selected pack only). Python resolves custom text over the factory
+pack and re-validates both before any paid call; see
+[game-pack-v1.md](game-pack-v1.md).
 
 No provider metadata comes from the renderer at run time: the main
 process resolves the project's stored credential ID through the vault

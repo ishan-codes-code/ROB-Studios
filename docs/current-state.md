@@ -1,5 +1,62 @@
 # Current state
 
+## Game Prompt Packs + streaming commentary pipeline (on `feature/tts-generation`, uncommitted)
+
+Game-specific Prompt Packs (Free Fire, Call of Duty, BGMI) plus an
+opt-in streaming Vision → Script → TTS pipeline with incremental
+script visibility.
+
+Prompt packs: factory wording ships in Python
+(`ai_commentator/prompts/`, exposed read-only via the offline
+`python/prompt_packs.py` probe) and covers the adaptive vision,
+script, and writer prompts with game-specific HUD/pace/context
+wording; JSON shapes, gates, and validators stay in code and keep
+enforcing correctness. User edits overlay individual fields in the
+global custom-only `prompt-packs.json` (atomic writes); reset deletes
+the overlay; empty text falls back to factory. Selection is per
+project (`configuration.promptPackId`, null = `free-fire` default),
+snapshotted main-side into `AI_COMMENTATOR_SETTINGS_JSON.promptPack`
+and re-validated by Python before any paid call. The Prompt Packs
+section (Configuration group) lists packages, shows every prompt with
+factory/custom badges, and edits/saves/resets per field and per pack;
+the editor Configure tab selects the project's active pack.
+Pre-migration projects resolve byte-identical Free Fire behavior
+(verified against HEAD output). See
+`docs/contracts/game-pack-v1.md` and ADR 0012.
+
+Streaming (`--streaming` + workspace toggle, default off; sequential
+stays the default): the vision loop produces validated observations
+into a bounded FIFO while one script thread words incremental windows
+(one bounded LLM call each, same gating/validators) and one TTS thread
+synthesizes utterances sequentially, over bounded in-process queues
+with backpressure. Priority is app-side (echoes > developments >
+scene); urgent utterances supersede routine ones still queued
+(recorded, never silently dropped); in-flight synthesis is never
+recalled. New NDJSON progress messages (`script_segment`,
+`tts_segment`, validated main-side) feed a workspace Script dock
+panel: incremental segment text, generation status, per-segment audio
+status, and superseded/failed states, surviving terminals for
+post-run review. Final `script.json`/`tts.json` keep the exact
+sequential layout (sorted `segment-NNN` ids, segment-named WAVs via
+atomic rename); synthesized bytes pass WAV validation first. Stops
+and vision failures still finalize partials plus a best-effort
+state/events/commentary tail. See the streaming sections of
+`docs/contracts/worker-protocol.md` and ADR 0013.
+
+Verification: Python suite 484 tests OK (new `test_prompt_packs.py`,
+`test_streaming.py`, worker `--game-pack` cases; offline, fakes
+only — including a mocked-vision overlap proof and a supersession
+test); Electron suite 247 tests pass, 0 fail (offline, `node:test`);
+renderer production build (`vite build` with
+`vite.renderer.config.mjs`) succeeds. No live provider calls were
+made. Standalone main/preload `vite build` invocation still fails on
+the pre-existing empty-config alias issue (Forge builds them); `node
+--check` passes on all changed main files. Streaming costs more paid
+calls per run than sequential (one script call per window); manual
+renderer steps (pack edit/save/reset round-trips, streaming run
+progress, Script panel states) remain uncovered beyond the static
+build.
+
 ## Temporary dev-only secure-storage bypass (on `feature/tts-generation`, uncommitted)
 
 `credentials-store.mjs` holds an explicit-opt-in, unpackaged-only

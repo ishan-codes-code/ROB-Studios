@@ -8,6 +8,7 @@ import MatchesSection from "@/app/sections/MatchesSection.jsx";
 import CommentarySection from "@/app/sections/CommentarySection.jsx";
 import ApiKeysSection from "@/app/sections/ApiKeysSection.jsx";
 import GamesPromptsSection from "@/app/sections/GamesPromptsSection.jsx";
+import PromptPacksSection from "@/app/sections/PromptPacksSection.jsx";
 import PreferencesSection from "@/app/sections/PreferencesSection.jsx";
 import TtsStudioSection from "@/app/sections/TtsStudioSection.jsx";
 import WorkspaceSection from "@/app/sections/WorkspaceSection.jsx";
@@ -21,6 +22,7 @@ const SECTION_VIEWS = {
   audio: StudioPlaceholder,
   "api-keys": ApiKeysSection,
   "games-prompts": GamesPromptsSection,
+  "prompt-packs": PromptPacksSection,
   "tts-studio": TtsStudioSection,
   preferences: PreferencesSection,
 };
@@ -32,6 +34,7 @@ const SECTION_META = {
   audio: { title: "Audio", context: "Playback lanes are not available yet" },
   "api-keys": { title: "API Keys", context: "Saved provider configurations" },
   "games-prompts": { title: "Games & Prompts", context: "Game profiles and commentary presets" },
+  "prompt-packs": { title: "Prompt Packs", context: "Game-specific prompt wording and defaults" },
   "tts-studio": { title: "TTS Studio", context: "Commentary voice configuration and previews" },
   preferences: { title: "Preferences", context: "Application preferences" },
 };
@@ -131,7 +134,7 @@ export default function App() {
                   ? { section: activeSection }
                   : {})}
                 {...(workspaceId !== null &&
-                (activeSection === "api-keys" || activeSection === "games-prompts")
+                (activeSection === "api-keys" || activeSection === "games-prompts" || activeSection === "prompt-packs")
                   ? { onBackToEditor: handleBackToEditor }
                   : {})}
               />

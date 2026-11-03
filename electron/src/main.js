@@ -12,6 +12,7 @@ import { registerProcessingIpc } from './main/ipc/processing.js';
 import { registerSettingsIpc } from './main/ipc/settings.js';
 import { registerTtsIpc } from './main/ipc/tts.js';
 import { createTtsCatalogLoader } from './tts-catalog.mjs';
+import { createPromptPackLoader } from './prompt-packs.mjs';
 import { registerProjectMediaProtocol } from './main/media-protocol.js';
 import { createMainWindow } from './main/window.js';
 import { reconcileInterruptedRuns, resolveProjectMedia } from './project-store.mjs';
@@ -161,11 +162,12 @@ app.on('before-quit', () => {
 });
 
 const ttsCatalogLoader = createTtsCatalogLoader({ repoRoot });
+const packsLoader = createPromptPackLoader({ repoRoot });
 
-registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader });
+registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader, packsLoader });
 
 registerProjectIpc({ ipcMain, app, workerManager });
-registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup });
+registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader });
 registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });
 
 // In this file you can include the rest of your app's specific main process

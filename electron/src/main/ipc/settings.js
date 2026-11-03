@@ -36,8 +36,17 @@ import {
 } from '../../game-store.mjs';
 import { migrateLegacyVault } from '../../vault-migration.mjs';
 import { listProjects, getProject, updateProject } from '../../project-store.mjs';
+import {
+  listPromptPacks,
+  setPromptField,
+  resetPromptPack,
+} from '../../prompt-packs.mjs';
 
-export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
+export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader = null }) {
+  async function loadFactory() {
+    if (!packsLoader) throw new Error('Prompt packs are unavailable.');
+    return packsLoader.load();
+  }
   const userData = () => app.getPath('userData');
   const credentials = {
     available: () => safeStorage?.isEncryptionAvailable?.() === true,
@@ -385,6 +394,35 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
     } catch (err) { return safe(err); }
   });
 
+  // ---- Prompt packs --------------------------------------------------
+  ipcMain.handle('prompt-pack-list', async () => {
+    try {
+      const factory = await loadFactory();
+      return {
+        ok: true,
+        defaultPackId: factory.defaultPackId,
+        fieldMeta: factory.fieldMeta,
+        packs: listPromptPacks(userDataPath(), factory),
+      };
+    } catch (err) { return safe(err); }
+  });
+  ipcMain.handle('prompt-pack-set', async (_event, packId, field, text) => {
+    try {
+      const factory = await loadFactory();
+      if (typeof packId !== 'string' || typeof field !== 'string' || typeof text !== 'string') {
+        throw new Error('Invalid prompt pack update.');
+      }
+      return { ok: true, pack: setPromptField(userDataPath(), factory, packId, field, text) };
+    } catch (err) { return safe(err); }
+  });
+  ipcMain.handle('prompt-pack-reset', async (_event, packId) => {
+    try {
+      const factory = await loadFactory();
+      if (typeof packId !== 'string') throw new Error('Invalid prompt pack id.');
+      return { ok: true, pack: resetPromptPack(userDataPath(), factory, packId) };
+    } catch (err) { return safe(err); }
+  });
+
   // ---- Project configuration -------------------------------------------
   ipcMain.handle('project-config-get', async (_event, projectId) => {
     try {
@@ -430,13 +468,25 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       } catch {
         presetWarning = 'The saved commentary preset is missing. Choose another preset.';
       }
+      let packWarning = null;
+      if (config.promptPackId !== null && config.promptPackId !== undefined) {
+        try {
+          const factory = await loadFactory();
+          if (!factory.packs.some((pack) => pack.packId === config.promptPackId)) {
+            packWarning = 'The saved prompt pack is unknown. Choose another pack.';
+          }
+        } catch {
+          // Loader failure is not a configuration problem: the worker
+          // validates the pack id again before any paid call.
+        }
+      }
       return {
         ok: true,
         configuration: { ...config },
         credential,
         profile,
         preset,
-        warnings: [credentialWarning, profileWarning, presetWarning].filter(Boolean),
+        warnings: [credentialWarning, profileWarning, presetWarning, packWarning].filter(Boolean),
       };
     } catch (err) {
       // Development diagnosis: the renderer keeps a generic message, but
@@ -461,6 +511,12 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup }) {
       }
       if (configuration.gameProfileId !== undefined) getGameProfile(userDataPath(), configuration.gameProfileId);
       if (configuration.commentaryPresetId !== undefined) getCommentaryPreset(userDataPath(), configuration.commentaryPresetId);
+      if (configuration.promptPackId !== undefined && configuration.promptPackId !== null) {
+        const factory = await loadFactory();
+        if (!factory.packs.some((pack) => pack.packId === configuration.promptPackId)) {
+          throw new Error('Unknown prompt pack.');
+        }
+      }
       const project = updateProject(userDataPath(), projectId, { configuration });
       return { ok: true, configuration: project.configuration };
     } catch (err) {

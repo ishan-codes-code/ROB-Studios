@@ -18,6 +18,8 @@ const MESSAGE_TYPES = new Set([
   'progress',
   'stage_completed',
   'adaptive_sample',
+  'script_segment',
+  'tts_segment',
   'result',
   'stopped',
   'error',
@@ -167,12 +169,88 @@ function isValidAdaptiveSample(message) {
   return true;
 }
 
+const SCRIPT_SEGMENT_STATUSES = new Set(['worded', 'superseded']);
+const TTS_SEGMENT_STATUSES = new Set(['success', 'error', 'skipped']);
+const SEGMENT_PRIORITIES = new Set([0, 1, 2]);
+const MAX_SEGMENT_TEXT_CHARS = 600;
+const MAX_SEGMENT_CLAIM_IDS = 16;
+
+/**
+ * Strict shape check for `script_segment` data (streaming runs only).
+ * Text is model output that Python already validated deterministically;
+ * the shape is re-checked here so the renderer never renders a
+ * malformed message as a segment.
+ */
+function isValidScriptSegment(message) {
+  if (!message || message.type !== 'script_segment') {
+    return false;
+  }
+  const data = message.data;
+  if (!data || typeof data !== 'object') {
+    return false;
+  }
+  if (typeof data.utterance_id !== 'string' || data.utterance_id.trim() === '') {
+    return false;
+  }
+  if (!isFiniteTimestamp(data.timestamp_seconds)) {
+    return false;
+  }
+  if (
+    typeof data.text !== 'string' ||
+    data.text.trim() === '' ||
+    data.text.length > MAX_SEGMENT_TEXT_CHARS
+  ) {
+    return false;
+  }
+  if (
+    !Array.isArray(data.source_claim_ids) ||
+    data.source_claim_ids.length === 0 ||
+    data.source_claim_ids.length > MAX_SEGMENT_CLAIM_IDS ||
+    data.source_claim_ids.some((id) => typeof id !== 'string' || id.trim() === '')
+  ) {
+    return false;
+  }
+  if (!SEGMENT_PRIORITIES.has(data.priority)) {
+    return false;
+  }
+  if (!SCRIPT_SEGMENT_STATUSES.has(data.status)) {
+    return false;
+  }
+  return true;
+}
+
+/** Strict shape check for `tts_segment` data (streaming runs only). */
+function isValidTtsSegment(message) {
+  if (!message || message.type !== 'tts_segment') {
+    return false;
+  }
+  const data = message.data;
+  if (!data || typeof data !== 'object') {
+    return false;
+  }
+  if (typeof data.utterance_id !== 'string' || data.utterance_id.trim() === '') {
+    return false;
+  }
+  if (!isFiniteTimestamp(data.timestamp_seconds)) {
+    return false;
+  }
+  if (!TTS_SEGMENT_STATUSES.has(data.status)) {
+    return false;
+  }
+  if (data.error !== null && data.error !== undefined && typeof data.error !== 'string') {
+    return false;
+  }
+  return true;
+}
+
 function isValidWorkerMessage(message) {
   return (
     message !== null &&
     typeof message === 'object' &&
     MESSAGE_TYPES.has(message.type) &&
-    (message.type !== 'adaptive_sample' || isValidAdaptiveSample(message))
+    (message.type !== 'adaptive_sample' || isValidAdaptiveSample(message)) &&
+    (message.type !== 'script_segment' || isValidScriptSegment(message)) &&
+    (message.type !== 'tts_segment' || isValidTtsSegment(message))
   );
 }
 
@@ -222,8 +300,11 @@ function buildWorkerArgv(script, videoPath, opts = {}) {
   if (options.withScript) {
     argv.push('--with-script');
   }
+  if (options.streaming) {
+    argv.push('--streaming');
+  }
   if (options.generateTts) {
-    if (!options.withScript) {
+    if (!options.withScript && !options.streaming) {
       throw new Error('--generate-tts requires --with-script.');
     }
     argv.push('--generate-tts');
@@ -277,6 +358,8 @@ export {
   validateVideoInput,
   isValidWorkerMessage,
   isValidAdaptiveSample,
+  isValidScriptSegment,
+  isValidTtsSegment,
   resolvePythonExecutable,
   resolveWorkerScript,
 };

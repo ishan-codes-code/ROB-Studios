@@ -325,6 +325,35 @@ test('TTS run passes resolved config argv and injects the vault key only', async
   assert.equal(env.AI_COMMENTATOR_API_KEY, 'vision-run-key');
 });
 
+test('streaming run passes the streaming flag', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData);
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    { projectId: project.id, adaptive: true, streaming: true },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.ok(argv.includes('--streaming'));
+  assert.ok(argv.includes('--adaptive'));
+  assert.equal(argv.includes('--generate-tts'), false);
+  assert.equal('AI_COMMENTATOR_PROVIDER_API_KEY' in env, false);
+});
+
+test('streaming run unlocks TTS without the sequential script flag', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData, { voice: 'Fenrir' });
+  const started = await s.handlers['process-video'](
+    {}, project.sourceVideo.path,
+    { projectId: project.id, adaptive: true, streaming: true, requestTts: true },
+  );
+  assert.equal(started.ok, true);
+  const { argv, env } = s.getStart();
+  assert.ok(argv.includes('--streaming'));
+  assert.ok(argv.includes('--generate-tts'));
+  assert.equal(env.AI_COMMENTATOR_PROVIDER_API_KEY, 'tts-run-key');
+});
+
 test('plain runs carry no TTS key or flags', async (t) => {
   const s = setup(t, { ttsCatalog: TTS_CATALOG });
   const project = seedTtsProject(s.userData);

@@ -62,8 +62,12 @@ Defined contracts:
   migration.
 - [project-configuration-v1.md](project-configuration-v1.md) —
   per-project configuration references (credential, game profile,
-  commentary preset), the global Free Fire game library with
-  immutable built-ins, and the run snapshot rule.
+  commentary preset, prompt pack), the global Free Fire game library
+  with immutable built-ins, and the run snapshot rule.
+- [game-pack-v1.md](game-pack-v1.md) — game-specific prompt packs
+  (factory wording plus per-field user customization): the offline
+  factory probe, the custom-only store, reset semantics, per-project
+  selection with precedence, and the run snapshot shape.
 - [worker-runtime-config.md](worker-runtime-config.md) — the
   per-run child environment contract (`AI_COMMENTATOR_*` explicit,
   legacy `BASETEN_*` fallback) that replaced the single-provider

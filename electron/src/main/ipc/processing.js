@@ -5,7 +5,7 @@ import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '
 import { TTS_API_KEY_ENV_VAR } from '../../tts-config.mjs';
 import { loadSettings } from '../../settings-store.mjs';
 
-export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow, ttsCatalogLoader = null }) {
+export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow, ttsCatalogLoader = null, packsLoader = null }) {
   // True once the active run emitted its terminal `stopped` message.
   // Reset on every start; runs never overlap, so one flag is enough.
   let stoppedSeenForActiveRun = false;
@@ -91,8 +91,17 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     let runConfig = null;
     let runConfigError = null;
     if (opts.projectId !== undefined) {
+      let packsFactory = null;
+      if (packsLoader) {
+        try {
+          packsFactory = await packsLoader.load();
+        } catch {
+          // Probe failure is not fatal here: customs pass through and
+          // Python validates the pack selection before any paid call.
+        }
+      }
       try {
-        runConfig = resolveProjectRunConfig(app.getPath('userData'), safeStorage, opts.projectId);
+        runConfig = resolveProjectRunConfig(app.getPath('userData'), safeStorage, opts.projectId, packsFactory);
       } catch (err) {
         runConfigError = err?.message ?? 'The project configuration could not be resolved.';
       }
@@ -121,7 +130,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       if (runConfig === null) {
         return { ok: false, error: 'Commentary audio needs a project with TTS configuration. Open the TTS Studio to configure it.' };
       }
-      if (opts.withScript !== true) {
+      if (opts.withScript !== true && opts.streaming !== true) {
         return { ok: false, error: 'Commentary audio requires the final casting script. Enable both options.' };
       }
       if (!ttsCatalogLoader) {

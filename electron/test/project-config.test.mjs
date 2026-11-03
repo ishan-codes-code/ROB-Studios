@@ -185,6 +185,41 @@ test('run resolution never substitutes another key and flags unverified', async 
   assert.equal(resolved.verified, false);
 });
 
+test('prompt pack selection defaults to null and stays patchable', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
+  assert.equal(project.configuration.promptPackId, null);
+  // Legacy files without the field read as null (application default).
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  delete raw.configuration.promptPackId;
+  fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+  assert.equal(getProject(dir, project.id).configuration.promptPackId, null);
+  const updated = updateProject(dir, project.id, { configuration: { promptPackId: 'cod' } });
+  assert.equal(updated.configuration.promptPackId, 'cod');
+  assert.throws(() => updateProject(dir, project.id, { configuration: { promptPackId: 'bad id!' } }), /Invalid project configuration/);
+});
+
+test('run resolution snapshots the prompt pack with customs', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id, promptPackId: 'cod' } });
+  fs.writeFileSync(
+    path.join(dir, 'prompt-packs.json'),
+    JSON.stringify({ version: 1, custom: { cod: { script_closing: 'Custom.' } } }),
+  );
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.deepEqual(resolved.preferences.promptPack, { packId: 'cod', custom: { script_closing: 'Custom.' } });
+  const fresh = createProject(dir, { name: 'Q', sourcePath: seedVideo(t) });
+  updateProject(dir, fresh.id, { configuration: { credentialId: credential.id } });
+  const fallback = resolveProjectRunConfig(dir, storage(), fresh.id);
+  assert.deepEqual(fallback.preferences.promptPack, { packId: 'free-fire', custom: {} });
+});
+
 test('host secrets are stripped from the worker environment', async () => {
   const clean = stripHostSecrets({
     PATH: '/usr/bin', BASETEN_API_KEY: 'x', AI_COMMENTATOR_API_KEY: 'y',

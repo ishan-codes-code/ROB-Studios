@@ -13,7 +13,7 @@ export const PROJECTS_DIR_NAME = 'projects';
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_NAME_LENGTH = 100;
-const CONFIGURATION_FIELDS = new Set(['credentialId', 'gameProfileId', 'commentaryPresetId', 'tts']);
+const CONFIGURATION_FIELDS = new Set(['credentialId', 'gameProfileId', 'commentaryPresetId', 'promptPackId', 'tts']);
 const PATCHABLE_FIELDS = new Set(['processingStatus', 'lastOpenedAt', 'configuration']);
 const PROCESSING_STATUSES = new Set(['idle', 'processing', 'done', 'stopped', 'error', 'cancelled', 'interrupted']);
 
@@ -57,6 +57,7 @@ function validateConfiguration(value) {
     credentialId = null,
     gameProfileId = DEFAULT_GAME_PROFILE_ID,
     commentaryPresetId = DEFAULT_COMMENTARY_PRESET_ID,
+    promptPackId = null,
   } = value;
   if (credentialId !== null && (typeof credentialId !== 'string' || !ID_PATTERN.test(credentialId))) {
     throw new Error('Invalid project configuration.');
@@ -67,10 +68,16 @@ function validateConfiguration(value) {
   if (typeof commentaryPresetId !== 'string' || !ID_PATTERN.test(commentaryPresetId)) {
     throw new Error('Invalid project configuration.');
   }
+  // Null means the application default pack (Free Fire factory wording),
+  // so projects saved before prompt packs keep their exact behavior.
+  if (promptPackId !== null && (typeof promptPackId !== 'string' || !ID_PATTERN.test(promptPackId))) {
+    throw new Error('Invalid project configuration.');
+  }
   return {
     credentialId,
     gameProfileId,
     commentaryPresetId,
+    promptPackId,
     tts: normalizePartialTtsConfig(value.tts ?? null),
   };
 }
@@ -80,6 +87,7 @@ export function defaultProjectConfiguration() {
     credentialId: null,
     gameProfileId: DEFAULT_GAME_PROFILE_ID,
     commentaryPresetId: DEFAULT_COMMENTARY_PRESET_ID,
+    promptPackId: null,
     tts: { model: null, voice: null, voiceDirection: null, credentialId: null },
   };
 }

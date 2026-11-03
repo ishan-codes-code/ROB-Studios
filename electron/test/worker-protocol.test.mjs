@@ -9,6 +9,8 @@ import {
   buildWorkerArgv,
   createLineParser,
   isValidAdaptiveSample,
+  isValidScriptSegment,
+  isValidTtsSegment,
   isValidWorkerMessage,
   isVisionConfigured,
   resolvePythonExecutable,
@@ -162,6 +164,67 @@ test('adaptive_sample rejects missing or malformed envelopes', () => {
   );
 });
 
+function validScriptSegment(overrides = {}) {
+  return {
+    type: 'script_segment',
+    data: {
+      utterance_id: 'u-0001',
+      timestamp_seconds: 12.5,
+      text: 'The zone starts closing in.',
+      source_claim_ids: ['clm-9f3a2b1c4d5e'],
+      priority: 1,
+      status: 'worded',
+      ...overrides,
+    },
+  };
+}
+
+function validTtsSegment(overrides = {}) {
+  return {
+    type: 'tts_segment',
+    data: {
+      utterance_id: 'u-0001',
+      timestamp_seconds: 12.5,
+      status: 'success',
+      error: null,
+      ...overrides,
+    },
+  };
+}
+
+test('script_segment accepts worded and superseded payloads', () => {
+  assert.equal(isValidScriptSegment(validScriptSegment()), true);
+  assert.equal(isValidScriptSegment(validScriptSegment({ status: 'superseded' })), true);
+  assert.equal(isValidWorkerMessage(validScriptSegment()), true);
+  assert.equal(isValidWorkerMessage({ type: 'script_segment' }), false);
+});
+
+test('script_segment rejects malformed payloads', () => {
+  assert.equal(isValidScriptSegment(validScriptSegment({ utterance_id: '' })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ timestamp_seconds: -1 })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ text: '  ' })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ text: 'x'.repeat(601) })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ source_claim_ids: [] })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ source_claim_ids: ['ok', 42] })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ priority: 3 })), false);
+  assert.equal(isValidScriptSegment(validScriptSegment({ status: 'draft' })), false);
+  assert.equal(isValidWorkerMessage(validScriptSegment({ priority: 9 })), false);
+});
+
+test('tts_segment accepts outcomes and rejects malformed payloads', () => {
+  assert.equal(isValidTtsSegment(validTtsSegment()), true);
+  assert.equal(
+    isValidTtsSegment(validTtsSegment({ status: 'error', error: 'Synth failed.' })),
+    true,
+  );
+  assert.equal(isValidTtsSegment(validTtsSegment({ status: 'skipped' })), true);
+  assert.equal(isValidWorkerMessage(validTtsSegment()), true);
+  assert.equal(isValidTtsSegment(validTtsSegment({ utterance_id: '' })), false);
+  assert.equal(isValidTtsSegment(validTtsSegment({ status: 'queued' })), false);
+  assert.equal(isValidTtsSegment(validTtsSegment({ error: 42 })), false);
+  assert.equal(isValidWorkerMessage(validTtsSegment({ status: 'nope' })), false);
+});
+
 test('resolvePythonExecutable reports the venv interpreter or its absence', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'venv-resolve-'));
   try {
@@ -298,6 +361,31 @@ test('buildWorkerArgv rejects TTS without the script and unbounded values', () =
   assert.throws(
     () => buildWorkerArgv('worker.py', 'clip.mp4', { ttsVoiceDirection: 'd'.repeat(501) }),
     /ttsVoiceDirection must be a non-empty string/,
+  );
+});
+
+test('buildWorkerArgv passes the streaming flag', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      adaptive: true,
+      streaming: true,
+    }),
+    ['worker.py', 'clip.mp4', '--streaming', '--adaptive'],
+  );
+});
+
+test('buildWorkerArgv allows TTS with streaming but not alone', () => {
+  assert.deepEqual(
+    buildWorkerArgv('worker.py', 'clip.mp4', {
+      adaptive: true,
+      streaming: true,
+      generateTts: true,
+    }),
+    ['worker.py', 'clip.mp4', '--streaming', '--generate-tts', '--adaptive'],
+  );
+  assert.throws(
+    () => buildWorkerArgv('worker.py', 'clip.mp4', { generateTts: true }),
+    /requires --with-script/,
   );
 });
 

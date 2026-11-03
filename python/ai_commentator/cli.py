@@ -87,7 +87,24 @@ def run_cli(engine, argv=None):
         "events/, commentary/, and script/ "
         f"(default {engine.PROJECT_ROOT / 'output'}).",
     )
+    parser.add_argument(
+        "--game-pack",
+        default=None,
+        metavar="PACK",
+        help="Game prompt pack for LLM wording (free-fire, cod, bgmi; "
+        "default free-fire). Custom overrides still come from "
+        "AI_COMMENTATOR_SETTINGS_JSON.",
+    )
     args = parser.parse_args(argv)
+
+    if args.game_pack is not None:
+        try:
+            engine.get_factory_pack(args.game_pack)
+        except ValueError as exc:
+            parser.error(str(exc))
+        import os
+
+        os.environ["AI_COMMENTATOR_PACK_ID"] = args.game_pack
     
     if args.adaptive_max_frames is not None and not args.adaptive:
         parser.error("--adaptive-max-frames requires --adaptive.")

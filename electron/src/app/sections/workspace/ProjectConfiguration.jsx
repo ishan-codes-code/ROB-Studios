@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import ApiKeysSection from "@/app/sections/ApiKeysSection.jsx";
 import GamesPromptsSection from "@/app/sections/GamesPromptsSection.jsx";
+import PromptPacksSection from "@/app/sections/PromptPacksSection.jsx";
 import {
   Dialog,
   DialogContent,
@@ -28,28 +29,42 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
   const [credentials, setCredentials] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [presets, setPresets] = useState([]);
+  const [packs, setPacks] = useState([]);
+  const [defaultPackId, setDefaultPackId] = useState("free-fire");
   const [loading, setLoading] = useState(true);
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
+  const [failedLists, setFailedLists] = useState([]);
   const [manager, setManager] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    setFailedLists([]);
     try {
-      const [configRes, credRes, profileRes] = await Promise.all([
+      const [configRes, credRes, profileRes, packsRes] = await Promise.all([
         window.api.getProjectConfig(projectId),
         window.api.listCredentials().catch(() => null),
         window.api.listGameProfiles().catch(() => null),
+        window.api.listPromptPacks().catch(() => null),
       ]);
       // Populate the selectors from whatever loaded: a configuration
-      // failure must not leave every dropdown permanently empty.
+      // failure must not leave every dropdown permanently empty. List
+      // failures are reported honestly instead of rendering as empty.
+      const failedLists = [];
+      if (!credRes?.ok) failedLists.push("API configurations");
+      if (!profileRes?.ok) failedLists.push("game profiles");
       const items = credRes?.ok
         ? (credRes.credentials ?? []).filter((entry) => entry.purpose !== "tts")
         : [];
       setCredentials(items);
       const profileItems = profileRes?.ok ? (profileRes.profiles ?? []) : [];
       setProfiles(profileItems);
+      if (packsRes?.ok) {
+        setPacks(packsRes.packs ?? []);
+        setDefaultPackId(packsRes.defaultPackId ?? "free-fire");
+      }
       if (!configRes?.ok) throw new Error("Could not load the project configuration.");
       setConfiguration(configRes.configuration);
       setCredential(configRes.credential);
@@ -65,12 +80,18 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
             (entry) => entry.profileId === profileId || entry.id === "default-energetic",
           ),
         );
+      } else {
+        failedLists.push("commentary presets");
+      }
+      if (failedLists.length > 0) {
+        setFailedLists(failedLists);
       }
     } catch (err) {
       setError(err?.message ?? "Could not load the project configuration.");
       onReadinessChange?.(false);
     } finally {
       setLoading(false);
+      setLoadedOnce(true);
     }
   }, [onReadinessChange, projectId]);
 
@@ -116,21 +137,31 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
     [onReadinessChange, projectId],
   );
 
-  if (loading) {
-    return (
-      <p className="flex items-center gap-2 p-3 text-[12px] text-muted-foreground">
-        <Spinner /> Loading project configuration…
-      </p>
-    );
-  }
-
   const selectedProfile = profiles.find((entry) => entry.id === configuration?.gameProfileId) ?? null;
   const selectedPreset = presets.find((entry) => entry.id === configuration?.commentaryPresetId) ?? null;
   const savedCredentialMissing = (configuration?.credentialId ?? "") !== ""
     && !credentials.some((entry) => entry.id === configuration.credentialId);
 
+  // The selectors stay mounted across reloads (dialog close refreshes
+  // the lists): unmounting them would kill an open native dropdown and
+  // flash the panel. While loading they render disabled with defaults.
+  const controlsDisabled = loading || saving !== "";
+
   return (
     <div className="flex min-w-0 flex-col gap-4 p-3">
+      {loading ? (
+        <p role="status" className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <Spinner /> {loadedOnce ? "Refreshing project configuration…" : "Loading project configuration…"}
+        </p>
+      ) : null}
+      {failedLists.length > 0 ? (
+        <Alert variant="destructive">
+          <AlertTitle>Some lists failed to load</AlertTitle>
+          <AlertDescription>
+            {`Could not load ${failedLists.join(", ")}. The lists below may be incomplete.`}
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <section className="flex min-w-0 flex-col gap-2" aria-labelledby="vision-config-title">
         <h2 id="vision-config-title" className="text-[11px] font-medium text-muted-foreground">
           Vision API configuration
@@ -139,7 +170,7 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
           aria-label="Vision API configuration"
           className="h-8 rounded-sm border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           value={configuration?.credentialId ?? ""}
-          disabled={saving !== ""}
+          disabled={controlsDisabled}
           onChange={(event) => save("credentialId", event.target.value === "" ? null : event.target.value)}
         >
           <option value="">Select a configuration…</option>
@@ -170,7 +201,9 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
             {configuration?.credentialId
               ? "The saved configuration is unavailable. Choose another above."
               : credentials.length === 0
-                ? "No API configurations exist yet."
+                ? (failedLists.includes("API configurations")
+                  ? "API configurations could not be loaded."
+                  : "No API configurations exist yet.")
                 : "No configuration selected for this project."}
           </p>
         )}
@@ -195,7 +228,7 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
           aria-label="Game profile"
           className="h-8 rounded-sm border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           value={configuration?.gameProfileId ?? "free-fire-default"}
-          disabled={saving !== ""}
+          disabled={controlsDisabled}
           onChange={(event) => save("gameProfileId", event.target.value)}
         >
           {profiles.map((entry) => (
@@ -222,7 +255,7 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
           aria-label="Commentary preset"
           className="h-8 rounded-sm border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           value={configuration?.commentaryPresetId ?? "default-energetic"}
-          disabled={saving !== ""}
+          disabled={controlsDisabled}
           onChange={(event) => save("commentaryPresetId", event.target.value)}
         >
           {presets.map((entry) => (
@@ -247,6 +280,44 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
           onClick={() => setManager("games-prompts")}
         >
           Add or manage games &amp; prompts <ArrowUpRight data-icon="inline-end" />
+        </Button>
+      </section>
+
+      <Separator />
+
+      <section className="flex min-w-0 flex-col gap-2" aria-labelledby="pack-config-title">
+        <h2 id="pack-config-title" className="text-[11px] font-medium text-muted-foreground">
+          Prompt pack
+        </h2>
+        <select
+          aria-label="Prompt pack"
+          className="h-8 rounded-sm border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          value={configuration?.promptPackId ?? ""}
+          disabled={controlsDisabled || packs.length === 0}
+          onChange={(event) => save("promptPackId", event.target.value === "" ? null : event.target.value)}
+        >
+          <option value="">Application default</option>
+          {packs.map((entry) => (
+            <option key={entry.packId} value={entry.packId}>
+              {entry.displayName}
+              {entry.packId === defaultPackId ? " · default" : ""}
+              {entry.customized.length > 0 ? ` · ${entry.customized.length} customized` : ""}
+            </option>
+          ))}
+        </select>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {packs.length === 0
+            ? "Prompt packs are unavailable; runs use factory defaults."
+            : "Game-specific prompt wording for this project."}
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="w-full justify-start"
+          onClick={() => setManager("prompt-packs")}
+        >
+          Inspect or edit prompt packs <ArrowUpRight data-icon="inline-end" />
         </Button>
       </section>
 
@@ -282,7 +353,11 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
         <DialogContent className="max-h-[calc(100vh-2rem)] max-w-5xl overflow-y-auto sm:max-w-5xl">
           <DialogHeader className="sr-only">
             <DialogTitle>
-              {manager === "api-keys" ? "Manage API configurations" : "Manage games and prompts"}
+              {manager === "api-keys"
+                ? "Manage API configurations"
+                : manager === "prompt-packs"
+                  ? "Manage prompt packs"
+                  : "Manage games and prompts"}
             </DialogTitle>
             <DialogDescription>
               Add or update saved configurations for this project.
@@ -292,6 +367,8 @@ export default function ProjectConfiguration({ projectId, onReadinessChange }) {
             <ApiKeysSection embedded />
           ) : manager === "games-prompts" ? (
             <GamesPromptsSection embedded />
+          ) : manager === "prompt-packs" ? (
+            <PromptPacksSection />
           ) : null}
         </DialogContent>
       </Dialog>

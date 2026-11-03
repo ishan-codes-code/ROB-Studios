@@ -175,7 +175,7 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
   );
 }
 
-function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, withScript, setWithScript, requestTts, setRequestTts, onReadinessChange }) {
+function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, withScript, setWithScript, requestTts, setRequestTts, streaming, setStreaming, onReadinessChange }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 p-3">
       <ProjectConfiguration projectId={projectId} onReadinessChange={onReadinessChange} />
@@ -226,12 +226,32 @@ function ConfigurationContent({ projectId, visionConfigured, visionChecked, canS
         <label className="flex min-w-0 cursor-pointer items-start gap-2">
           <input
             type="checkbox"
+            checked={streaming}
+            disabled={!canStart}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setStreaming(checked);
+              if (!checked && !withScript) setRequestTts(false);
+            }}
+            className="mt-0.5 size-4 shrink-0 accent-primary disabled:opacity-50"
+          />
+          <span className="min-w-0">
+            <span className="block text-[12px] text-foreground">Streaming commentary</span>
+            <span className="block text-[11px] leading-relaxed text-muted-foreground">
+              Word and synthesize commentary while vision is still sampling. Script and audio
+              appear incrementally; important events pre-empt queued lines.
+            </span>
+          </span>
+        </label>
+        <label className="flex min-w-0 cursor-pointer items-start gap-2">
+          <input
+            type="checkbox"
             checked={withScript}
             disabled={!canStart}
             onChange={(event) => {
               const checked = event.target.checked;
               setWithScript(checked);
-              if (!checked) setRequestTts(false);
+              if (!checked && !streaming) setRequestTts(false);
             }}
             className="mt-0.5 size-4 shrink-0 accent-primary disabled:opacity-50"
           />
@@ -246,7 +266,7 @@ function ConfigurationContent({ projectId, visionConfigured, visionChecked, canS
           <input
             type="checkbox"
             checked={requestTts}
-            disabled={!canStart || !withScript}
+            disabled={!canStart || (!withScript && !streaming)}
             onChange={(event) => setRequestTts(event.target.checked)}
             className="mt-0.5 size-4 shrink-0 accent-primary disabled:opacity-50"
           />
@@ -339,6 +359,8 @@ export default function ProcessingInspector({
   setWithScript,
   requestTts,
   setRequestTts,
+  streaming,
+  setStreaming,
   onStart,
   onCancel,
   onStop,
@@ -383,6 +405,8 @@ export default function ProcessingInspector({
           setWithScript={setWithScript}
           requestTts={requestTts}
           setRequestTts={setRequestTts}
+          streaming={streaming}
+          setStreaming={setStreaming}
           onReadinessChange={onReadinessChange}
         />
       </TabsContent>

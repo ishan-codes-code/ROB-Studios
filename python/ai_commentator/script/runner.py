@@ -57,6 +57,18 @@ def _live_text_client(provider, model, api_key):
     return OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
 
 
+def open_live_text_client():
+    """Return ``(client_context_manager, api_key)`` for a live text run.
+
+    The caller enters the context manager and closes it when done; the
+    yielded client serves exactly one thread. Raises RuntimeError without
+    a key (legacy message kept) and ValueError for unsupported
+    provider/model pairs.
+    """
+    provider, model, api_key = _resolve_live_credentials()
+    return _live_text_client(provider, model, api_key), api_key
+
+
 def run_generate_script(
     observations_dir: Path | None = None,
     state_path: Path | None = None,
