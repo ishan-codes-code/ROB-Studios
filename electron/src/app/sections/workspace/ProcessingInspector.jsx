@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderOpen, Play, Sparkles } from "lucide-react";
+import { Cpu, FolderOpen, Play, ScrollText, SlidersHorizontal, Sparkles } from "lucide-react";
 import { AutoHeight } from "@animate-ui/react/primitives/effects/auto-height";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
@@ -154,24 +154,54 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
           runIsAdaptive ? (
             <>
               <Button type="button" size="sm" disabled={stopping} onClick={onStop} className="w-full">
-                {stopping ? "Stop requested…" : "Request stop"}
+                {stopping ? (
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    Stop requested…
+                  </>
+                ) : (
+                  "Request stop"
+                )}
               </Button>
               {stopping ? (
                 <p role="status" className="text-center text-[10px] text-muted-foreground">Stopping after the current request…</p>
               ) : null}
               <Button type="button" size="sm" variant="outline" disabled={cancelling} onClick={onCancel} className="w-full">
-                {cancelling ? "Cancelling…" : "Force cancel"}
+                {cancelling ? (
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    Cancelling…
+                  </>
+                ) : (
+                  "Force cancel"
+                )}
               </Button>
             </>
           ) : (
             <Button type="button" size="sm" variant="outline" disabled={cancelling} onClick={onCancel} className="w-full">
-              {cancelling ? "Cancelling…" : "Cancel processing"}
+              {cancelling ? (
+                <>
+                  <Spinner data-icon="inline-start" />
+                  Cancelling…
+                </>
+              ) : (
+                "Cancel processing"
+              )}
             </Button>
           )
         ) : (
           <Button type="button" size="sm" disabled={!canStart} onClick={onStart} className="w-full">
-            <Play data-icon="inline-start" />
-            {starting ? "Starting…" : run.status === "idle" ? "Process" : "Process again"}
+            {starting ? (
+              <>
+                <Spinner data-icon="inline-start" />
+                Starting…
+              </>
+            ) : (
+              <>
+                <Play data-icon="inline-start" />
+                {run.status === "idle" ? "Process" : "Process again"}
+              </>
+            )}
           </Button>
         )}
         {run.status === "processing" && cancelling ? (
@@ -224,7 +254,7 @@ function ConfigurationContent({ projectId, visionConfigured, visionChecked, canS
               const raw = event.target.value;
               setAdaptiveMaxFrames(raw === "" ? "" : Number(raw));
             }}
-            className="h-8 rounded-sm border border-border bg-background px-2 font-mono text-[12px] tabular-nums text-foreground outline-none disabled:opacity-50"
+            className="h-8 rounded-sm border border-border bg-background px-2 font-mono text-[12px] tabular-nums text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           />
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             Each sampled frame makes at most one paid vision request. Default {ADAPTIVE_DEFAULT_MAX_FRAMES}; the engine caps runs at {ADAPTIVE_HARD_MAX_FRAMES}.
@@ -245,7 +275,7 @@ function ConfigurationContent({ projectId, visionConfigured, visionChecked, canS
             checked={requestTts}
             disabled={!canStart}
             onChange={(event) => setRequestTts(event.target.checked)}
-            className="mt-0.5 size-4 shrink-0 accent-primary disabled:opacity-50"
+            className="mt-0.5 size-4 shrink-0 accent-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:opacity-50"
           />
           <span className="min-w-0">
             <span className="block text-[12px] text-foreground">Generate spoken audio</span>
@@ -345,11 +375,23 @@ export default function ProcessingInspector({
   const [tab, setTab] = useState("processing");
   return (
     <Tabs value={tab} onValueChange={setTab} className="flex h-full min-h-0 min-w-0 flex-col gap-0 overflow-hidden bg-surface">
-      <TabsList variant="line" aria-label="Inspector sections" className="h-10 w-full shrink-0 gap-1 rounded-none border-b border-border px-2 py-0">
-        <TabsTrigger value="processing" className="h-9 flex-1 rounded-sm px-1.5 text-[10px]">Processing</TabsTrigger>
-        <TabsTrigger value="script" className="h-9 flex-1 rounded-sm px-1.5 text-[10px]">Script</TabsTrigger>
-        <TabsTrigger value="configuration" className="h-9 flex-1 rounded-sm px-1.5 text-[10px]">Configure</TabsTrigger>
-        <TabsTrigger value="project" className="h-9 flex-1 rounded-sm px-1.5 text-[10px]">Project</TabsTrigger>
+      <TabsList variant="line" aria-label="Inspector sections" className="h-10 w-full shrink-0 gap-1 rounded-none border-b border-border px-1.5 py-0">
+        <TabsTrigger value="processing" title="Processing" className="h-9 min-w-0 flex-1 gap-1 rounded-sm px-1 text-[11px]">
+          <Cpu className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate @max-[320px]:hidden">Processing</span>
+        </TabsTrigger>
+        <TabsTrigger value="script" title="Script" className="h-9 min-w-0 flex-1 gap-1 rounded-sm px-1 text-[11px]">
+          <ScrollText className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate @max-[320px]:hidden">Script</span>
+        </TabsTrigger>
+        <TabsTrigger value="configuration" title="Configure" className="h-9 min-w-0 flex-1 gap-1 rounded-sm px-1 text-[11px]">
+          <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate @max-[320px]:hidden">Configure</span>
+        </TabsTrigger>
+        <TabsTrigger value="project" title="Project" className="h-9 min-w-0 flex-1 gap-1 rounded-sm px-1 text-[11px]">
+          <FolderOpen className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate @max-[320px]:hidden">Project</span>
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="processing" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none">

@@ -21,6 +21,7 @@ const COMPONENTS = [
   '../src/app/sections/tts-studio/PreviewPlayer.jsx',
   '../src/app/sections/workspace/CommentaryTimeline.jsx',
   '../src/app/sections/workspace/EditorCenter.jsx',
+  '../src/hooks/useVideoExport.js',
   '../src/app/sections/workspace/ProcessingInspector.jsx',
   '../src/app/sections/workspace/ProjectConfiguration.jsx',
   '../src/app/sections/workspace/ProjectWorkspaceLayout.jsx',
@@ -64,7 +65,10 @@ function checkFile(relative) {
   let match;
   while ((match = callPattern.exec(source)) !== null) {
     const before = source.slice(Math.max(0, match.index - 1), match.index);
-    if (before !== '.' && before !== '$') calls.add(match[0]);
+    // A hook file defines its own `function useX(` — a definition, not a
+    // call site, so it must never be reported as a missing import.
+    const definition = /function\s+$/.test(source.slice(Math.max(0, match.index - 9), match.index));
+    if (before !== '.' && before !== '$' && !definition) calls.add(match[0]);
   }
   return [...calls].filter((name) => !imported.has(name) && !namespaced);
 }

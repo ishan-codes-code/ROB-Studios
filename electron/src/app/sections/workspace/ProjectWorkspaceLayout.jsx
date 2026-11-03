@@ -10,6 +10,7 @@ import {
 } from "@/lib/inspector-width.js";
 
 function Splitter({ width, onWidthChange, onReset, onDraggingChange }) {
+  const [active, setActive] = useState(false);
   function handlePointerDown(event) {
     if (event.button !== 0) {
       return;
@@ -19,6 +20,7 @@ function Splitter({ width, onWidthChange, onReset, onDraggingChange }) {
     const startX = event.clientX;
     const startWidth = width;
     onDraggingChange(true);
+    setActive(true);
     function handleMove(moveEvent) {
       onWidthChange(clampInspectorWidth(startWidth + (startX - moveEvent.clientX)));
     }
@@ -27,6 +29,7 @@ function Splitter({ width, onWidthChange, onReset, onDraggingChange }) {
       target.removeEventListener("pointerup", handleUp);
       target.removeEventListener("pointercancel", handleUp);
       onDraggingChange(false);
+      setActive(false);
     }
     target.setPointerCapture?.(event.pointerId);
     target.addEventListener("pointermove", handleMove);
@@ -67,7 +70,9 @@ function Splitter({ width, onWidthChange, onReset, onDraggingChange }) {
     >
       <div
         aria-hidden
-        className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors duration-150 group-hover:bg-muted-foreground group-focus-visible:bg-ring"
+        className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 group-hover:bg-muted-foreground group-focus-visible:bg-ring ${
+          active ? "bg-ring" : "bg-border"
+        }`}
       />
     </div>
   );
@@ -117,7 +122,7 @@ export default function ProjectWorkspaceLayout({ main, inspector, inspectorOpen 
           inspectorOpen ? "border-l border-border" : "pointer-events-none border-l border-transparent"
         } ${dragging ? "" : "transition-[width] duration-150 ease-out"}`}
       >
-        <div style={{ width }} className="h-full min-h-0 min-w-0">
+        <div style={{ width }} className="@container h-full min-h-0 min-w-0">
           {inspector}
         </div>
       </motion.aside>

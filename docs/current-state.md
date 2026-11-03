@@ -1,5 +1,42 @@
 # Current state
 
+## Editor refinement pass (on `feature/tts-generation`, uncommitted)
+
+Polish on the existing three-region Editor; no structural rebuild, no
+Python, protocol, schema, IPC, or security changes. Export moved from
+the timeline header to the toolbar as the primary Editor action: a new
+`hooks/useVideoExport.js` owns export state, the `export-event`
+subscription, and export toasts, while `EditorCenter` computes the
+audio-row join once and shares it with the timeline (no duplicated
+discovery or rows). Eligibility, FFmpeg behavior, progress, cancel,
+and done/error handling are unchanged; no output-reveal action was
+added (no such IPC exists). The toolbar also gained a compact live run
+status. The timeline was visually redesigned around the untouched
+timing model: borderless regions with hairline boundaries and a center
+baseline, quiet inactive bars, distinct active fill, memoized regions
+(primitive props, so one decode no longer recomputes every path),
+centered state ticks (waiting muted, generating amber, failed
+red, decode errors honored), a playhead with a top marker, a
+scroll-synced ruler with tick marks, and icon-led empty/unavailable
+states. Inspector tabs gained icons with labels that collapse below
+320px via container queries; script rows got timestamp chips, 13px
+relaxed text, hover states, larger preview targets, and an icon empty
+state, keeping the same segment/file mapping and streaming stability.
+Pending run buttons now compose `Spinner`; native config inputs gained
+focus rings; all buttons have a subtle `:active` press (disabled
+under reduced motion); the splitter highlights while dragging; toast
+ownership is exactly two modules (`useVideoExport` for export,
+`WorkspaceSection` for one loading→outcome run toast with measured
+counts, guarded against duplicates).
+
+Verification: Electron suite 324 tests pass, 0 fail (offline,
+`node:test`, incl. new static export-ownership/toast-ownership
+guards); renderer production build succeeds; container-query CSS
+verified in the built bundle. Manually unverified: visual polish in a
+running shell, export progress/cancel from the toolbar, toast timing
+and replacement, splitter/tab feel at minimum width, and the
+reduced-motion walkthrough.
+
 ## Editor workspace redesign (on `feature/tts-generation`, uncommitted)
 
 The Editor is now a three-region broadcast workspace: central gameplay

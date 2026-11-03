@@ -16,13 +16,16 @@ see [../architecture.md](../architecture.md) and
   controlled at the workspace boundary and exposed in the header.
 - `electron/src/app/sections/workspace/` — `ProjectWorkspaceLayout` owns the
   editor flex row (central workspace plus a resizable, collapsible right
-  inspector with an accessible splitter); `EditorCenter` owns the always
-  visible preview, the bottom commentary timeline, and the Diagnostics
-  dialog; `ProcessingInspector` owns Processing/Script/Configure/Project
-  tabs; `ScriptPanel` renders the readable script list with compact audio
-  previews. `WorkspaceSection` runs one `useProjectAudio` discovery whose
-  result the timeline and script panel share, so both agree on every
-  segment's audio state.
+  inspector with an accessible splitter); `EditorCenter` owns the toolbar
+  (primary Export action, run status, Diagnostics dialog), the always
+  visible preview, and the bottom commentary timeline; `ProcessingInspector`
+  owns Processing/Script/Configure/Project tabs; `ScriptPanel` renders the
+  readable script list with compact audio previews. `WorkspaceSection` runs
+  one `useProjectAudio` discovery whose result the timeline and script panel
+  share, so both agree on every segment's audio state. `EditorCenter`
+  computes the audio-row join once for both export and the timeline, and
+  `hooks/useVideoExport.js` is the single owner of export state, export
+  events, and export toasts.
 - `electron/src/primitives/` — `GlassPanel`, `GlassCard`, `StatusIndicator`.
 - `electron/src/app/sections/DashboardSection.jsx` — project creation,
   listing, opening, and deletion through the audited `window.api` bridge.

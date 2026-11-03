@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { AlertCircle, Film, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
+import { Spinner } from "@/components/ui/spinner.jsx";
 import { extensionOf, fileNameOf, formatBytes, formatMediaTime, projectMediaUrl } from "@/lib/format.js";
 
 function EmptyPreview() {
@@ -83,7 +84,8 @@ export default function VideoPreview({ project, videoRef }) {
               Your browser cannot play this video.
             </video>
             {status === "loading" ? (
-              <div role="status" className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/70 text-[11px] text-muted-foreground">
+              <div role="status" className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-background/70 text-[11px] text-muted-foreground">
+                <Spinner />
                 Loading video metadata…
               </div>
             ) : null}

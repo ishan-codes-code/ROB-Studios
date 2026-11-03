@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
+import { Pause, Play, ScrollText } from "lucide-react";
+import { cn } from "cn";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { buildAudioRows } from "@/lib/audio-rows.js";
@@ -51,20 +52,18 @@ const ScriptRow = memo(function ScriptRow({
   const sounding = previewState === "playing";
   return (
     <li
-      className={`flex min-w-0 items-start gap-2 px-3 py-2 ${sounding ? "bg-secondary/40" : ""}`}
+      className={cn(
+        "flex min-w-0 items-start gap-2.5 px-3 py-2.5 transition-colors duration-150",
+        sounding ? "bg-secondary/60" : "hover:bg-accent/40",
+      )}
     >
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-subtle">
-            {formatTimestamp(row.timestamp)}
-          </span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-subtle" title={row.title}>
-            {row.title}
-          </span>
-        </div>
+        <span className="inline-block rounded-sm bg-secondary px-1.5 py-px font-mono text-[10px] tabular-nums text-secondary-foreground">
+          {formatTimestamp(row.timestamp)}
+        </span>
         <p
-          className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-foreground"
-          title={row.text === "" ? row.title : row.text}
+          className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-foreground"
+          title={row.text === "" ? row.title : `${row.text} (${row.title})`}
         >
           {row.text === "" ? row.title : row.text}
         </p>
@@ -93,7 +92,7 @@ const ScriptRow = memo(function ScriptRow({
         {playable ? (
           <Button
             type="button"
-            size="icon-xs"
+            size="icon-sm"
             variant="ghost"
             onClick={() => onTogglePreview(row.key)}
             aria-label={
@@ -260,7 +259,8 @@ export default function ScriptPanel({
 
   if (view.rows.length === 0) {
     return (
-      <div className="flex h-full min-h-0 flex-col items-start justify-center gap-1 px-4">
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1 px-4 text-center">
+        <ScrollText className="size-5 text-subtle" aria-hidden />
         <p className="text-[12px] font-medium text-foreground">No script segments yet</p>
         <p className="max-w-xl text-[11px] leading-relaxed text-muted-foreground">
           {live

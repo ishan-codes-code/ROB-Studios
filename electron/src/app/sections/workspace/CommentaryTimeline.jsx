@@ -1,8 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Check, Download, X } from "lucide-react";
-import { Button } from "@/components/ui/button.jsx";
-import { Progress } from "@/components/ui/progress.jsx";
-import { buildAudioRows } from "@/lib/audio-rows.js";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AudioLines, AudioWaveform, TriangleAlert } from "lucide-react";
 import { buildIntervals } from "@/lib/commentary-timeline.js";
 import { formatMediaTime } from "@/lib/format.js";
 import {
@@ -12,7 +9,6 @@ import {
   WAVEFORM_VIEWBOX_HEIGHT,
   WAVEFORM_VIEWBOX_WIDTH,
 } from "@/lib/waveform.js";
-import { toast } from "sonner";
 import useCommentaryAudio from "@/hooks/useCommentaryAudio.js";
 import useCommentaryPlayback from "@/hooks/useCommentaryPlayback.js";
 
@@ -29,68 +25,87 @@ function tickStepFor(duration) {
   return 900;
 }
 
-function WaveformRegion({ interval, peaks, active }) {
-  const path = peaksToPath(peaks ?? PLACEHOLDER_PEAKS);
+const WaveformRegion = memo(function WaveformRegion({
+  leftPct,
+  widthPct,
+  start,
+  length,
+  title,
+  peaks,
+  active,
+}) {
+  const path = useMemo(() => peaksToPath(peaks ?? PLACEHOLDER_PEAKS), [peaks]);
   const decoded = Array.isArray(peaks);
   return (
     <div
       role="img"
       aria-label={
-        `Commentary at ${formatMediaTime(interval.start)}` +
-        `${decoded ? `, ${formatMediaTime(interval.end - interval.start)} long` : ", loading waveform"}` +
+        `Commentary at ${formatMediaTime(start)}` +
+        `${decoded ? `, ${formatMediaTime(length)} long` : ", loading waveform"}` +
         `${active ? ", playing" : ""}`
       }
-      title={interval.text === "" ? interval.title : interval.text}
-      style={{ left: `${interval.leftPct}%`, width: `${interval.widthPct}%` }}
-      className={`absolute inset-y-1 min-w-0 overflow-hidden rounded-sm px-px py-0.5 ${
-        active ? "bg-secondary" : "bg-secondary/40"
+      title={title}
+      style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+      className={`absolute inset-y-1 overflow-hidden rounded-sm border-x ${
+        active ? "border-muted-foreground/50 bg-secondary/50" : "border-border/60"
       }`}
     >
+      <div aria-hidden className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border/70" />
       <svg
         viewBox={`0 0 ${WAVEFORM_VIEWBOX_WIDTH} ${WAVEFORM_VIEWBOX_HEIGHT}`}
         preserveAspectRatio="none"
         aria-hidden
-        className={`block h-full w-full ${active ? "text-foreground" : "text-muted-foreground"}`}
+        className={`relative block h-full w-full ${
+          active ? "text-foreground" : decoded ? "text-muted-foreground/80" : "text-subtle/50"
+        }`}
         fill="currentColor"
       >
         <path d={path} />
       </svg>
     </div>
   );
-}
+});
 
-function StatusTick({ leftPct, label, title, tone }) {
+const StatusTick = memo(function StatusTick({ leftPct, label, title, tone }) {
   return (
     <div
       role="img"
       aria-label={label}
       title={title}
       style={{ left: `${leftPct}%` }}
-      className={`absolute inset-y-2 w-0.5 rounded-full ${tone}`}
+      className={`absolute top-1/2 h-2/3 w-0.5 -translate-y-1/2 rounded-full ${tone}`}
     />
+  );
+});
+
+function tickTone(row, hasDecodeError) {
+  if (row.state === "failed" || row.state === "unavailable" || hasDecodeError) {
+    return "bg-destructive";
+  }
+  if (row.state === "generating") {
+    return "bg-warning";
+  }
+  if (row.state === "waiting") {
+    return "bg-muted-foreground";
+  }
+  return "bg-border";
+}
+
+function TimelineState({ icon: Icon, tone, title, body }) {
+  return (
+    <div role="status" className="flex h-full min-h-0 flex-col items-center justify-center gap-1 px-4 text-center">
+      <Icon className={`size-5 ${tone}`} aria-hidden />
+      <p className="text-[12px] font-medium text-foreground">{title}</p>
+      <p className="max-w-xl text-[11px] leading-relaxed text-muted-foreground">{body}</p>
+    </div>
   );
 }
 
-export default function CommentaryTimeline({ projectId = null, videoRef = null, script = null, runStatus = "idle", audio = null }) {
-  const audioFiles = audio?.audioFiles ?? [];
-  const ttsEntries = audio?.ttsEntries ?? null;
+export default function CommentaryTimeline({ projectId = null, videoRef = null, view = null, runStatus = "idle", audio = null }) {
+  const rows = view?.rows ?? [];
   const manifestInvalid = audio?.manifestInvalid === true;
-  const segments = useMemo(
-    () => (Array.isArray(script?.segments) ? script.segments : []),
-    [script],
-  );
   const live = runStatus === "processing";
-  const view = useMemo(
-    () =>
-      buildAudioRows({
-        segments,
-        files: audioFiles,
-        entries: ttsEntries,
-        live,
-      }),
-    [segments, audioFiles, ttsEntries, live],
-  );
-  const { meta, decodeErrors, decodeBlocked } = useCommentaryAudio(projectId, view.rows, runStatus);
+  const { meta, decodeErrors, decodeBlocked } = useCommentaryAudio(projectId, rows, runStatus);
   const durations = useMemo(() => {
     const map = new Map();
     for (const [key, entry] of meta) {
@@ -99,12 +114,14 @@ export default function CommentaryTimeline({ projectId = null, videoRef = null, 
     return map;
   }, [meta]);
   const intervals = useMemo(
-    () => buildIntervals(view.rows, durations),
-    [view.rows, durations],
+    () => buildIntervals(rows, durations),
+    [rows, durations],
   );
   const getBuffer = useCallback((key) => peekCachedBuffer(projectId, key), [projectId]);
   const playheadRef = useRef(null);
   const timeRef = useRef(null);
+  const scrollRef = useRef(null);
+  const rulerScrollRef = useRef(null);
   const { activeKey, audioBlocked } = useCommentaryPlayback({
     videoRef,
     projectId,
@@ -151,7 +168,7 @@ export default function CommentaryTimeline({ projectId = null, videoRef = null, 
       return [];
     }
     const decoded = new Set(intervals.map((interval) => interval.key));
-    return view.rows
+    return rows
       .filter(
         (row) =>
           !decoded.has(row.key) &&
@@ -166,7 +183,7 @@ export default function CommentaryTimeline({ projectId = null, videoRef = null, 
         state: row.state,
         timestamp: row.timestamp,
       }));
-  }, [view.rows, intervals, scale]);
+  }, [rows, intervals, scale]);
   const ticks = useMemo(() => {
     if (!(scale > 0)) {
       return [];
@@ -179,263 +196,139 @@ export default function CommentaryTimeline({ projectId = null, videoRef = null, 
     return marks;
   }, [scale]);
 
-  const [exportState, setExportState] = useState({
-    status: "idle",
-    percent: 0,
-    outputPath: null,
-    error: null,
-  });
-  const exportLiveRef = useRef(false);
-
-  useEffect(() => {
-    if (typeof window.api?.onExportEvent !== "function") {
-      return undefined;
+  const contentMinWidth = `${Math.ceil(Math.max(scale, 0) * MIN_PX_PER_SEC)}px`;
+  const handleScroll = useCallback((event) => {
+    if (rulerScrollRef.current) {
+      rulerScrollRef.current.scrollLeft = event.currentTarget.scrollLeft;
     }
-    const unsubscribe = window.api.onExportEvent((event) => {
-      if (!event || event.projectId !== projectId) {
-        return;
-      }
-      if (event.phase === "progress") {
-        const total = event.totalUs;
-        const percent =
-          typeof event.completedUs === "number" && typeof total === "number" && total > 0
-            ? Math.min(100, Math.max(0, Math.round((event.completedUs / total) * 100)))
-            : 0;
-        setExportState((prev) => ({ ...prev, status: "exporting", percent }));
-      } else if (event.phase === "done") {
-        exportLiveRef.current = false;
-        const outputPath = typeof event.outputPath === "string" ? event.outputPath : null;
-        setExportState({
-          status: "done",
-          percent: 100,
-          outputPath,
-          error: null,
-        });
-        toast.success("Export complete", {
-          description: outputPath?.split(/[/\\]/).pop() ?? undefined,
-        });
-      } else if (event.phase === "error") {
-        exportLiveRef.current = false;
-        const message = typeof event.error === "string" ? event.error : "Export failed.";
-        setExportState({
-          status: "error",
-          percent: 0,
-          outputPath: null,
-          error: message,
-        });
-        toast.error("Export failed", { description: message });
-      } else if (event.phase === "cancelled") {
-        exportLiveRef.current = false;
-        setExportState({ status: "idle", percent: 0, outputPath: null, error: null });
-      }
-    });
-    return () => {
-      unsubscribe();
-      if (exportLiveRef.current && typeof window.api?.cancelExport === "function") {
-        exportLiveRef.current = false;
-        void window.api.cancelExport();
-      }
-    };
-  }, [projectId]);
+  }, []);
 
-  async function startExport() {
-    if (exportState.status === "starting" || exportState.status === "exporting") {
-      return;
-    }
-    setExportState({ status: "starting", percent: 0, outputPath: null, error: null });
-    try {
-      const res = await window.api.exportVideo(projectId, view.rows);
-      if (!res || res.ok !== true) {
-        exportLiveRef.current = false;
-        setExportState({
-          status: "error",
-          percent: 0,
-          outputPath: null,
-          error: res?.error ?? "Export could not start.",
-        });
-      } else if (res.canceled) {
-        exportLiveRef.current = false;
-        setExportState({ status: "idle", percent: 0, outputPath: null, error: null });
-      } else {
-        exportLiveRef.current = true;
-        setExportState((prev) => ({ ...prev, status: "exporting" }));
-      }
-    } catch {
-      exportLiveRef.current = false;
-      setExportState({ status: "error", percent: 0, outputPath: null, error: "Export could not start." });
-    }
-  }
-
-  async function cancelExport() {
-    try {
-      await window.api.cancelExport();
-    } catch {
-      // The cancelled event (or its absence) settles the state below.
-    }
-    exportLiveRef.current = false;
-    setExportState({ status: "idle", percent: 0, outputPath: null, error: null });
-  }
-
-  const pendingCount = view.rows.filter(
+  const pendingCount = rows.filter(
     (row) => row.state === "waiting" || row.state === "generating",
   ).length;
   const blocked = decodeBlocked || audioBlocked;
   const showEmpty =
-    !blocked && (view.rows.length === 0 || !(scale > 0));
+    !blocked && (rows.length === 0 || !(scale > 0));
 
   return (
     <section aria-label="Commentary timeline" className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
-      <header className="flex h-7 shrink-0 min-w-0 items-center gap-2 border-b border-border px-3">
+      <header className="flex h-8 min-w-0 shrink-0 items-center gap-2.5 border-b border-border px-3">
         <AudioLines className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
           Commentary timeline
         </span>
         {!showEmpty && !blocked ? (
           <span className="shrink-0 font-mono text-[10px] tabular-nums text-subtle">
-            {`${view.ready} ready`}
+            {`${view?.ready ?? 0} ready`}
             {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
-            {view.failed > 0 ? ` · ${view.failed} failed` : ""}
-            {view.skipped > 0 ? ` · ${view.skipped} skipped` : ""}
+            {(view?.failed ?? 0) > 0 ? ` · ${view.failed} failed` : ""}
+            {(view?.skipped ?? 0) > 0 ? ` · ${view.skipped} skipped` : ""}
             {manifestInvalid ? " · manifest unreadable" : ""}
           </span>
         ) : null}
-        <span ref={timeRef} className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+        <span ref={timeRef} className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
           00:00 / 00:00
         </span>
-        {exportState.status === "exporting" || exportState.status === "starting" ? (
-          <span className="flex shrink-0 items-center gap-1.5">
-            <Progress
-              value={exportState.status === "starting" ? undefined : exportState.percent}
-              max={100}
-              aria-label={exportState.status === "starting" ? "Preparing export" : `Exporting video, ${exportState.percent}%`}
-              className="h-1 w-20"
-            />
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-              {exportState.status === "starting" ? "Preparing…" : `${exportState.percent}%`}
-            </span>
-            <Button size="icon-xs" variant="ghost" onClick={cancelExport} title="Cancel export" aria-label="Cancel export">
-              <X aria-hidden />
-            </Button>
-          </span>
-        ) : exportState.status === "done" ? (
-          <span className="flex min-w-0 shrink-0 items-center gap-1.5">
-            <span
-              className="flex min-w-0 items-center gap-1 text-[11px] text-foreground"
-              title={exportState.outputPath ?? "Export complete"}
-            >
-              <Check className="size-3.5 shrink-0" aria-hidden />
-              <span className="max-w-40 truncate">
-                {exportState.outputPath?.split(/[/\\]/).pop() ?? "Export complete"}
-              </span>
-            </span>
-            <Button size="xs" variant="secondary" onClick={startExport} title="Export video again">
-              <Download aria-hidden />
-              Export
-            </Button>
-          </span>
-        ) : (
-          <span className="flex min-w-0 shrink-0 items-center gap-1.5">
-            {exportState.status === "error" ? (
-              <span
-                role="alert"
-                title={exportState.error ?? "Export failed."}
-                className="max-w-48 truncate text-[11px] text-destructive"
-              >
-                {exportState.error ?? "Export failed."}
-              </span>
-            ) : null}
-            <Button
-              size="xs"
-              variant="secondary"
-              onClick={startExport}
-              disabled={view.ready === 0 || !projectId}
-              title={
-                !projectId
-                  ? "Open a project to export."
-                  : view.ready === 0
-                    ? "Generate spoken audio before exporting."
-                    : "Export video with commentary"
-              }
-            >
-              <Download aria-hidden />
-              Export
-            </Button>
-          </span>
-        )}
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+      <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
         {blocked ? (
-          <p role="status" className="flex h-full items-center px-3 text-[11px] text-muted-foreground">
-            Commentary audio is unavailable in this environment (Web Audio is required for the timeline).
-          </p>
+          <TimelineState
+            icon={TriangleAlert}
+            tone="text-warning"
+            title="Timeline unavailable"
+            body="Commentary audio needs Web Audio, which this environment does not provide. Script text and artifacts remain available."
+          />
         ) : showEmpty ? (
-          <p role="status" className="flex h-full items-center px-3 text-[11px] text-muted-foreground">
-            {view.rows.length === 0
-              ? (live
-                ? "Commentary segments appear on this timeline as audio finishes generating."
-                : "No commentary audio for this project. Generate spoken audio to fill this timeline.")
-              : "Waiting for video metadata to place commentary on the timeline."}
-          </p>
+          rows.length === 0 ? (
+            <TimelineState
+              icon={AudioWaveform}
+              tone="text-subtle"
+              title="No commentary audio"
+              body={
+                live
+                  ? "Commentary segments appear on this timeline as audio finishes generating."
+                  : "Generate spoken audio to fill this timeline with commentary waveforms."
+              }
+            />
+          ) : (
+            <TimelineState
+              icon={AudioWaveform}
+              tone="text-subtle"
+              title="Placing commentary"
+              body="Waiting for video metadata to place commentary on the timeline."
+            />
+          )
         ) : (
           <div
             className="relative h-full w-full"
-            style={{ minWidth: `${Math.ceil(scale * MIN_PX_PER_SEC)}px` }}
+            style={{ minWidth: contentMinWidth }}
           >
             {positioned.map((interval) => (
               <WaveformRegion
                 key={interval.key}
-                interval={interval}
+                leftPct={interval.leftPct}
+                widthPct={interval.widthPct}
+                start={interval.start}
+                length={interval.end - interval.start}
+                title={interval.text === "" ? interval.title : interval.text}
                 peaks={meta.get(interval.key)?.peaks ?? null}
                 active={interval.key === activeKey}
               />
             ))}
-            {pendingTicks.map((tick) => (
-              <StatusTick
-                key={tick.key}
-                leftPct={tick.leftPct}
-                label={
-                  tick.state === "failed" || decodeErrors.has(tick.key)
-                    ? `Commentary at ${formatMediaTime(tick.timestamp)}, audio unavailable`
-                    : `Commentary at ${formatMediaTime(tick.timestamp)}, ${tick.state}`
-                }
-                title={decodeErrors.get(tick.key) ?? tick.state}
-                tone={
-                  tick.state === "failed" || decodeErrors.has(tick.key)
-                    ? "bg-destructive"
-                    : tick.state === "generating"
-                      ? "bg-warning"
-                      : "bg-border"
-                }
-              />
-            ))}
+            {pendingTicks.map((tick) => {
+              const hasDecodeError = decodeErrors.has(tick.key);
+              return (
+                <StatusTick
+                  key={tick.key}
+                  leftPct={tick.leftPct}
+                  label={
+                    tick.state === "failed" || tick.state === "unavailable" || hasDecodeError
+                      ? `Commentary at ${formatMediaTime(tick.timestamp)}, audio unavailable`
+                      : `Commentary at ${formatMediaTime(tick.timestamp)}, ${tick.state}`
+                  }
+                  title={decodeErrors.get(tick.key) ?? tick.state}
+                  tone={tickTone(tick, hasDecodeError)}
+                />
+              );
+            })}
             <div
               ref={playheadRef}
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 w-px bg-primary"
+              className="pointer-events-none absolute inset-y-0"
               style={{ left: "0%", opacity: 0 }}
-            />
+            >
+              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-primary" />
+              <div className="absolute left-1/2 top-0.5 size-1.5 -translate-x-1/2 rotate-45 bg-primary" />
+            </div>
           </div>
         )}
       </div>
 
       {!(blocked || showEmpty) ? (
-        <footer className="relative h-4 shrink-0 border-t border-border">
-          {ticks.map((t) => (
-            <span
-              key={t}
-              aria-hidden
-              style={{ left: `${(t / scale) * 100}%` }}
-              className="absolute top-0.5 font-mono text-[10px] tabular-nums text-subtle"
-            >
-              {formatMediaTime(t)}
-            </span>
-          ))}
+        <footer className="h-4 shrink-0 overflow-hidden border-t border-border">
+          <div ref={rulerScrollRef} className="h-full overflow-hidden">
+            <div className="relative h-full w-full" style={{ minWidth: contentMinWidth }}>
+              {ticks.map((t) => (
+                <span
+                  key={t}
+                  aria-hidden
+                  style={{ left: `${(t / scale) * 100}%` }}
+                  className="absolute inset-y-0"
+                >
+                  <span className="block h-[3px] w-px bg-border" />
+                  <span className="mt-px block font-mono text-[10px] leading-none tabular-nums text-subtle">
+                    {formatMediaTime(t)}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
         </footer>
       ) : null}
 
       <ul className="sr-only">
-        {view.rows.map((row) => (
+        {rows.map((row) => (
           <li key={row.key}>
             {`Commentary at ${formatMediaTime(row.timestamp)}, ${row.state}${
               row.text !== "" ? `: ${row.text}` : ""

@@ -111,3 +111,16 @@ body {
 ::selection {
   background-color: color-mix(in srgb, var(--primary) 30%, transparent);
 }
+
+/* Immediate pressed feedback for every button: a subtle, user-driven
+   scale on transform only. Disabled buttons are excluded, and reduced
+   motion drops the press entirely. */
+button[data-slot="button"]:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button[data-slot="button"]:active:not(:disabled) {
+    transform: none;
+  }
+}
