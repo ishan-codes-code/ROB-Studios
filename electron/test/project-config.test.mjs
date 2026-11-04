@@ -40,8 +40,9 @@ test('new projects carry default configuration; legacy projects default on read'
   assert.deepEqual(project.configuration, defaultProjectConfiguration());
   assert.equal(project.configuration.credentialId, null);
   assert.deepEqual(project.configuration.game, {
-    id: 'free-fire', mode: null, matchType: null, map: null,
-    language: 'English', teams: [], additionalContext: '',
+    id: 'free-fire', matchType: null, mode: null, map: null, category: null,
+    teams: [], tournament: null, stage: null,
+    language: 'English', additionalContext: '',
   });
   // Simulate a pre-migration project.json without configuration.
   const rawPath = path.join(dir, 'projects', project.id, 'project.json');
@@ -80,8 +81,9 @@ test('creation persists project-owned game metadata', async (t) => {
     },
   });
   assert.deepEqual(project.configuration.game, {
-    id: 'free-fire', mode: 'battle-royale', matchType: 'Ranked', map: 'Bermuda',
-    language: 'English', teams: ['Team A', 'Team B'], additionalContext: 'Semifinal.',
+    id: 'free-fire', mode: 'battle-royale', matchType: 'Ranked', map: 'Bermuda', category: null,
+    language: 'English', teams: ['Team A', 'Team B'], tournament: null, stage: null,
+    additionalContext: 'Semifinal.',
   });
   // A fresh read (application restart) returns the same metadata.
   assert.deepEqual(getProject(dir, project.id).configuration.game, project.configuration.game);
@@ -90,8 +92,8 @@ test('creation persists project-owned game metadata', async (t) => {
     name: 'Partial', sourcePath: seedVideo(t), game: { map: '  Purgatory ' },
   });
   assert.deepEqual(partial.configuration.game, {
-    id: 'free-fire', mode: null, matchType: null, map: 'Purgatory',
-    language: 'English', teams: [], additionalContext: '',
+    id: 'free-fire', mode: null, matchType: null, map: 'Purgatory', category: null,
+    language: 'English', teams: [], tournament: null, stage: null, additionalContext: '',
   });
 });
 
@@ -141,8 +143,9 @@ test('legacy profile/preset references migrate to owned metadata without rewriti
   });
   const reread = getProject(dir, project.id);
   assert.deepEqual(reread.configuration.game, {
-    id: 'free-fire', mode: null, matchType: null, map: null,
-    language: 'Hindi', teams: [], additionalContext: 'Night tournament.',
+    id: 'free-fire', mode: null, matchType: null, map: null, category: null,
+    language: 'Hindi', teams: [], tournament: null, stage: null,
+    additionalContext: 'Night tournament.',
   });
   // Loading migrates in memory only; the stored file keeps the legacy
   // references until the next explicit save.
@@ -284,6 +287,70 @@ test('run resolution returns provider runtime without leaking other keys', async
     language: 'English',
     instructions: '',
   });
+});
+
+test('all three catalog games persist with their metadata', async (t) => {
+  const dir = tempDir(t);
+  const video = seedVideo(t);
+  const cod = createProject(dir, {
+    name: 'CoD', sourcePath: video,
+    game: { id: 'cod', matchType: 'Multiplayer', mode: 'Domination', map: 'Shoot House', category: 'Casual' },
+  });
+  assert.equal(cod.configuration.game.id, 'cod');
+  assert.equal(cod.configuration.game.mode, 'Domination');
+  const bgmi = createProject(dir, {
+    name: 'BGMI', sourcePath: video,
+    game: { id: 'bgmi', matchType: 'Battle Royale', mode: 'Squad', map: 'Erangel', category: 'Ranked' },
+  });
+  assert.equal(bgmi.configuration.game.id, 'bgmi');
+  assert.deepEqual(getProject(dir, bgmi.id).configuration.game.map, 'Erangel');
+});
+
+test('tournament, stage, and category validate like other short fields', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, {
+    name: 'T', sourcePath: seedVideo(t),
+    game: { category: 'Tournament', tournament: 'City Finals', stage: 'Semifinal' },
+  });
+  assert.equal(project.configuration.game.tournament, 'City Finals');
+  assert.equal(project.configuration.game.stage, 'Semifinal');
+  assert.throws(
+    () => createProject(dir, { name: 'Bad', sourcePath: seedVideo(t), game: { tournament: 't'.repeat(81) } }),
+    /Invalid game metadata/,
+  );
+  assert.throws(
+    () => updateProject(dir, project.id, { configuration: { game: { stage: 42 } } }),
+    /Invalid game metadata/,
+  );
+});
+
+test('legacy free-text mode and match type pass through new validation', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'Legacy', sourcePath: seedVideo(t) });
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  // A custom entry from before the per-game suggestion lists.
+  raw.configuration.game.mode = 'Lone Wolf';
+  raw.configuration.game.matchType = 'Room card';
+  fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+  const reread = getProject(dir, project.id);
+  assert.equal(reread.configuration.game.mode, 'Lone Wolf');
+  assert.equal(reread.configuration.game.matchType, 'Room card');
+});
+
+test('worker context excludes not-yet-integrated fields', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, {
+    name: 'P', sourcePath: seedVideo(t),
+    game: { map: 'Bermuda', category: 'Tournament', tournament: 'City Finals', stage: 'Semifinal' },
+  });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.equal(resolved.preferences.game.context, 'Map: Bermuda.');
 });
 
 test('run resolution composes worker context from owned game metadata', async (t) => {

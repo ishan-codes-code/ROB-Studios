@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { validateVideoInput } from '../worker-protocol.mjs';
 import { normalizePartialTtsConfig } from '../tts-config.mjs';
+import { DEFAULT_GAME_ID as CATALOG_DEFAULT_GAME_ID, SUPPORTED_GAME_IDS as CATALOG_GAME_IDS } from '../lib/games.js';
 
 export const SCHEMA_VERSION = 1;
 export const PROJECTS_DIR_NAME = 'projects';
@@ -12,11 +13,12 @@ const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_NAME_LENGTH = 100;
 const CONFIGURATION_FIELDS = new Set(['credentialId', 'game', 'promptPackId', 'tts']);
 
-// Project-owned game metadata. Only Free Fire is supported today, so
-// the game id is an enum of one; the shape already carries the match
-// context future games will need.
-export const SUPPORTED_GAME_IDS = ['free-fire'];
-export const DEFAULT_GAME_ID = 'free-fire';
+// Project-owned game metadata. Supported games mirror the loaded
+// prompt packs (see lib/games.js); per-game suggestion lists live
+// there, while storage keeps bounded free text so legacy projects
+// always read back.
+export const SUPPORTED_GAME_IDS = CATALOG_GAME_IDS;
+export const DEFAULT_GAME_ID = CATALOG_DEFAULT_GAME_ID;
 export const DEFAULT_GAME_LANGUAGE = 'English';
 // Commentary voice formerly owned by the built-in preset. The worker
 // still receives these verbatim, so runs behave exactly as before.
@@ -29,11 +31,14 @@ const GAME_TEAMS_MAX = 8;
 export function defaultGameMetadata() {
   return {
     id: DEFAULT_GAME_ID,
-    mode: null,
     matchType: null,
+    mode: null,
     map: null,
-    language: DEFAULT_GAME_LANGUAGE,
+    category: null,
     teams: [],
+    tournament: null,
+    stage: null,
+    language: DEFAULT_GAME_LANGUAGE,
     additionalContext: '',
   };
 }
@@ -80,11 +85,14 @@ export function normalizeGameMetadata(value) {
   }
   return {
     id,
-    mode: cleanGameText(value.mode),
     matchType: cleanGameText(value.matchType),
+    mode: cleanGameText(value.mode),
     map: cleanGameText(value.map),
-    language: cleanGameText(value.language) ?? DEFAULT_GAME_LANGUAGE,
+    category: cleanGameText(value.category),
     teams: cleanTeams,
+    tournament: cleanGameText(value.tournament),
+    stage: cleanGameText(value.stage),
+    language: cleanGameText(value.language) ?? DEFAULT_GAME_LANGUAGE,
     additionalContext,
   };
 }
@@ -92,7 +100,10 @@ export function normalizeGameMetadata(value) {
 /**
  * Compose the bounded worker game-context string from project-owned
  * metadata. Structured fields come first, free-form additional
- * context last; the bound only ever trims the tail.
+ * context last; the bound only ever trims the tail. Deliberately
+ * unchanged by the game expansion: category, tournament, and stage
+ * persist on the project but do not flow into prompts until the
+ * dedicated AI-integration task.
  */
 export function composeGameContext(game) {
   const parts = [];

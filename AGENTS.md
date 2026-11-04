@@ -107,7 +107,7 @@ Read this file and the relevant `docs/` pages before implementing any task.
   appears on stdout or stderr.
 - Security boundaries: `nodeIntegration` stays disabled and
   `contextIsolation` stays enabled. `preload.js` exposes only
-  `processVideo`, `cancelProcessing`, `requestStop`, `onWorkerEvent`, `selectVideo`,
+  `processVideo`, `cancelProcessing`, `requestStop`, `onWorkerEvent`, `selectVideo`, `getPathForFile` (sync dropped-file path resolution — Electron 32 removed `File.path`),
   `visionStatus` (key-configured boolean only, never the key value),
   and the project IPC (`list-projects`, `create-project`, `open-project`,
   `update-project`, `delete-project`, `list-artifacts`, `read-artifact`) via

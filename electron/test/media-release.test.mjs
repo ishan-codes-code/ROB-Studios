@@ -48,3 +48,12 @@ test('script panel keeps its preview-audio unmount cleanup', () => {
   assert.match(scriptPanel, /element\.removeAttribute\("src"\)/);
   assert.match(scriptPanel, /previewRef\.current = null;/);
 });
+
+test('video preview ref callback is stable across renders', () => {
+  // A fresh callback identity every render would make React 19 run
+  // the detach cleanup (which strips the video src) on ordinary state
+  // updates, wedging the preview on 'loading' with no further events.
+  assert.match(preview, /const setVideoRef = useCallback\(\(node\) => \{/);
+  assert.match(preview, /\}, \[videoRef\]\);/);
+});
+

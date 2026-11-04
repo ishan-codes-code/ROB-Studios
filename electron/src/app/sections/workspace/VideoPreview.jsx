@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AlertCircle, Film, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
@@ -41,7 +41,7 @@ export default function VideoPreview({ project, videoRef }) {
   const fileName = fileNameOf(sourcePath);
   const hasSource = Boolean(project?.id && sourcePath && fileName);
   const url = hasSource ? projectMediaUrl(project.id, "source", fileName) : "";
-  const setVideoRef = (node) => {
+  const setVideoRef = useCallback((node) => {
     internalVideoRef.current = node;
     if (typeof videoRef === "function") videoRef(node);
     else if (videoRef) videoRef.current = node;
@@ -56,7 +56,7 @@ export default function VideoPreview({ project, videoRef }) {
       if (typeof videoRef === "function") videoRef(null);
       else if (videoRef) videoRef.current = null;
     };
-  };
+  }, [videoRef]);
 
   function handleMetadata(event) {
     const video = event.currentTarget;

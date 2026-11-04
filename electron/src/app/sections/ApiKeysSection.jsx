@@ -13,7 +13,7 @@ import {
   Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
-import { AutoHeight } from "@animate-ui/react/primitives/effects/auto-height";
+import { Accordion } from "@animate-ui/react/primitives/base-ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
@@ -612,76 +612,75 @@ export default function ApiKeysSection({ onBackToEditor }) {
             </p>
           </div>
         ) : (
-          <ul className="flex flex-col gap-1">
+          <Accordion.Root
+            value={selectedId ? [selectedId] : []}
+            onValueChange={(next) => setSelectedId(next[0] ?? null)}
+            multiple={false}
+            className="flex flex-col gap-1"
+          >
             {credentials.map((entry) => {
               const expanded = selectedId === entry.id;
               return (
-                <li
+                <Accordion.Item
                   key={entry.id}
+                  value={entry.id}
                   className={expanded ? "rounded-lg bg-card ring-1 ring-border" : ""}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId((current) => (current === entry.id ? null : entry.id))}
-                    aria-expanded={expanded}
-                    aria-controls={`provider-detail-${entry.id}`}
-                    className={`flex w-full min-w-0 items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                      expanded ? "bg-transparent" : "hover:bg-accent/60"
-                    }`}
-                  >
-                    <KeyRound className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium text-foreground">
-                        {entry.name}
+                  <Accordion.Header>
+                    <Accordion.Trigger
+                      className={`flex w-full min-w-0 items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        expanded ? "bg-transparent" : "hover:bg-accent/60"
+                      }`}
+                    >
+                      <KeyRound className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-foreground">
+                          {entry.name}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                          {providerLabel(entry.provider)} · {capabilityLabel(entry)}
+                        </span>
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                        {providerLabel(entry.provider)} · {capabilityLabel(entry)}
-                      </span>
-                    </span>
-                    {entry.devOnly === true ? <Badge variant="outline">In-memory (dev)</Badge> : null}
-                    <ProviderStatusBadge credential={entry} connectedIds={connectedIds} failedIds={failedIds} />
-                    <ChevronDown
-                      className={`size-4 shrink-0 text-muted-foreground transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}
-                      aria-hidden
-                    />
-                  </button>
-                  <AutoHeight
-                    deps={[expanded]}
-                    transition={{ duration: MOTION.standard, ease: EASING.entrance }}
-                  >
-                    {expanded ? (
-                      <div id={`provider-detail-${entry.id}`} className="px-3 pb-4 pt-1">
-                        <Separator className="mb-4" />
-                        <ProviderDetail
-                          credential={entry}
-                          busy={busy}
-                          editKey={editKey}
-                          setEditKey={setEditKey}
-                          editEndpoint={editEndpoint}
-                          setEditEndpoint={setEditEndpoint}
-                          confirmDelete={confirmDelete}
-                          setConfirmDelete={setConfirmDelete}
-                          curated={curated}
-                          curatedLoading={curatedLoading}
-                          onTest={() => runCheck("connection")}
-                          onVerify={() => runCheck("verify")}
-                          onReplaceKey={replaceKey}
-                          onChangeModel={changeModel}
-                          onChangeEndpoint={changeEndpoint}
-                          onRename={rename}
-                          onRemove={remove}
-                          onClose={() => {
-                            setSelectedId(null);
-                            setConfirmDelete(false);
-                          }}
-                        />
-                      </div>
-                    ) : null}
-                  </AutoHeight>
-                </li>
+                      {entry.devOnly === true ? <Badge variant="outline">In-memory (dev)</Badge> : null}
+                      <ProviderStatusBadge credential={entry} connectedIds={connectedIds} failedIds={failedIds} />
+                      <ChevronDown
+                        className={`size-4 shrink-0 text-muted-foreground transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}
+                        aria-hidden
+                      />
+                    </Accordion.Trigger>
+                  </Accordion.Header>
+                  <Accordion.Panel transition={{ duration: MOTION.standard, ease: EASING.entrance }}>
+                    <div className="px-3 pb-4 pt-1">
+                      <Separator className="mb-4" />
+                      <ProviderDetail
+                        credential={entry}
+                        busy={busy}
+                        editKey={editKey}
+                        setEditKey={setEditKey}
+                        editEndpoint={editEndpoint}
+                        setEditEndpoint={setEditEndpoint}
+                        confirmDelete={confirmDelete}
+                        setConfirmDelete={setConfirmDelete}
+                        curated={curated}
+                        curatedLoading={curatedLoading}
+                        onTest={() => runCheck("connection")}
+                        onVerify={() => runCheck("verify")}
+                        onReplaceKey={replaceKey}
+                        onChangeModel={changeModel}
+                        onChangeEndpoint={changeEndpoint}
+                        onRename={rename}
+                        onRemove={remove}
+                        onClose={() => {
+                          setSelectedId(null);
+                          setConfirmDelete(false);
+                        }}
+                      />
+                    </div>
+                  </Accordion.Panel>
+                </Accordion.Item>
               );
             })}
-          </ul>
+          </Accordion.Root>
         )}
       </section>
 

@@ -1,5 +1,42 @@
 # Current state
 
+## Creation dialog + 3-game catalog + recording dropzone (uncommitted)
+
+Creation is a dedicated `ProjectCreationDialog`: project name, a
+central single-recording dropzone (vendored Kokonut UI File Upload,
+adapted to Obsidian tokens; drop/pick/paste, one file, extension
+mirror of the main-process validator), game selection, and a
+game-aware `GameMetadataForm`. A browse-files fallback keeps the
+native picker path; submit sends only `file.path` to the unchanged
+`createProject` IPC (main still imports/copies), gates on name plus
+recording, single-flights, and stays open on import failure so a
+project never appears created when its recording import failed.
+The catalog (`electron/src/lib/games.js`) owns exactly Free Fire,
+Call of Duty (generic), and BGMI with per-game match types, modes,
+maps, and categories. `configuration.game` gains `category`,
+`tournament`, and `stage`; normalization validates bounds only and
+migrates legacy values idempotently — but `composeGameContext` is
+deliberately unchanged, so new fields persist without reaching AI
+prompts yet. Configure edits the same shape (multi-game summary);
+no worker/prompt/TTS change.
+
+Verification (targeted only): new `games` suite plus
+extended/rewritten `project-config`, `dashboard`, and
+`renderer-hooks` suites pass (79/79, run with TEMP redirected:
+sandbox EPERM blocks `os.tmpdir()`); renderer production build
+succeeds. Follow-up fix: dropped/picked recordings failed with
+"Couldn't read this file's path" because Electron 32 removed
+`File.path` from the renderer (app runs Electron 36) — paths now
+resolve through a sync `getPathForFile` preload bridge
+(`webUtils.getPathForFile`), used identically on drop-accept and
+drop-success; dialog widened to `sm:max-w-2xl` with looser grid
+gaps; match type/mode/category selects migrated to the shared
+shadcn Select (legacy-value item and None-to-clear preserved; map
+stays free-text input with datalist). New `preload-bridge` suite;
+83/83 across the focused set; renderer build succeeds. Manually
+unverified: dialog feel, drop/browse flows, and Configure editing
+in a running shell.
+
 ## Project-owned game configuration (uncommitted)
 
 Game Profiles and Commentary Presets are removed as user-facing

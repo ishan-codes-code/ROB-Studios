@@ -15,12 +15,19 @@ function read(relative) {
   return fs.readFileSync(path.join(SRC, relative), 'utf8');
 }
 
-test('provider rows expand inline with animated height', () => {
+test('provider rows expand through the Base UI accordion primitive', () => {
   const source = read('app/sections/ApiKeysSection.jsx');
-  assert.match(source, /from "@animate-ui\/react\/primitives\/effects\/auto-height"/);
-  assert.match(source, /<AutoHeight/);
-  assert.match(source, /aria-expanded=\{expanded\}/);
-  assert.match(source, /aria-controls=\{`provider-detail-/);
+  assert.match(source, /from "@animate-ui\/react\/primitives\/base-ui\/accordion"/);
+  assert.match(source, /<Accordion\.Root/);
+  assert.match(source, /multiple=\{false\}/);
+  assert.match(source, /onValueChange=\{\(next\) => setSelectedId\(next\[0\] \?\? null\)\}/);
+  assert.match(source, /<Accordion\.Item/);
+  assert.match(source, /value=\{entry\.id\}/);
+  assert.match(source, /<Accordion\.Header>/);
+  assert.match(source, /<Accordion\.Trigger/);
+  assert.match(source, /<Accordion\.Panel/);
+  assert.doesNotMatch(source, /AutoHeight/);
+  assert.doesNotMatch(source, /aria-controls=\{`provider-detail-/);
 });
 
 test('provider feedback is a single-slot toast; errors stay inline', () => {

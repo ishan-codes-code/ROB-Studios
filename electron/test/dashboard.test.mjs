@@ -26,6 +26,10 @@ const header = fs.readFileSync(
   path.join(here, '../src/layout/AppHeader.jsx'),
   'utf8',
 );
+const creationDialog = fs.readFileSync(
+  path.join(here, '../src/components/ProjectCreationDialog.jsx'),
+  'utf8',
+);
 
 test('dashboard reuses the editor AutoHeight primitive with the same props', () => {
   const importLine =
@@ -61,33 +65,72 @@ test('hero announces the future capability without implying it works', () => {
   assert.doesNotMatch(hero, /motion\/react/);
 });
 
-test('Add Video actions use the Plus icon and stay outside the collapsible body', () => {
-  const addButtons = dashboard.match(/<Plus data-icon="inline-start" \/>\s*Add Video/g) ?? [];
+test('New project actions use the Plus icon and stay outside the collapsible body', () => {
+  const addButtons = dashboard.match(/<Plus data-icon="inline-start" \/>\s*New project/g) ?? [];
   assert.equal(addButtons.length, 2, 'header action plus empty-state action');
-  const headerButton = dashboard.indexOf('Add Video');
+  const headerButton = dashboard.indexOf('New project');
   const autoHeight = dashboard.indexOf('<AutoHeight');
   assert.ok(
     headerButton !== -1 && autoHeight !== -1 && headerButton < autoHeight,
-    'header Add Video renders before (outside) the collapsible body',
+    'header New project renders before (outside) the collapsible body',
   );
 });
 
 test('project import flow keeps its IPC semantics and silent cancellation', () => {
-  assert.match(dashboard, /window\.api\?\.selectVideo/);
-  assert.match(dashboard, /window\.api\?\.createProject/);
+  assert.match(creationDialog, /window\.api\?\.selectVideo/);
+  assert.match(creationDialog, /window\.api\?\.createProject/);
+  assert.match(creationDialog, /if \(res\.cancelled\) \{\s*return;/);
+  assert.match(creationDialog, /busyRef\.current/);
   assert.match(dashboard, /window\.api\?\.deleteProject/);
-  assert.match(dashboard, /onOpenProject\(res\.project\.id\)/);
-  assert.match(dashboard, /if \(res\.cancelled\) \{\s*return;/);
-  assert.match(dashboard, /submitBusyRef\.current/);
   assert.match(dashboard, /deleteBusyRef\.current/);
+  assert.match(dashboard, /onOpenProject\(projectId\)/);
 });
 
-test('creation collects optional game metadata through the shared form', () => {
-  assert.match(dashboard, /import GameMetadataForm from "@\/components\/GameMetadataForm\.jsx";/);
-  assert.match(dashboard, /window\.api\.createProject\(name, pendingPath, game\)/);
-  assert.match(dashboard, /Match details \(optional\)/);
-  assert.match(dashboard, /<GameMetadataForm/);
-  assert.match(dashboard, /key=\{pendingPath\}/);
+test('creation dialog centers the recording dropzone with a browse fallback', () => {
+  assert.match(creationDialog, /import FileUpload from "@\/components\/kokonutui\/file-upload\.jsx";/);
+  assert.match(creationDialog, /<FileUpload/);
+  assert.match(creationDialog, /multiple=\{false\}/);
+  assert.match(creationDialog, /maxFiles=\{1\}/);
+  assert.match(creationDialog, /acceptedFileTypes=\{SUPPORTED_VIDEO_EXTENSIONS\}/);
+  assert.match(creationDialog, /Gameplay recording/);
+  assert.match(creationDialog, /or browse files…/);
+  assert.match(creationDialog, /One recording per project/);
+  assert.match(creationDialog, /resolveRecordingPath/);
+  assert.match(creationDialog, /window\.api\?\.getPathForFile/);
+  assert.match(creationDialog, /Couldn't read this file's path/);
+});
+
+test('creation dialog gates submit on name plus recording and stays open on failure', () => {
+  assert.match(creationDialog, /const canCreate = name\.trim\(\) !== "" && recording !== null/);
+  assert.match(creationDialog, /disabled=\{\!canCreate\}/);
+  assert.match(creationDialog, /window\.api\.createProject\(trimmed, recording\.path, game\)/);
+  assert.match(creationDialog, /Could not create the project/);
+  assert.match(creationDialog, /if \(!creating\) \{\s*onOpenChange\(next\);\s*\}/);
+  assert.match(creationDialog, /toast\.success\("Project created"/);
+  assert.match(creationDialog, /onCreated\?\.\(res\.project\.id\)/);
+});
+
+test('dashboard opens the dialog instead of an inline naming card', () => {
+  assert.match(dashboard, /import ProjectCreationDialog from "@\/components\/ProjectCreationDialog\.jsx";/);
+  assert.match(dashboard, /<ProjectCreationDialog/);
+  assert.match(dashboard, /New project/);
+  assert.doesNotMatch(dashboard, /pendingPath/);
+  assert.doesNotMatch(dashboard, /Name your project/);
+  assert.doesNotMatch(dashboard, /Match details \(optional\)/);
+});
+
+test('creation collects game metadata through the shared form', () => {
+  assert.match(creationDialog, /import GameMetadataForm from "@\/components\/GameMetadataForm\.jsx";/);
+  assert.match(creationDialog, /<GameMetadataForm disabled=\{creating\} onChange=\{setGame\} \/>/);
+  assert.doesNotMatch(dashboard, /GameMetadataForm/);
+});
+
+test('dialog video extensions match the main-process validator', async () => {
+  const { SUPPORTED_VIDEO_EXTENSIONS: mainExtensions } = await import('../src/worker-protocol.mjs');
+  const match = creationDialog.match(/export const SUPPORTED_VIDEO_EXTENSIONS = \[([^\]]+)\]/);
+  assert.ok(match, 'dialog exports its extension mirror');
+  const dialogExtensions = [...match[1].matchAll(/"(\.[a-z0-9]+)"/g)].map((entry) => entry[1]);
+  assert.deepEqual(new Set(dialogExtensions), mainExtensions);
 });
 
 test('library collapse is an accessible toggle with a stable region id', () => {
@@ -108,10 +151,11 @@ test('loading uses skeletons and errors offer retry', () => {
 });
 
 test('project toasts are stable single-slot notifications', () => {
-  assert.match(dashboard, /toast\.success\("Project created", \{\s*id: "project-created"/);
+  assert.match(creationDialog, /toast\.success\("Project created", \{\s*id: "project-created"/);
   assert.match(dashboard, /toast\.success\("Project deleted", \{\s*id: "project-deleted"/);
   assert.match(dashboard, /toast\.error\("Could not delete project"/);
   assert.doesNotMatch(dashboard, /toast\.loading/);
+  assert.doesNotMatch(creationDialog, /toast\.loading/);
 });
 
 test('dashboard transitions stay opacity-only on shared motion tokens', () => {

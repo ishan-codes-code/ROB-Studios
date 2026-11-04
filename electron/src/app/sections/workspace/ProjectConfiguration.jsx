@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import GameMetadataForm, { gameRecordToInput } from "@/components/GameMetadataForm.jsx";
 import { isRunReady } from "@/lib/config-display.js";
+import { gameDisplayName } from "@/lib/games.js";
 
 const selectClassName =
   "h-8 w-full rounded-sm border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
@@ -32,11 +33,10 @@ export function GroupHeading({ icon: Icon, title, actionLabel, onAction }) {
 }
 
 function gameSummary(game) {
-  if (!game) return "Free Fire";
-  const parts = ["Free Fire"];
-  const meta = [game.mode, game.map].filter(Boolean).join(" · ");
+  const parts = [gameDisplayName(game?.id)];
+  const meta = [game?.matchType, game?.mode, game?.map].filter(Boolean).join(" · ");
   if (meta) parts.push(meta);
-  if (game.language && game.language !== "English") parts.push(game.language);
+  if (game?.language && game.language !== "English") parts.push(game.language);
   return parts.join(" · ");
 }
 

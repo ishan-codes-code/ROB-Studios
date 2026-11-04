@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import {
   ChevronDown,
   Clapperboard,
-  FolderOpen,
   Plus,
   RotateCcw,
   Trash2,
@@ -25,10 +24,9 @@ import {
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import GlassCard from "@/primitives/GlassCard.jsx";
-import GameMetadataForm from "@/components/GameMetadataForm.jsx";
+import ProjectCreationDialog from "@/components/ProjectCreationDialog.jsx";
 import LiveCommentaryHero from "./LiveCommentaryHero.jsx";
 import {
-  extensionOf,
   fileNameOf,
   formatBytes,
   timeAgo,
@@ -123,18 +121,13 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [libraryOpen, setLibraryOpen] = useState(true);
-  const [dialogBusy, setDialogBusy] = useState(false);
-  const [pendingPath, setPendingPath] = useState(null);
-  const [name, setName] = useState("");
-  const [game, setGame] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [flowError, setFlowError] = useState(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [typedName, setTypedName] = useState("");
   const [deletingId, setDeletingId] = useState(null);
-  // Same-tick re-entrancy guards: state alone cannot stop two clicks
-  // in one frame from opening two dialogs or creating twice.
-  const submitBusyRef = useRef(false);
+  // Same-tick re-entrancy guard: state alone cannot stop two clicks in
+  // one frame from deleting twice. Creation single-flights inside its
+  // dialog.
   const deleteBusyRef = useRef(false);
 
   const deleteBusy = deletingId !== null;
@@ -185,67 +178,19 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
     }
   }
 
-  async function handleAdd() {
-    if (submitBusyRef.current || dialogBusy || creating) {
-      return;
-    }
-    submitBusyRef.current = true;
-    setDialogBusy(true);
-    setFlowError(null);
-    try {
-      if (typeof window.api?.selectVideo !== "function") {
-        throw bridgeError();
-      }
-      const res = await window.api.selectVideo();
-      if (!res) {
-        throw new Error("No response from the file dialog.");
-      }
-      if (res.cancelled) {
-        return;
-      }
-      if (res.ok !== true || !res.path) {
-        throw new Error(res.error ?? "Could not select a video.");
-      }
-      setPendingPath(res.path);
-      setName(fileNameOf(res.path).replace(/\.[^.]+$/, ""));
-    } catch (err) {
-      setFlowError(err?.message ?? "Could not select a video.");
-    } finally {
-      submitBusyRef.current = false;
-      setDialogBusy(false);
-    }
+  function handleAdd() {
+    setCreateOpen(true);
   }
 
-  async function handleCreate() {
-    if (submitBusyRef.current || creating || !pendingPath) {
-      return;
-    }
-    submitBusyRef.current = true;
-    setCreating(true);
-    setFlowError(null);
+  async function handleCreated(projectId) {
+    // The dialog toasts success itself; refresh the library, then open.
+    // A refresh failure here must never read as a creation failure.
     try {
-      if (typeof window.api?.createProject !== "function") {
-        throw bridgeError();
-      }
-      const res = await window.api.createProject(name, pendingPath, game);
-      if (!res || res.ok !== true || !res.project) {
-        throw new Error(res?.error ?? "Could not create the project.");
-      }
-      setPendingPath(null);
-      setName("");
-      setGame(null);
       setProjects(await refresh());
-      toast.success("Project created", {
-        id: "project-created",
-        description: res.project.name,
-      });
-      onOpenProject(res.project.id);
-    } catch (err) {
-      setFlowError(err?.message ?? "Could not create the project.");
-    } finally {
-      submitBusyRef.current = false;
-      setCreating(false);
+    } catch {
+      // The project exists; the next mount reloads the list.
     }
+    onOpenProject(projectId);
   }
 
   function handleRequestDelete(project) {
@@ -362,116 +307,30 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
               type="button"
               variant="default"
               size="sm"
-              disabled={dialogBusy || creating || pendingPath !== null}
               onClick={handleAdd}
             >
-              {dialogBusy ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  Opening…
-                </>
-              ) : (
-                <>
-                  <Plus data-icon="inline-start" />
-                  Add Video
-                </>
-              )}
+              <Plus data-icon="inline-start" />
+              New project
             </Button>
           </div>
         </div>
 
         <AutoHeight
-          deps={[libraryOpen, pendingPath !== null, projects.length, loading, error]}
+          deps={[libraryOpen, projects.length, loading, error]}
           transition={{ duration: MOTION.standard, ease: EASING.entrance }}
           className="min-w-0"
         >
           <AnimatePresence mode="wait" initial={false}>
             {!libraryOpen ? null : (
               <motion.div
-                key={pendingPath ? "naming" : "library"}
+                key="library"
                 id="project-library-body"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: MOTION.standard, ease: EASING.entrance }}
               >
-                {pendingPath ? (
-                  <GlassCard className="flex flex-col gap-3 p-5">
-                    <div className="flex flex-col gap-0.5">
-                      <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-                        Name your project
-                      </h3>
-                      <p className="truncate font-mono text-xs text-subtle">
-                        {pendingPath} · .{extensionOf(pendingPath)}
-                      </p>
-                    </div>
-                    <label
-                      htmlFor="project-name"
-                      className="text-xs font-medium text-muted-foreground"
-                    >
-                      Project name
-                    </label>
-                    <input
-                      id="project-name"
-                      type="text"
-                      value={name}
-                      maxLength={100}
-                      onChange={(event) => setName(event.target.value)}
-                      placeholder="Friday finals"
-                      className="rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    <details className="group min-w-0">
-                      <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-[12px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-                        <ChevronDown className="size-3.5 transition-transform duration-150 group-open:rotate-180" aria-hidden />
-                        Match details (optional)
-                      </summary>
-                      <div className="min-w-0 pt-3">
-                        <GameMetadataForm
-                          key={pendingPath}
-                          disabled={creating}
-                          onChange={setGame}
-                        />
-                      </div>
-                    </details>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="default"
-                        disabled={creating || name.trim() === ""}
-                        onClick={handleCreate}
-                      >
-                        {creating ? (
-                          <>
-                            <Spinner data-icon="inline-start" />
-                            Importing…
-                          </>
-                        ) : (
-                          <>
-                            <FolderOpen data-icon="inline-start" />
-                            Create project
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={creating}
-                        onClick={() => {
-                          setPendingPath(null);
-                          setName("");
-                          setGame(null);
-                          setFlowError(null);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      The video is copied into an isolated project folder. The
-                      original file is left untouched.
-                    </p>
-                  </GlassCard>
-                ) : loading ? (
+                {loading ? (
                   <ProjectListSkeleton />
                 ) : error ? (
                   <div className="flex flex-col items-start gap-3">
@@ -504,11 +363,10 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
                     <Button
                       type="button"
                       variant="default"
-                      disabled={dialogBusy}
                       onClick={handleAdd}
                     >
                       <Plus data-icon="inline-start" />
-                      Add Video
+                      New project
                     </Button>
                   </GlassCard>
                 ) : (
@@ -535,12 +393,11 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
         </AutoHeight>
       </section>
 
-      {flowError ? (
-        <Alert variant="destructive">
-          <AlertTitle>Something went wrong</AlertTitle>
-          <AlertDescription>{flowError}</AlertDescription>
-        </Alert>
-      ) : null}
+      <ProjectCreationDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={handleCreated}
+      />
 
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => {
         if (!open) handleCloseDeleteDialog();

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 // Minimal, audited bridge between the renderer and the main process.
 // The renderer never sees Node.js, the Python interpreter, or API keys:
@@ -42,6 +42,9 @@ contextBridge.exposeInMainWorld('api', {
   deleteVoiceConfig: (id) => ipcRenderer.invoke('voice-config-delete', id),
   providerSetup: (operation, settings) => ipcRenderer.invoke('provider-setup', operation, settings),
   selectVideo: () => ipcRenderer.invoke('select-video'),
+  // Electron 32 removed File.path from the renderer; dropped/picked
+  // files resolve their filesystem path through this sync bridge.
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   listProjects: () => ipcRenderer.invoke('list-projects'),
   createProject: (name, sourcePath, game) =>
     ipcRenderer.invoke('create-project', name, sourcePath, game ?? null),

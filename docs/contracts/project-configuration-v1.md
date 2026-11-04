@@ -13,11 +13,14 @@ directories.
     "credentialId": "cred-9f3a2b1c4d5e6f70",
     "game": {
       "id": "free-fire",
-      "mode": "battle-royale",
-      "matchType": null,
+      "matchType": "Battle Royale",
+      "mode": "Squad",
       "map": "Bermuda",
-      "language": "English",
+      "category": "Ranked",
       "teams": ["Team A", "Team B"],
+      "tournament": null,
+      "stage": null,
+      "language": "English",
       "additionalContext": ""
     },
     "promptPackId": null
@@ -30,13 +33,18 @@ directories.
   credentials the app never guesses; with exactly one, the UI may offer
   it as the initial selection but still persists the explicit choice.
 - `game`: project-owned match metadata. `id` is one of the supported
-  game ids (`free-fire` is currently the only one; unknown ids are
-  rejected so unsupported games never reach a run). `mode`,
-  `matchType`, `map` are optional short strings (null when unset);
-  `language` defaults to `English` and drives commentary language;
-  `teams` holds up to 8 short entries; `additionalContext` holds up to
-  2000 chars of free-form match context. Bounds mirror the retired
-  library (short fields ≤ 80 chars).
+  game ids (`free-fire`, `cod`, `bgmi`, mirroring the prompt-pack
+  catalog; unknown ids are rejected so unsupported games never reach
+  a run). `matchType`, `mode`, `map`, `category`, `tournament`,
+  `stage` are optional short strings (null when unset); `language`
+  defaults to `English` and drives commentary language; `teams` holds
+  up to 8 short entries; `additionalContext` holds up to 2000 chars
+  of free-form match context. Bounds mirror the retired library
+  (short fields ≤ 80 chars). Suggestion lists live in the
+  project-owned catalog (`electron/src/lib/games.js`); the store
+  validates bounds only, so legacy free-text values always read
+  back. `category`/`tournament`/`stage` persist but are not yet
+  composed into worker context (see Run snapshot).
 - `promptPackId`: game prompt-pack ID, or `null` for the application
   default (`free-fire`). Validated against the factory packs on save;
   see [game-pack-v1.md](game-pack-v1.md).
