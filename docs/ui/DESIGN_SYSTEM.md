@@ -49,7 +49,7 @@ proportions, and flat layered surfaces.
 
 ## Typography
 
-- **Inter** for UI text; **Geist Mono** for timers, technical values,
+- **Sora** for UI text (400 body, 500 navigation/buttons, 600 headings, 700 hero); **Geist Mono** for timers, technical values,
   paths, and statistics. Both bundled via `@fontsource` (offline-safe).
 - Scale: 15px semibold section titles (`-0.01em` tracking), 13px UI
   body/labels, 12px metadata, 11px micro-labels (sidebar footer only).

@@ -1,5 +1,93 @@
 # Current state
 
+## Prompt-pack rebuild + match-context integration (uncommitted)
+
+All three factory packs rewritten in place (same 14 field keys,
+metadata, version): gameplay-vs-presentation vision rules (face
+cams/OBS/chat/overlays/menus excluded; HUD may support a fact,
+never a standalone observation), concise per-game references (Free
+Fire Gloo Wall/knock-secure/Clash Squad/Booyah; BGMI
+knock-vs-finish/blue zone/airdrops; title-generic CoD
+operators/Hardpoint hill/dog tags/streaks), broadcast spoken style
+with varied openings and restrained fillers, strict evidence rules
+kept, and verified-context continuity blessed over dead air. No
+cross-game term leakage (tested). Project match details now reach
+every wording stage: Electron composes populated-only context
+(Mode/Match/Map/Category/Tournament/Stage/legacy Teams, labeled
+Notes; category/tournament/stage are newly integrated), and Python
+labels static reference vs project details in vision, script, and
+writer prompts (script/writer previously got none). Schemas, gates,
+validators, and provider contracts untouched. Continuity verdict:
+scene claims already let quiet windows speak from verified context,
+but per-segment WAVs with no stitching or gapless scheduler mean
+zero-silence is NOT guaranteed; no playback refactor proposed here.
+
+Verification (targeted only): Python prompt/script/writer/
+streaming/schema/adaptive/batch suites pass (258/258, exit 0);
+Electron project-config/prompt-packs/processing pass (58/58).
+Renderer/main/preload vite builds currently fail on pre-existing
+tree issues unrelated to this change (renderer.jsx imports
+undeclared, uninstalled `@fontsource/inter`; main config resolves
+the renderer entry) — reported, not fixed here. Manually
+unverified: commentary quality and voice in a live run (no paid
+calls made).
+
+## Typography refinement — Sora + Geist Mono (uncommitted)
+
+Product typography is now Sora (UI) + Geist Mono (technical layer).
+`@fontsource/inter` replaced one-for-one with `@fontsource/sora`
+(same 400/500/600/700 weights; minimal package.json/lock diff, no
+other install collateral); `renderer.jsx` loads Sora + the unchanged
+Geist Mono 400/500, and `--font-sans` points at Sora with the
+previous system fallback stack. Audit found no component-level font
+overrides and `font-mono` already applied consistently to technical
+metadata app-wide, so no component sweep was needed. Hierarchy
+alignment per the type table: hero headline to 700, sidebar
+navigation to 500 (buttons already 500, headings/project names
+already 600, body 400). Self-hosted only — no runtime webfont
+requests. Docs synced (`DESIGN_SYSTEM.md`, `UI_ROADMAP.md`).
+
+Verification: renderer production build succeeds; bundle contains
+Sora 400–700 and Geist Mono 400/500 woff/woff2 with zero Inter
+files. No typography tests exist in the repo, so none were run; no
+behavior, spacing, color, or layout changes. Not manually verified
+in a running shell (clipping/wrapping/weight feel across dashboard,
+editor, settings, dialogs, sidebar).
+
+## Monochrome cinematic dashboard refinement (uncommitted)
+
+Focused visual pass over the broadcast-workspace dashboard. The
+`--live` violet token is fully retired (its only consumer was the
+hero; verified no other usage) and removed from `index.css` and
+`DESIGN_TOKENS.md`, which now states the dashboard is strictly
+monochrome. `LiveCommentaryHero` is now the cinematic centerpiece:
+same `esports-setup.webp` asset, grayscale, `object-cover` with a
+documented 50%/38% focal anchor (keeps the gamer's headset and the
+match monitor in frame at banner aspect ratios), strong black
+horizontal gradient, fixed 250px desktop / 300px narrow height,
+left-aligned editorial composition (LIVE COMMENTARY eyebrow +
+outlined COMING SOON badge, "Every moment. Every play. Live."
+headline, original subtitle), static and non-interactive. The banner
+moved directly below the greeting so project count never buries it.
+Library scalability: the grid renders the 6 most recent projects
+inline (backend sort by last-opened preserved) with an accessible
+View All / Show Less toggle for the rest — no dedicated library view
+exists, so in-place paging was chosen over a new view or a
+virtualization dependency; hidden cards never mount, so their
+thumbnails never load (stats still aggregate all listings honestly).
+Quick Actions gained a primary white Import button; stats slimmed to
+strong white numerals; project cards and the monochrome sidebar
+indicator unchanged. Scrolling unchanged: the App content wrapper
+owns the single vertical scroll, no nested scroll containers added.
+
+Verification (targeted only): rewritten/extended `dashboard` guards
+plus `dashboard-stats`, `navigation`, `renderer-hooks`,
+`project-deletion`, `format` pass 85/85; renderer production build
+succeeds with the new copy confirmed in the bundle and the retired
+violet hex absent from the CSS. No Python, IPC, schema, worker, or
+editor changes. Manually unverified in a running shell (all visual
+states: empty/single/many projects, narrow widths, reduced motion).
+
 ## Dashboard redesign — Obsidian broadcast workspace (uncommitted)
 
 Dashboard rebuilt as a premium broadcast workspace: a "Welcome back"

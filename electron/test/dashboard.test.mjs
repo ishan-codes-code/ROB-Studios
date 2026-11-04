@@ -79,7 +79,7 @@ test('project cards reuse extracted frames with an honest fallback', () => {
 
 test('quick actions reuse the existing workflows without placeholders', () => {
   assert.match(dashboard, /Quick actions/);
-  assert.match(dashboard, /title="Import gameplay"/);
+  assert.match(dashboard, /<Upload data-icon="inline-start" \/>\s*Import gameplay/);
   assert.match(dashboard, /title="Run AI analysis"/);
   assert.match(dashboard, /title="Generate commentary"/);
   assert.match(dashboard, /onClick=\{handleAdd\}/);
@@ -90,13 +90,20 @@ test('quick actions reuse the existing workflows without placeholders', () => {
   assert.doesNotMatch(dashboard, /not implemented/i);
 });
 
-test('hero announces the future capability without implying it works', () => {
+test('hero is a monochrome cinematic banner without implying it works', () => {
   assert.match(hero, /Live commentary/);
   assert.match(hero, /Coming soon/);
-  assert.match(hero, /The next generation of live game commentary/);
+  assert.match(hero, /Every moment\. Every play\. Live\./);
   assert.match(hero, /Real-time gameplay understanding, match memory and/);
   assert.match(hero, /broadcast-ready AI voice commentary\./);
   assert.match(hero, /assets\/images\/esports-setup\.webp/);
+  assert.match(hero, /grayscale/);
+  assert.match(hero, /object-cover/);
+  assert.match(hero, /from-black/);
+  assert.doesNotMatch(hero, /--live/);
+  assert.doesNotMatch(hero, /text-live/);
+  assert.doesNotMatch(hero, /radial-gradient/);
+  assert.doesNotMatch(hero, /violet/i);
   assert.doesNotMatch(hero, /<Button/);
   assert.doesNotMatch(hero, /<a /);
   assert.doesNotMatch(hero, /onClick/);
@@ -104,13 +111,25 @@ test('hero announces the future capability without implying it works', () => {
   assert.doesNotMatch(hero, /https?:\/\//);
 });
 
-test('live banner renders below the project library, not above it', () => {
-  const libraryHeading = dashboard.indexOf('Recent projects');
+test('live banner renders below the greeting and above the stats and library', () => {
+  const greeting = dashboard.indexOf('Welcome back');
   const banner = dashboard.indexOf('<LiveCommentaryHero />');
+  const stats = dashboard.indexOf('Workspace statistics');
+  const libraryHeading = dashboard.indexOf('Recent projects');
   assert.ok(
-    libraryHeading !== -1 && banner !== -1 && libraryHeading < banner,
-    'banner renders after the recent-projects library',
+    greeting !== -1 && banner !== -1 && stats !== -1 && libraryHeading !== -1
+      && greeting < banner && banner < stats && banner < libraryHeading,
+    'banner renders between the greeting and the stats/library',
   );
+});
+
+test('large libraries page behind a View All toggle instead of a card wall', () => {
+  assert.match(dashboard, /const RECENT_PROJECT_LIMIT = 6;/);
+  assert.match(dashboard, /projects\.slice\(0, RECENT_PROJECT_LIMIT\)/);
+  assert.match(dashboard, /\{visibleProjects\.map\(\(project\) => \(/);
+  assert.match(dashboard, /View all \$\{projects\.length\} projects/);
+  assert.match(dashboard, /aria-expanded=\{libraryExpanded\}/);
+  assert.match(dashboard, /"Show less"/);
 });
 
 test('New project actions use the Plus icon and stay outside the collapsible body', () => {

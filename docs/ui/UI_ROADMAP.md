@@ -7,7 +7,7 @@ otherwise.
 
 ## Stage 0 — Foundation and Commentary Studio shell (implemented)
 
-- [x] Dependencies: `motion`, `lucide-react`, `@fontsource/inter`,
+- [x] Dependencies: `motion`, `lucide-react`, `@fontsource/sora`,
   `@fontsource/geist-mono`, shadcn runtime deps (`cn`, `radix-ui`,
   `class-variance-authority`).
 - [x] shadcn manual setup for the Forge/Vite layout: `components.json`

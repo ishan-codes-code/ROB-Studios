@@ -99,21 +99,23 @@ export function normalizeGameMetadata(value) {
 
 /**
  * Compose the bounded worker game-context string from project-owned
- * metadata. Structured fields come first, free-form additional
- * context last; the bound only ever trims the tail. Deliberately
- * unchanged by the game expansion: category, tournament, and stage
- * persist on the project but do not flow into prompts until the
- * dedicated AI-integration task.
+ * metadata. Only populated fields flow; structured fields come first
+ * (mode, match, map, category, tournament, stage, legacy teams) and
+ * the labeled free-form notes last. The bound only ever trims the
+ * tail. Missing values stay unknown — nothing is defaulted here.
  */
 export function composeGameContext(game) {
   const parts = [];
   if (game?.mode) parts.push(`Mode: ${game.mode}.`);
   if (game?.matchType) parts.push(`Match: ${game.matchType}.`);
   if (game?.map) parts.push(`Map: ${game.map}.`);
+  if (game?.category) parts.push(`Category: ${game.category}.`);
+  if (game?.tournament) parts.push(`Tournament: ${game.tournament}.`);
+  if (game?.stage) parts.push(`Stage: ${game.stage}.`);
   if (Array.isArray(game?.teams) && game.teams.length > 0) {
     parts.push(`Teams: ${game.teams.join(' vs ')}.`);
   }
-  if (game?.additionalContext) parts.push(game.additionalContext);
+  if (game?.additionalContext) parts.push(`Notes: ${game.additionalContext}`);
   return parts.join(' ').slice(0, GAME_CONTEXT_MAX);
 }
 

@@ -64,11 +64,14 @@ def build_script_prompt(claims: list, history_texts: list, pack=None) -> str:
     and it must return JSON mapping source claim ids to spoken segments.
     Wording comes from the game prompt pack; the JSON shape stays here.
     """
-    from ..prompts import coerce_pack
+    from ..prompts import coerce_pack, effective_game_context
 
-    fields = coerce_pack(pack)["fields"]
+    resolved = coerce_pack(pack)
+    fields = resolved["fields"]
+    match_context = effective_game_context(resolved)
     parts = [
         fields["script_persona"] + " ",
+        (match_context + " " if match_context else ""),
         fields["script_priorities"] + " ",
         fields["script_rules"] + " ",
         "Respond with ONLY a single JSON object, no markdown fences, no ",

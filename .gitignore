@@ -46,6 +46,8 @@ out/
 
 dist/ 
 
+
+
 # =================================
 # CACHES / COVERAGE
 # =================================
@@ -66,3 +68,7 @@ Thumbs.db
 
 # Website (temporarily excluded from Git)
 website/
+
+# Local test scratch output (redirected TEMP for node --test)
+.tmp-test/
+electron/.tmp-test/

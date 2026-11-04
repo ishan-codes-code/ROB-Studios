@@ -338,7 +338,7 @@ test('legacy free-text mode and match type pass through new validation', async (
   assert.equal(reread.configuration.game.matchType, 'Room card');
 });
 
-test('worker context excludes not-yet-integrated fields', async (t) => {
+test('worker context carries category, tournament, and stage', async (t) => {
   const dir = tempDir(t);
   const credential = createCredential(dir, storage(), {
     name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
@@ -350,7 +350,25 @@ test('worker context excludes not-yet-integrated fields', async (t) => {
   });
   updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
   const resolved = resolveProjectRunConfig(dir, storage(), project.id);
-  assert.equal(resolved.preferences.game.context, 'Map: Bermuda.');
+  assert.equal(
+    resolved.preferences.game.context,
+    'Map: Bermuda. Category: Tournament. Tournament: City Finals. Stage: Semifinal.',
+  );
+});
+
+test('worker context omits missing fields and labels free-form notes', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, {
+    name: 'P', sourcePath: seedVideo(t),
+    game: { additionalContext: 'Semifinal.' },
+  });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.equal(resolved.preferences.game.context, 'Notes: Semifinal.');
 });
 
 test('run resolution composes worker context from owned game metadata', async (t) => {
@@ -371,7 +389,7 @@ test('run resolution composes worker context from owned game metadata', async (t
   const resolved = resolveProjectRunConfig(dir, storage(), project.id);
   assert.equal(
     resolved.preferences.game.context,
-    'Mode: battle-royale. Map: Bermuda. Teams: Team A vs Team B. Semifinal.',
+    'Mode: battle-royale. Map: Bermuda. Teams: Team A vs Team B. Notes: Semifinal.',
   );
   assert.equal(resolved.preferences.prompt.language, 'Hindi');
   assert.equal(resolved.preferences.prompt.personality, 'Esports commentator');

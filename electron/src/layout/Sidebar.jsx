@@ -37,7 +37,7 @@ function NavButton({ id, label, Icon, selected, collapsed, onSelect }) {
       title={collapsed ? label : undefined}
       onClick={() => onSelect(id)}
       className={cn(
-        "relative flex shrink-0 items-center gap-2.5 rounded-sm text-[12px] transition-colors duration-150",
+        "relative flex shrink-0 items-center gap-2.5 rounded-sm text-[12px] font-medium transition-colors duration-150",
         collapsed ? "size-9 justify-center px-0" : "w-full px-2.5 py-[7px] text-left",
         "text-muted-foreground hover:bg-accent hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

@@ -52,6 +52,11 @@ const STATUS_BADGE = {
   interrupted: "outline",
 };
 
+// The dashboard overview stays compact no matter how large the
+// library grows: the first page of recent projects renders inline,
+// the rest on demand through the View All toggle below the grid.
+const RECENT_PROJECT_LIMIT = 6;
+
 function bridgeError() {
   return new Error("Worker bridge unavailable (running outside Electron?).");
 }
@@ -59,14 +64,14 @@ function bridgeError() {
 function StatCard({ icon: Icon, label, value, detail, ready }) {
   return (
     <li className="min-w-0">
-      <GlassCard className="flex items-center gap-3 p-4">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent text-muted-foreground">
+      <GlassCard className="flex items-center gap-3 p-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-muted-foreground">
           <Icon className="size-4" aria-hidden />
         </span>
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="text-xs font-medium text-muted-foreground">{label}</span>
           {ready ? (
-            <span className="font-mono text-xl tabular-nums leading-none text-foreground">
+            <span className="font-mono text-xl font-semibold tabular-nums leading-none text-foreground">
               {value}
             </span>
           ) : (
@@ -213,13 +218,15 @@ function ProjectGridSkeleton() {
 }
 
 /**
- * Product-first dashboard: a workspace greeting, honest counts from
- * persisted data, the recent-projects library as media cards, quick
- * actions into the existing workflows, and the live-commentary
- * announcement. Project IPC semantics are unchanged (native picker →
- * name → isolated copy → open workspace; typed-name deletion).
- * Worker status is not rendered here — the global application header
- * already shows it.
+ * Product-first dashboard: a workspace greeting, the cinematic
+ * live-commentary banner, honest counts from persisted data, the
+ * recent-projects library as media cards, and quick actions into the
+ * existing workflows. The library shows the first page of recent
+ * projects inline with the rest on demand, so the overview stays
+ * compact at any project count. Project IPC semantics are unchanged
+ * (native picker → name → isolated copy → open workspace; typed-name
+ * deletion). Worker status is not rendered here — the global
+ * application header already shows it.
  */
 export default function DashboardSection({ onOpenProject, onProjectDeleted, activeProjectId = null }) {
   const [projects, setProjects] = useState([]);
@@ -228,6 +235,7 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
   const [listings, setListings] = useState({});
   const [listingsLoaded, setListingsLoaded] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(true);
+  const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [typedName, setTypedName] = useState("");
@@ -321,6 +329,10 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
   // listProjects sorts by last opened first, so the head is the
   // natural target when an action needs an existing project.
   const latestProjectId = projects.length > 0 ? projects[0].id : null;
+  const visibleProjects = libraryExpanded
+    ? projects
+    : projects.slice(0, RECENT_PROJECT_LIMIT);
+  const hasMoreProjects = projects.length > RECENT_PROJECT_LIMIT;
 
   async function handleRetry() {
     setLoading(true);
@@ -442,6 +454,8 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
         </p>
       </div>
 
+      <LiveCommentaryHero />
+
       <section aria-label="Workspace statistics" className="min-w-0">
         <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3">
           <StatCard
@@ -516,7 +530,7 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
           </div>
 
           <AutoHeight
-            deps={[libraryOpen, projects.length, loading, error]}
+            deps={[libraryOpen, libraryExpanded, projects.length, loading, error]}
             transition={{ duration: MOTION.standard, ease: EASING.entrance }}
             className="min-w-0"
           >
@@ -570,22 +584,40 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
                       </Button>
                     </GlassCard>
                   ) : (
-                    <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      <AnimatePresence initial={false}>
-                        {projects.map((project) => (
-                          <ProjectCard
-                            key={project.id}
-                            project={project}
-                            listing={listings[project.id] ?? null}
-                            current={project.id === activeProjectId}
-                            onOpen={onOpenProject}
-                            onRequestDelete={handleRequestDelete}
-                            deleting={deletingId === project.id}
-                            deleteDisabled={deleteBusy}
-                          />
-                        ))}
-                      </AnimatePresence>
-                    </ul>
+                    <>
+                      <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        <AnimatePresence initial={false}>
+                          {visibleProjects.map((project) => (
+                            <ProjectCard
+                              key={project.id}
+                              project={project}
+                              listing={listings[project.id] ?? null}
+                              current={project.id === activeProjectId}
+                              onOpen={onOpenProject}
+                              onRequestDelete={handleRequestDelete}
+                              deleting={deletingId === project.id}
+                              deleteDisabled={deleteBusy}
+                            />
+                          ))}
+                        </AnimatePresence>
+                      </ul>
+                      {hasMoreProjects ? (
+                        <div className="mt-3 flex justify-center">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-expanded={libraryExpanded}
+                            aria-controls="project-library-body"
+                            onClick={() => setLibraryExpanded((value) => !value)}
+                          >
+                            {libraryExpanded
+                              ? "Show less"
+                              : `View all ${projects.length} projects`}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </>
                   )}
                 </motion.div>
               )}
@@ -594,17 +626,20 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
         </section>
 
         <aside aria-label="Quick actions" className="min-w-0">
-          <GlassCard className="flex flex-col gap-1 p-2">
-            <h2 className="px-2 pb-1 pt-1 text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+          <GlassCard className="flex flex-col gap-2 p-3">
+            <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
               Quick actions
             </h2>
+            <Button
+              type="button"
+              variant="default"
+              onClick={handleAdd}
+              className="w-full"
+            >
+              <Upload data-icon="inline-start" />
+              Import gameplay
+            </Button>
             <ul className="flex min-w-0 flex-col">
-              <QuickAction
-                icon={Upload}
-                title="Import gameplay"
-                text="Create a project from a recorded match video."
-                onClick={handleAdd}
-              />
               <QuickAction
                 icon={ScanSearch}
                 title="Run AI analysis"
@@ -629,8 +664,6 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
           </GlassCard>
         </aside>
       </div>
-
-      <LiveCommentaryHero />
 
       <ProjectCreationDialog
         open={createOpen}

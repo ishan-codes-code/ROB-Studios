@@ -111,19 +111,26 @@ def coerce_pack(pack):
 
 
 def effective_game_context(pack):
-    """Combine pack context with the user's profile context (both bounded).
+    """Combine pack context with the project match context (both bounded).
 
-    The pack's ``game_context`` field comes first; the existing per-profile
-    ``game.context`` preference (``user_prompt_preferences``) is appended
-    so current users keep their settings. Empty parts are dropped.
+    The pack's ``game_context`` field (static game knowledge) comes first;
+    the per-project ``game.context`` preference (``user_prompt_preferences``)
+    is appended so current projects keep their settings. Each part carries
+    a label so prompts distinguish static reference knowledge from this
+    project's match details; empty parts (and their labels) are dropped.
     """
     from ..config import user_prompt_preferences
 
     fields = coerce_pack(pack)["fields"]
+    label = fields.get("game_label", "") or "game"
     parts = []
-    if fields.get("game_context"):
-        parts.append(fields["game_context"])
-    profile_context = user_prompt_preferences().get("game_context", "")
-    if profile_context:
-        parts.append(profile_context)
+    static_context = (fields.get("game_context") or "").strip()
+    if static_context:
+        parts.append(f"Game reference ({label} knowledge): {static_context}")
+    project_context = user_prompt_preferences().get("game_context", "")
+    if project_context:
+        parts.append(
+            "Match details (this project; context only, never events): "
+            f"{project_context}"
+        )
     return " ".join(parts)

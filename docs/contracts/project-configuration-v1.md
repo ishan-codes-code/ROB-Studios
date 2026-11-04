@@ -43,8 +43,9 @@ directories.
   (short fields ≤ 80 chars). Suggestion lists live in the
   project-owned catalog (`electron/src/lib/games.js`); the store
   validates bounds only, so legacy free-text values always read
-  back. `category`/`tournament`/`stage` persist but are not yet
-  composed into worker context (see Run snapshot).
+  back. `category`/`tournament`/`stage` persist and flow into the
+  worker `game.context` string alongside mode/match/map (see Run
+  snapshot).
 - `promptPackId`: game prompt-pack ID, or `null` for the application
   default (`free-fire`). Validated against the factory packs on save;
   see [game-pack-v1.md](game-pack-v1.md).
@@ -84,7 +85,10 @@ child environment. Later UI edits cannot change a running job. The
 Python process never receives the vault. Worker preferences keep the
 long-standing `{game: {id, context}, prompt: {personality, tone,
 language, instructions}}` shape: `context` is composed from the
-project's game metadata, and personality/tone mirror the retired
+project's populated game metadata only (`Mode`/`Match`/`Map`/
+`Category`/`Tournament`/`Stage`/`Teams` labels, then `Notes:` with
+the free-form context; missing values stay unknown), and
+personality/tone mirror the retired
 built-in preset (`Esports commentator` / `energetic`), so runs behave
 exactly as before. See
 [worker-runtime-config.md](worker-runtime-config.md).

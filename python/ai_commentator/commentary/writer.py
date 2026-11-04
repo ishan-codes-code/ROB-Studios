@@ -140,11 +140,14 @@ def build_writer_prompt(claims: list, history_texts: list, pack=None) -> str:
     spoken lines, and may omit claims it cannot word safely.
     Wording comes from the game prompt pack; the JSON shape stays here.
     """
-    from ..prompts import coerce_pack
+    from ..prompts import coerce_pack, effective_game_context
 
-    fields = coerce_pack(pack)["fields"]
+    resolved = coerce_pack(pack)
+    fields = resolved["fields"]
+    match_context = effective_game_context(resolved)
     parts = [
         fields["writer_persona"] + " ",
+        (match_context + " " if match_context else ""),
         fields["writer_rules"] + " ",
         "Respond with ONLY a single JSON object, no markdown fences, no ",
         "commentary, matching this shape: ",
