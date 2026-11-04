@@ -16,7 +16,7 @@ import {
   toStartMs,
   withMp4Extension,
 } from '../../export-media.mjs';
-import { getProject, listArtifacts, resolveProjectMedia } from '../../project-store.mjs';
+import { getProject, isProjectDeletionLocked, listArtifacts, resolveProjectMedia } from '../../project-store.mjs';
 
 const MAX_WAV_BYTES = 256 * 1024 * 1024;
 
@@ -125,6 +125,9 @@ export function registerExportIpc({
 }) {
   ipcMain.handle('export-video', async (_event, projectId, rows) => {
     try {
+      if (typeof projectId === 'string' && isProjectDeletionLocked(projectId)) {
+        return { ok: false, error: 'Project is being deleted.' };
+      }
       let project;
       try {
         project = getProject(app.getPath('userData'), projectId);
@@ -185,6 +188,7 @@ export function registerExportIpc({
         executable,
         sourcePath,
         outputPath,
+        projectId,
         resolvePlan: async ({ duration, hasAudio }) => ({
           ...resolveExportPlan(candidates, { duration }),
           hasGameAudio: hasAudio,

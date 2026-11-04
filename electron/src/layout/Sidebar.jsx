@@ -1,5 +1,4 @@
 import {
-  AudioLines,
   AudioWaveform,
   Clapperboard,
   Gamepad2,
@@ -88,17 +87,6 @@ export default function Sidebar({ active, onSelect, collapsed, inWorkspace }) {
       )}
       aria-label="Application navigation"
     >
-      <div className={cn("flex h-11 shrink-0 items-center gap-2.5", collapsed ? "justify-center px-1" : "px-3.5")}>
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-sm bg-foreground text-background">
-          <AudioLines className="size-3.5" aria-hidden />
-        </span>
-        {!collapsed ? (
-          <span className="truncate text-[12px] font-semibold tracking-[-0.01em] text-foreground">
-            Commentary Studio
-          </span>
-        ) : null}
-      </div>
-      <Separator />
       <nav
         id="studio-navigation"
         aria-label="Studio sections"

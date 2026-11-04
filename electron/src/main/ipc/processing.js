@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { getProjectOutputDir, getProject as getStoredProject, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
+import { getProjectOutputDir, getProject as getStoredProject, isProjectDeletionLocked, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
 import { buildWorkerArgv, isVisionConfigured, resolvePythonExecutable, resolveWorkerScript, validateVideoInput } from '../../worker-protocol.mjs';
 import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../run-config.mjs';
 import { TTS_API_KEY_ENV_VAR } from '../../tts-config.mjs';
@@ -49,6 +49,11 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     const opts = options && typeof options === 'object' ? options : {};
     if (workerManager.isBusy()) {
       return { ok: false, error: 'A video is already being processed.' };
+    }
+    // A project being deleted cannot start a run: quarantine may
+    // remove its source files mid-spawn.
+    if (typeof opts.projectId === 'string' && isProjectDeletionLocked(opts.projectId)) {
+      return { ok: false, error: 'Project is being deleted.' };
     }
     // Project-bound runs ignore renderer-supplied paths: the source
     // video and output directory resolve from stored project metadata,

@@ -168,3 +168,11 @@ test('the delete action stays separate from opening the project', () => {
   assert.match(dashboard, /onClick=\{\(\) => onRequestDelete\(project\)\}/);
   assert.doesNotMatch(dashboard, /onDelete=\{handleDelete\}/);
 });
+
+test('successful deletion notifies the shell to clear stale workspace state', () => {
+  assert.match(dashboard, /export default function DashboardSection\(\{ onOpenProject, onProjectDeleted \}\)/);
+  assert.match(dashboard, /onProjectDeleted\?\.\(deletedId\)/);
+  const app = fs.readFileSync(path.join(here, '../src/app/App.jsx'), 'utf8');
+  assert.match(app, /onProjectDeleted: handleProjectDeleted/);
+  assert.match(app, /if \(workspaceId !== null && id === workspaceId\)/);
+});

@@ -99,7 +99,7 @@ test('create rejects invalid input without staging residue', (t) => {
   assert.deepEqual(listProjects(base), []);
 });
 
-test('ids are allow-listed and contained in the projects root', (t) => {
+test('ids are allow-listed and contained in the projects root', async (t) => {
   const { base, cleanup } = makeUserData();
   t.after(cleanup);
   const video = makeSourceVideo(path.join(base, 'incoming'));
@@ -108,11 +108,11 @@ test('ids are allow-listed and contained in the projects root', (t) => {
   for (const bad of ['../evil', 'a/b', '', '.', '..', 'x'.repeat(65), null]) {
     assert.throws(() => getProject(base, bad), /Invalid project id/);
     assert.throws(() => updateProject(base, bad, { processingStatus: 'done' }), /Invalid project id/);
-    assert.throws(() => deleteProject(base, bad), /Invalid project id/);
+    await assert.rejects(deleteProject(base, bad), /Invalid project id/);
     assert.throws(() => getProjectOutputDir(base, bad), /Invalid project id/);
   }
   assert.throws(() => getProject(base, 'no-such-project'), /ENOENT|not found/i);
-  assert.throws(() => deleteProject(base, 'no-such-project'), /not found/i);
+  await assert.rejects(deleteProject(base, 'no-such-project'), /not found/i);
   // Real project still intact.
   assert.equal(getProject(base, created.id).name, 'Contained');
 });
@@ -162,14 +162,14 @@ test('list orders by recency and skips corrupt entries', (t) => {
   assert.ok(!listed.includes('not-a-project'));
 });
 
-test('delete removes exactly one project tree', (t) => {
+test('delete removes exactly one project tree', async (t) => {
   const { base, cleanup } = makeUserData();
   t.after(cleanup);
   const video = makeSourceVideo(path.join(base, 'incoming'));
   const keep = createProject(base, { name: 'Keep', sourcePath: video });
   const drop = createProject(base, { name: 'Drop', sourcePath: video });
 
-  assert.deepEqual(deleteProject(base, drop.id), { deleted: true, id: drop.id });
+  assert.deepEqual(await deleteProject(base, drop.id), { deleted: true, id: drop.id, cleanup: 'complete' });
   assert.ok(!fs.existsSync(path.join(getProjectsRoot(base), drop.id)));
   assert.equal(getProject(base, keep.id).name, 'Keep');
   assert.deepEqual(

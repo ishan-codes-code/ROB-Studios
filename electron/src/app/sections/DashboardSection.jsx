@@ -117,7 +117,7 @@ function ProjectListSkeleton() {
  * Worker status is not rendered here — the global application header
  * already shows it.
  */
-export default function DashboardSection({ onOpenProject }) {
+export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -284,8 +284,10 @@ export default function DashboardSection({ onOpenProject }) {
       // refresh failure here must never read as a deletion failure.
       setProjects((prev) => prev.filter((project) => project.id !== deleteTarget.id));
       const deletedName = deleteTarget.name;
+      const deletedId = deleteTarget.id;
       setDeleteTarget(null);
       setTypedName("");
+      onProjectDeleted?.(deletedId);
       toast.success("Project deleted", {
         id: "project-deleted",
         description: deletedName,

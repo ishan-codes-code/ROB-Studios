@@ -17,7 +17,7 @@ import { createTtsCatalogLoader } from './tts-catalog.mjs';
 import { createPromptPackLoader } from './prompt-packs.mjs';
 import { registerProjectMediaProtocol } from './main/media-protocol.js';
 import { createMainWindow } from './main/window.js';
-import { reconcileInterruptedRuns, resolveProjectMedia } from './project-store.mjs';
+import { reconcileInterruptedRuns, resolveProjectMedia, sweepDeletionQuarantine } from './project-store.mjs';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -134,6 +134,9 @@ function sendExportEvent(message) {
 app.whenReady().then(() => {
   try {
     reconcileInterruptedRuns(app.getPath('userData'));
+    void sweepDeletionQuarantine(app.getPath('userData')).catch(() => {
+      // Best effort: tombstones survive for the next launch.
+    });
   } catch {
     // userData unreadable: start anyway with no recovery.
   }
@@ -178,7 +181,7 @@ const packsLoader = createPromptPackLoader({ repoRoot });
 
 registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader, packsLoader });
 
-registerProjectIpc({ ipcMain, app, workerManager });
+registerProjectIpc({ ipcMain, app, workerManager, exportManager });
 registerExportIpc({ ipcMain, app, dialog, fs, exportManager, sendExportEvent, getMainWindow: () => mainWindow });
 registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader });
 registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });

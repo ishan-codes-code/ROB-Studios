@@ -36,6 +36,7 @@ const COMPONENTS = [
   '../src/app/sections/workspace/ScriptPanel.jsx',
   '../src/app/sections/workspace/VideoPreview.jsx',
   '../src/layout/Sidebar.jsx',
+  '../src/layout/TitleBar.jsx',
 ];
 
 function checkFile(relative) {

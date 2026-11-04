@@ -43,7 +43,8 @@ test('navigation behavior is unchanged', () => {
   assert.match(sidebar, /aria-current=\{selected \? "page" : undefined\}/);
   assert.match(sidebar, /title=\{collapsed \? label : undefined\}/);
   assert.match(sidebar, /onSelect\(id\)/);
-  assert.match(sidebar, /import \{\s*AudioLines,/);
+  assert.match(sidebar, /import \{\s*AudioWaveform,/);
+  assert.doesNotMatch(sidebar, /AudioLines/);
   assert.match(sidebar, /LayoutDashboard,/);
   assert.match(sidebar, /Clapperboard,/);
 });

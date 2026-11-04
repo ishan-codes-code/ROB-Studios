@@ -14,6 +14,22 @@ function EmptyPreview() {
   );
 }
 
+function releaseVideoElement(node) {
+  if (!node) return;
+  try {
+    node.pause();
+  } catch {
+    // Element already detached; continue releasing the source.
+  }
+  node.removeAttribute("src");
+  node.removeAttribute("srcObject");
+  try {
+    node.load();
+  } catch {
+    // Detached elements may reject load(); the source is already cleared.
+  }
+}
+
 export default function VideoPreview({ project, videoRef }) {
   const internalVideoRef = useRef(null);
   const [status, setStatus] = useState("loading");
@@ -29,6 +45,17 @@ export default function VideoPreview({ project, videoRef }) {
     internalVideoRef.current = node;
     if (typeof videoRef === "function") videoRef(node);
     else if (videoRef) videoRef.current = node;
+    if (!node) return undefined;
+    // React 19 detach cleanup: runs when this element unmounts or the
+    // keyed source is replaced. Releasing here (not only on component
+    // unmount) drops the Chromium media handle promptly so a deleted
+    // project's source file is not left locked on Windows.
+    return () => {
+      releaseVideoElement(node);
+      internalVideoRef.current = null;
+      if (typeof videoRef === "function") videoRef(null);
+      else if (videoRef) videoRef.current = null;
+    };
   };
 
   function handleMetadata(event) {

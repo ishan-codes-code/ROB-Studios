@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner.jsx";
 import AppLayout from "@/layout/AppLayout.jsx";
 import AppHeader from "@/layout/AppHeader.jsx";
 import Sidebar from "@/layout/Sidebar.jsx";
+import TitleBar from "@/layout/TitleBar.jsx";
 import DashboardSection from "@/app/sections/DashboardSection.jsx";
 import MatchesSection from "@/app/sections/MatchesSection.jsx";
 import CommentarySection from "@/app/sections/CommentarySection.jsx";
@@ -124,6 +125,14 @@ export default function App() {
     }
   }, []);
 
+  const handleProjectDeleted = useCallback((id) => {
+    // Deleting the open project invalidates the editor workspace:
+    // clear it so no stale state survives for a removed project.
+    if (workspaceId !== null && id === workspaceId) {
+      handleBackToProjects();
+    }
+  }, [workspaceId, handleBackToProjects]);
+
   const handleProjectLoaded = useCallback((project) => {
     setProjectName(project.name);
   }, []);
@@ -134,20 +143,24 @@ export default function App() {
 
   if (onboarding) {
     return (
-      <>
-        <OnboardingWizard
-          initialSettings={onboarding.settings}
-          onComplete={handleOnboardingComplete}
-          onExit={() => setOnboarding(false)}
-        />
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
+        <TitleBar context="Setup" />
+        <div className="min-h-0 min-w-0 flex-1">
+          <OnboardingWizard
+            initialSettings={onboarding.settings}
+            onComplete={handleOnboardingComplete}
+            onExit={() => setOnboarding(false)}
+          />
+        </div>
         <Toaster theme="dark" position="bottom-right" />
-      </>
+      </div>
     );
   }
 
   return (
     <>
     <AppLayout
+      titlebar={<TitleBar context={meta.title} />}
       sidebar={
         <Sidebar
           active={showingWorkspace ? "editor" : activeSection}
@@ -189,7 +202,7 @@ export default function App() {
             <div className="h-full min-h-0 overflow-y-auto px-5 py-4">
               <SectionView
                 {...(activeSection === "dashboard"
-                  ? { onOpenProject: handleOpenProject }
+                  ? { onOpenProject: handleOpenProject, onProjectDeleted: handleProjectDeleted }
                   : {})}
                 {...(activeSection === "audio"
                   ? { section: activeSection }

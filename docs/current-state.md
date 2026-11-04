@@ -1,5 +1,54 @@
 # Current state
 
+## Reliable project deletion & premium window chrome (uncommitted)
+
+Root cause of the Windows deletion bug was reproduced with a real
+exclusive file lock: `deleteProject` ran a single non-atomic
+`fs.rmSync`, so a locked `gameplay.mp4` failed midway (EBUSY/EPERM),
+left `project.json` deleted, and every retry reported `Project not
+found` while orphaned bytes stayed on disk. Lock owners: the Chromium
+media pipeline (`VideoPreview` had no element-detach cleanup) and
+export FFmpeg (the delete guard only checked the Python worker).
+
+Deletion is now a lifecycle: the store quarantines via one atomic
+same-filesystem rename into `projects/.deleted/` (excluded from
+listings) with a `tombstone.json`, retries transient codes
+(EBUSY/EPERM/ENOTEMPTY/EACCES) with bounded exponential backoff, and
+reports logical success at the rename — physical cleanup failures
+keep the tombstone with a bounded background retry chain plus a
+startup sweep (`sweepDeletionQuarantine`, wired in `main.js`).
+Per-project in-memory locks serialize concurrent requests; a repeat
+delete of a quarantined id returns idempotent success instead of
+`Project not found`. IPC keeps its `{ok, deleted, id}` contract (plus
+`cleanup`/`alreadyDeleted`), refuses while the worker is busy
+(unchanged), refuses while that project's export runs (new
+`activeProjectId` on the export manager), and refuses
+open/update/process/export for a project being deleted. The renderer
+releases video elements on detach (pause, clear src/srcObject,
+`load()`), clears a deleted open workspace via `onProjectDeleted`,
+and keeps the typed-name dialog, single toast, and row-exit motion.
+
+The white native title bar is replaced with integrated Obsidian
+chrome: `titleBarStyle: 'hidden'` + `titleBarOverlay` (surface
+`#101011`, symbols `#f1f1f1`, height 36) on Windows only, dark
+`backgroundColor` everywhere, and a new `TitleBar` layout component
+(drag region, studio mark, section context, Windows caption spacer,
+no interactive elements) rendered above the shell and onboarding;
+the sidebar brand row was removed to avoid a duplicate header.
+Security settings, maximization lifecycle, and preload/IPC
+boundaries are unchanged; no new dependencies.
+
+Verification: new `project-deletion` (16), `titlebar` (7), and
+`media-release` (4) suites pass; rewritten `window` plus extended
+`dashboard`/`navigation`/`export-runner`/`renderer-hooks` suites
+pass; renderer production build succeeds with the new chrome in the
+bundle; main files pass `node --check`. One environmental failure
+recurs in this sandbox (EPERM on rapid `project.json.tmp` renames in
+untouched `writeAtomic` code; reproduced identically on pristine
+HEAD). No live walkthrough was possible: Electron cannot initialize
+Chromium in this sandbox (bare `whenReady` probe crashes), and Forge
+cannot bind a dev server — manual Windows steps are in the handoff.
+
 ## Project deletion UX, maximized startup & nav icons (uncommitted)
 
 Deletion is now a deliberate typed-name confirmation: clicking a

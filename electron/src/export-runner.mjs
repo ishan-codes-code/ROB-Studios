@@ -89,6 +89,10 @@ export function createExportManager({ spawnFn = spawn } = {}) {
       return active !== null;
     },
 
+    activeProjectId() {
+      return active?.projectId ?? null;
+    },
+
     /**
      * Run one export. `resolvePlan({ duration, hasVideo, hasAudio })`
      * returns `{ wavPaths, segments, hasGameAudio }` (or throws a
@@ -96,7 +100,7 @@ export function createExportManager({ spawnFn = spawn } = {}) {
      * 'done' | 'error' | 'cancelled', ... }`. Resolves once the
      * encode is spawned (progress follows through events).
      */
-    async start({ executable, sourcePath, outputPath, resolvePlan, onEvent } = {}) {
+    async start({ executable, sourcePath, outputPath, resolvePlan, onEvent, projectId = null } = {}) {
       if (active !== null) {
         return { started: false, reason: 'busy' };
       }
@@ -106,7 +110,7 @@ export function createExportManager({ spawnFn = spawn } = {}) {
       if (typeof resolvePlan !== 'function') {
         throw new TypeError('resolvePlan must be a function.');
       }
-      const record = { cancelled: false, killTimer: null, child: null };
+      const record = { cancelled: false, killTimer: null, child: null, projectId };
       active = record;
       const emit = (event) => {
         if (typeof onEvent === 'function') {
