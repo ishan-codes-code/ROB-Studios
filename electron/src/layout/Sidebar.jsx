@@ -37,13 +37,16 @@ function NavButton({ id, label, Icon, selected, collapsed, onSelect }) {
       title={collapsed ? label : undefined}
       onClick={() => onSelect(id)}
       className={cn(
-        "flex shrink-0 items-center gap-2.5 rounded-sm text-[12px] transition-colors duration-150",
+        "relative flex shrink-0 items-center gap-2.5 rounded-sm text-[12px] transition-colors duration-150",
         collapsed ? "size-9 justify-center px-0" : "w-full px-2.5 py-[7px] text-left",
         "text-muted-foreground hover:bg-accent hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         selected && "bg-accent font-medium text-foreground",
       )}
     >
+      {selected ? (
+        <span aria-hidden className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-ring" />
+      ) : null}
       <Icon className="size-4 shrink-0" aria-hidden />
       {!collapsed ? <span className="truncate">{label}</span> : null}
     </button>

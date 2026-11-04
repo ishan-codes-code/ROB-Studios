@@ -1,5 +1,38 @@
 # Current state
 
+## Dashboard redesign — Obsidian broadcast workspace (uncommitted)
+
+Dashboard rebuilt as a premium broadcast workspace: a "Welcome back"
+greeting, three honest stat cards (Projects, Analyses, Commentaries —
+new pure selectors in `lib/dashboard-stats.js` over `listProjects` plus
+one `listArtifacts` pass per project; unconfirmed output is omitted,
+never invented), the library as media cards (first extracted frame via
+the audited `project://` frames scope with lazy loading and a Film
+fallback, name, filename, size, status, last-opened, artifact chips,
+current-project badge, identical open/delete behavior), a Quick Actions
+panel (Import gameplay → creation dialog; Run AI analysis / Generate
+commentary → latest project editor, or the import dialog when empty),
+and the live-commentary photo banner moved to the bottom
+(`LiveCommentaryHero`: `esports-setup.webp` via Vite import,
+readability gradient, one static violet wash, non-interactive). Engine
+status stays solely in `AppHeader` (live `useWorkerStatus`); the
+sidebar gained only a selected-item indicator. One new `--live`
+(`#A78BFA`) token, synced in `DESIGN_TOKENS.md`; no new dependencies,
+no IPC/schema/Python/worker changes, no editor changes. Header
+waveform deliberately omitted (clutter without function).
+
+Verification (targeted only): new `dashboard-stats` (6) plus rewritten
+`dashboard` guards, `navigation`, `renderer-hooks`, `project-deletion`,
+`project-store`, `format` pass (99/100; the one failure is the known
+sandbox EPERM rename flake in untouched `writeAtomic` code);
+`processing` shows only the same EPERM flake (7 EPERM failures, 16
+pass); `editor-export` toast-ownership guard still fails on Windows
+path separators plus files this change never touched (pre-existing —
+no new sonner owner added); renderer production build succeeds with
+the new copy and fingerprinted photo confirmed in the bundle. Manually
+unverified: card/banner feel, thumbnail loading, and narrow widths in
+a running shell.
+
 ## Creation dialog + 3-game catalog + recording dropzone (uncommitted)
 
 Creation is a dedicated `ProjectCreationDialog`: project name, a
@@ -33,9 +66,17 @@ drop-success; dialog widened to `sm:max-w-2xl` with looser grid
 gaps; match type/mode/category selects migrated to the shared
 shadcn Select (legacy-value item and None-to-clear preserved; map
 stays free-text input with datalist). New `preload-bridge` suite;
-83/83 across the focused set; renderer build succeeds. Manually
-unverified: dialog feel, drop/browse flows, and Configure editing
-in a running shell.
+83/83 across the focused set; renderer build succeeds. Simplified
+again: the dropzone is gone — creation is a compact `sm:max-w-md`
+dialog (name, game Select with stable ids, optional match
+type/mode/map, single Add video picker with filename +
+Replace/Remove, no teams; category/tournament/teams/notes stay in
+Configure). Kokonut File Upload deleted, `getPathForFile` bridge
+reverted, extension mirror removed; `gameInputToRecord` reused for
+the blanks→null contract. Focused suites (`games`,
+`project-config`, `dashboard`, `renderer-hooks`, new `game-form`)
+pass 79/79; renderer build succeeds. Manually unverified: dialog
+feel, picker flow, and Configure editing in a running shell.
 
 ## Project-owned game configuration (uncommitted)
 

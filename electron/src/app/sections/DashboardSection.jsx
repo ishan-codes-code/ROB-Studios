@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { AutoHeight } from "@animate-ui/react/primitives/effects/auto-height";
 import { toast } from "sonner";
 import {
   ChevronDown,
   Clapperboard,
+  Film,
+  MessagesSquare,
   Plus,
   RotateCcw,
+  ScanSearch,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { cn } from "cn";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
@@ -27,8 +31,14 @@ import GlassCard from "@/primitives/GlassCard.jsx";
 import ProjectCreationDialog from "@/components/ProjectCreationDialog.jsx";
 import LiveCommentaryHero from "./LiveCommentaryHero.jsx";
 import {
+  describeArtifacts,
+  firstFrameName,
+  summarizeDashboard,
+} from "@/lib/dashboard-stats.js";
+import {
   fileNameOf,
   formatBytes,
+  projectMediaUrl,
   timeAgo,
 } from "@/lib/format.js";
 import { EASING, MOTION } from "@/lib/tokens.js";
@@ -46,80 +56,177 @@ function bridgeError() {
   return new Error("Worker bridge unavailable (running outside Electron?).");
 }
 
-function ProjectRow({ project, onOpen, onRequestDelete, deleting, deleteDisabled }) {
+function StatCard({ icon: Icon, label, value, detail, ready }) {
+  return (
+    <li className="min-w-0">
+      <GlassCard className="flex items-center gap-3 p-4">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent text-muted-foreground">
+          <Icon className="size-4" aria-hidden />
+        </span>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+          {ready ? (
+            <span className="font-mono text-xl tabular-nums leading-none text-foreground">
+              {value}
+            </span>
+          ) : (
+            <Skeleton className="h-5 w-8 motion-reduce:animate-none" />
+          )}
+          <span className="truncate text-xs text-subtle">{detail}</span>
+        </span>
+      </GlassCard>
+    </li>
+  );
+}
+
+function ProjectCard({ project, listing, current, onOpen, onRequestDelete, deleting, deleteDisabled }) {
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const frame = firstFrameName(listing);
+  const thumbUrl = !thumbFailed && frame !== null
+    ? projectMediaUrl(project.id, "frames", frame)
+    : null;
+  const chips = useMemo(() => describeArtifacts(listing), [listing]);
+
   return (
     <motion.li
       initial={false}
       exit={{ opacity: 0, x: 12 }}
       transition={{ duration: MOTION.fast, ease: EASING.entrance }}
-      className="flex items-center gap-3 px-4 py-3"
+      className="min-w-0"
     >
-      <button
-        type="button"
-        onClick={() => onOpen(project.id)}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate text-[13px] font-semibold text-foreground">
-            {project.name}
+      <GlassCard className="flex h-full flex-col overflow-hidden p-0 transition-colors duration-150 hover:border-input">
+        <button
+          type="button"
+          onClick={() => onOpen(project.id)}
+          aria-label={`Open ${project.name}`}
+          className="relative block aspect-video w-full overflow-hidden bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          {thumbUrl !== null ? (
+            <img
+              src={thumbUrl}
+              alt=""
+              aria-hidden
+              draggable={false}
+              loading="lazy"
+              decoding="async"
+              onError={() => setThumbFailed(true)}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center">
+              <Film className="size-6 text-subtle" aria-hidden />
+            </span>
+          )}
+          <span className="absolute left-2 top-2">
+            <Badge variant={STATUS_BADGE[project.processingStatus] ?? "outline"} className="bg-background/70">
+              {project.processingStatus}
+            </Badge>
           </span>
-          <span className="truncate font-mono text-xs text-subtle">
-            {fileNameOf(project.sourceVideo.path)} ·{" "}
-            {formatBytes(project.sourceVideo.sizeBytes)} · opened{" "}
-            {timeAgo(project.lastOpenedAt)}
-          </span>
-        </span>
-        <Badge variant={STATUS_BADGE[project.processingStatus] ?? "outline"}>
-          {project.processingStatus}
-        </Badge>
-      </button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Delete ${project.name}`}
-        title={`Delete ${project.name}`}
-        disabled={deleting || deleteDisabled}
-        onClick={() => onRequestDelete(project)}
-      >
-        {deleting ? <Spinner /> : <Trash2 />}
-      </Button>
+          {current ? (
+            <span className="absolute right-2 top-2">
+              <Badge variant="secondary" className="bg-background/70">Current</Badge>
+            </span>
+          ) : null}
+        </button>
+        <div className="flex min-w-0 flex-1 flex-col gap-1 p-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <button
+              type="button"
+              onClick={() => onOpen(project.id)}
+              className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span className="truncate text-[13px] font-semibold text-foreground">
+                {project.name}
+              </span>
+              <span className="truncate font-mono text-xs text-subtle">
+                {fileNameOf(project.sourceVideo.path)} ·{" "}
+                {formatBytes(project.sourceVideo.sizeBytes)}
+              </span>
+            </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Delete ${project.name}`}
+              title={`Delete ${project.name}`}
+              disabled={deleting || deleteDisabled}
+              onClick={() => onRequestDelete(project)}
+            >
+              {deleting ? <Spinner /> : <Trash2 />}
+            </Button>
+          </div>
+          <div className="mt-auto flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pt-1">
+            <span className="shrink-0 text-xs text-subtle">
+              opened {timeAgo(project.lastOpenedAt)}
+            </span>
+            {chips.map((chip) => (
+              <span
+                key={chip.key}
+                className="shrink-0 rounded-full border border-border px-1.5 py-px text-[11px] text-muted-foreground"
+              >
+                {chip.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      </GlassCard>
     </motion.li>
   );
 }
 
-function ProjectListSkeleton() {
+function QuickAction({ icon: Icon, title, text, onClick }) {
   return (
-    <GlassCard className="p-0" role="status" aria-label="Loading projects">
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full items-start gap-2.5 rounded-md p-2 text-left transition-colors duration-150 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-muted-foreground">
+          <Icon className="size-4" aria-hidden />
+        </span>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-[13px] font-medium text-foreground">{title}</span>
+          <span className="text-xs leading-relaxed text-muted-foreground">{text}</span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function ProjectGridSkeleton() {
+  return (
+    <div
+      className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+      role="status" aria-label="Loading projects"
+    >
       <span className="sr-only">Loading projects…</span>
-      <ul aria-hidden className="flex flex-col divide-y divide-border">
-        {[0, 1, 2].map((index) => (
-          <li key={index} className="flex items-center gap-3 px-4 py-3">
-            <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <Skeleton className="h-4 w-1/3 motion-reduce:animate-none" />
-              <Skeleton className="h-3 w-2/3 motion-reduce:animate-none" />
-            </span>
-            <Skeleton className="h-5 w-14 rounded-full motion-reduce:animate-none" />
-          </li>
-        ))}
-      </ul>
-    </GlassCard>
+      {[0, 1, 2].map((index) => (
+        <GlassCard key={index} aria-hidden className="flex flex-col gap-3 p-3">
+          <Skeleton className="aspect-video w-full motion-reduce:animate-none" />
+          <Skeleton className="h-4 w-2/3 motion-reduce:animate-none" />
+          <Skeleton className="h-3 w-1/2 motion-reduce:animate-none" />
+        </GlassCard>
+      ))}
+    </div>
   );
 }
 
 /**
- * Product-first dashboard. The Live AI Commentary hero states where the
- * product is headed; the recorded-gameplay library below keeps the
- * existing project workflow (native picker → name → isolated copy →
- * open workspace) with identical IPC semantics. Deletion is a deliberate
- * typed-name confirmation through the same `deleteProject` IPC call.
+ * Product-first dashboard: a workspace greeting, honest counts from
+ * persisted data, the recent-projects library as media cards, quick
+ * actions into the existing workflows, and the live-commentary
+ * announcement. Project IPC semantics are unchanged (native picker →
+ * name → isolated copy → open workspace; typed-name deletion).
  * Worker status is not rendered here — the global application header
  * already shows it.
  */
-export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
+export default function DashboardSection({ onOpenProject, onProjectDeleted, activeProjectId = null }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [listings, setListings] = useState({});
+  const [listingsLoaded, setListingsLoaded] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -166,6 +273,55 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
     };
   }, [refresh]);
 
+  // One artifact-listing pass per project list, feeding both the
+  // statistics row and the card thumbnails/chips. Failed listings stay
+  // null and simply contribute nothing — never a fabricated zero.
+  const projectIds = useMemo(
+    () => projects.map((project) => project.id),
+    [projects],
+  );
+
+  useEffect(() => {
+    if (loading || error || projectIds.length === 0) {
+      setListings({});
+      setListingsLoaded(!loading && !error);
+      return undefined;
+    }
+    let alive = true;
+    setListingsLoaded(false);
+    (async () => {
+      const settled = await Promise.all(
+        projectIds.map(async (id) => {
+          try {
+            if (typeof window.api?.listArtifacts !== "function") {
+              return [id, null];
+            }
+            const res = await window.api.listArtifacts(id);
+            if (res?.ok === true && res.artifacts && typeof res.artifacts === "object") {
+              return [id, res.artifacts];
+            }
+          } catch {
+            // Missing or unreadable artifacts: the card falls back to
+            // its thumbnail placeholder and no chips.
+          }
+          return [id, null];
+        }),
+      );
+      if (alive) {
+        setListings(Object.fromEntries(settled));
+        setListingsLoaded(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectIds, loading, error]);
+
+  const stats = useMemo(() => summarizeDashboard(projects, listings), [projects, listings]);
+  // listProjects sorts by last opened first, so the head is the
+  // natural target when an action needs an existing project.
+  const latestProjectId = projects.length > 0 ? projects[0].id : null;
+
   async function handleRetry() {
     setLoading(true);
     setError(null);
@@ -191,6 +347,25 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
       // The project exists; the next mount reloads the list.
     }
     onOpenProject(projectId);
+  }
+
+  // Quick actions reuse the existing workflows: the editor owns runs
+  // and commentary, so both open the latest project there. Without a
+  // project they fall back to the import dialog instead of faking it.
+  function handleRunAnalysis() {
+    if (latestProjectId !== null) {
+      onOpenProject(latestProjectId);
+    } else {
+      setCreateOpen(true);
+    }
+  }
+
+  function handleGenerateCommentary() {
+    if (latestProjectId !== null) {
+      onOpenProject(latestProjectId);
+    } else {
+      setCreateOpen(true);
+    }
   }
 
   function handleRequestDelete(project) {
@@ -227,7 +402,7 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
       if (!res || res.ok !== true) {
         throw new Error(res?.error ?? "Could not delete the project.");
       }
-      // Deletion succeeded: drop the row immediately so the exit
+      // Deletion succeeded: drop the card immediately so the exit
       // transition plays, then reconcile with the backend list. A
       // refresh failure here must never read as a deletion failure.
       setProjects((prev) => prev.filter((project) => project.id !== deleteTarget.id));
@@ -257,126 +432,152 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
   const loaded = !loading && !error;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-          Dashboard
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 pb-8">
+      <div className="min-w-0">
+        <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">
+          Welcome back
         </h2>
-        <p className="text-xs text-subtle">
-          Recorded projects today · live commentary next
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          Your AI commentary and game analysis workspace.
         </p>
       </div>
 
-      <LiveCommentaryHero />
+      <section aria-label="Workspace statistics" className="min-w-0">
+        <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3">
+          <StatCard
+            icon={Clapperboard}
+            label="Projects"
+            value={stats.projects}
+            detail="recorded projects"
+            ready={loaded}
+          />
+          <StatCard
+            icon={ScanSearch}
+            label="Analyses"
+            value={stats.analyses}
+            detail="projects with analysis output"
+            ready={loaded && listingsLoaded}
+          />
+          <StatCard
+            icon={MessagesSquare}
+            label="Commentaries"
+            value={stats.commentaries}
+            detail="projects with commentary output"
+            ready={loaded && listingsLoaded}
+          />
+        </ul>
+      </section>
 
-      <section
-        aria-labelledby="recorded-library-heading"
-        className="flex min-w-0 flex-col gap-3"
-      >
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={libraryOpen ? "Collapse project library" : "Expand project library"}
-            aria-expanded={libraryOpen}
-            aria-controls="project-library-body"
-            onClick={() => setLibraryOpen((open) => !open)}
-          >
-            <ChevronDown
-              aria-hidden
-              className={cn(
-                "transition-transform duration-150 motion-reduce:transition-none",
-                !libraryOpen && "-rotate-90",
-              )}
-            />
-          </Button>
-          <h2
-            id="recorded-library-heading"
-            className="truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground"
-          >
-            Recorded gameplay
-          </h2>
-          {loaded ? (
-            <span className="shrink-0 font-mono text-xs tabular-nums text-subtle">
-              {projects.length} {projects.length === 1 ? "project" : "projects"}
-            </span>
-          ) : null}
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_264px]">
+        <section
+          aria-labelledby="recorded-library-heading"
+          className="flex min-w-0 flex-col gap-3"
+        >
+          <div className="flex items-center gap-2">
             <Button
               type="button"
-              variant="default"
-              size="sm"
-              onClick={handleAdd}
+              variant="ghost"
+              size="icon-sm"
+              aria-label={libraryOpen ? "Collapse project library" : "Expand project library"}
+              aria-expanded={libraryOpen}
+              aria-controls="project-library-body"
+              onClick={() => setLibraryOpen((open) => !open)}
             >
-              <Plus data-icon="inline-start" />
-              New project
+              <ChevronDown
+                aria-hidden
+                className={cn(
+                  "transition-transform duration-150 motion-reduce:transition-none",
+                  !libraryOpen && "-rotate-90",
+                )}
+              />
             </Button>
-          </div>
-        </div>
-
-        <AutoHeight
-          deps={[libraryOpen, projects.length, loading, error]}
-          transition={{ duration: MOTION.standard, ease: EASING.entrance }}
-          className="min-w-0"
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            {!libraryOpen ? null : (
-              <motion.div
-                key="library"
-                id="project-library-body"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: MOTION.standard, ease: EASING.entrance }}
+            <h2
+              id="recorded-library-heading"
+              className="truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground"
+            >
+              Recent projects
+            </h2>
+            {loaded ? (
+              <span className="shrink-0 font-mono text-xs tabular-nums text-subtle">
+                {projects.length} {projects.length === 1 ? "project" : "projects"}
+              </span>
+            ) : null}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                onClick={handleAdd}
               >
-                {loading ? (
-                  <ProjectListSkeleton />
-                ) : error ? (
-                  <div className="flex flex-col items-start gap-3">
-                    <Alert variant="destructive">
-                      <AlertTitle>Could not load projects</AlertTitle>
-                      <AlertDescription>{error}</AlertDescription>
-                    </Alert>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRetry}
-                    >
-                      <RotateCcw data-icon="inline-start" />
-                      Retry
-                    </Button>
-                  </div>
-                ) : projects.length === 0 ? (
-                  <GlassCard className="flex flex-col items-center gap-3 p-6 text-center">
-                    <span className="flex size-10 items-center justify-center rounded-lg bg-accent text-muted-foreground">
-                      <Clapperboard className="size-5" aria-hidden />
-                    </span>
-                    <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
-                      No projects yet
-                    </h3>
-                    <p className="max-w-sm text-[13px] text-muted-foreground">
-                      Create a project from a recorded match video. Each project
-                      keeps its own source copy and processing output.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="default"
-                      onClick={handleAdd}
-                    >
-                      <Plus data-icon="inline-start" />
-                      New project
-                    </Button>
-                  </GlassCard>
-                ) : (
-                  <GlassCard className="p-0">
-                    <ul className="flex flex-col divide-y divide-border">
+                <Plus data-icon="inline-start" />
+                New project
+              </Button>
+            </div>
+          </div>
+
+          <AutoHeight
+            deps={[libraryOpen, projects.length, loading, error]}
+            transition={{ duration: MOTION.standard, ease: EASING.entrance }}
+            className="min-w-0"
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              {!libraryOpen ? null : (
+                <motion.div
+                  key="library"
+                  id="project-library-body"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: MOTION.standard, ease: EASING.entrance }}
+                >
+                  {loading ? (
+                    <ProjectGridSkeleton />
+                  ) : error ? (
+                    <div className="flex flex-col items-start gap-3">
+                      <Alert variant="destructive">
+                        <AlertTitle>Could not load projects</AlertTitle>
+                        <AlertDescription>{error}</AlertDescription>
+                      </Alert>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleRetry}
+                      >
+                        <RotateCcw data-icon="inline-start" />
+                        Retry
+                      </Button>
+                    </div>
+                  ) : projects.length === 0 ? (
+                    <GlassCard className="flex flex-col items-center gap-3 p-6 text-center">
+                      <span className="flex size-10 items-center justify-center rounded-lg bg-accent text-muted-foreground">
+                        <Clapperboard className="size-5" aria-hidden />
+                      </span>
+                      <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
+                        No projects yet
+                      </h3>
+                      <p className="max-w-sm text-[13px] text-muted-foreground">
+                        Create a project from a recorded match video. Each project
+                        keeps its own source copy and processing output.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="default"
+                        onClick={handleAdd}
+                      >
+                        <Plus data-icon="inline-start" />
+                        New project
+                      </Button>
+                    </GlassCard>
+                  ) : (
+                    <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                       <AnimatePresence initial={false}>
                         {projects.map((project) => (
-                          <ProjectRow
+                          <ProjectCard
                             key={project.id}
                             project={project}
+                            listing={listings[project.id] ?? null}
+                            current={project.id === activeProjectId}
                             onOpen={onOpenProject}
                             onRequestDelete={handleRequestDelete}
                             deleting={deletingId === project.id}
@@ -385,13 +586,51 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
                         ))}
                       </AnimatePresence>
                     </ul>
-                  </GlassCard>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </AutoHeight>
-      </section>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </AutoHeight>
+        </section>
+
+        <aside aria-label="Quick actions" className="min-w-0">
+          <GlassCard className="flex flex-col gap-1 p-2">
+            <h2 className="px-2 pb-1 pt-1 text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+              Quick actions
+            </h2>
+            <ul className="flex min-w-0 flex-col">
+              <QuickAction
+                icon={Upload}
+                title="Import gameplay"
+                text="Create a project from a recorded match video."
+                onClick={handleAdd}
+              />
+              <QuickAction
+                icon={ScanSearch}
+                title="Run AI analysis"
+                text={
+                  latestProjectId !== null
+                    ? "Open the latest project to start a run."
+                    : "Import a project first, then start a run."
+                }
+                onClick={handleRunAnalysis}
+              />
+              <QuickAction
+                icon={MessagesSquare}
+                title="Generate commentary"
+                text={
+                  latestProjectId !== null
+                    ? "Open the latest project for script and voice."
+                    : "Import a project first, then generate."
+                }
+                onClick={handleGenerateCommentary}
+              />
+            </ul>
+          </GlassCard>
+        </aside>
+      </div>
+
+      <LiveCommentaryHero />
 
       <ProjectCreationDialog
         open={createOpen}

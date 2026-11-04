@@ -218,7 +218,7 @@ export default function App() {
             <div className="h-full min-h-0 overflow-y-auto px-5 py-4">
               <SectionView
                 {...(activeSection === "dashboard"
-                  ? { onOpenProject: handleOpenProject, onProjectDeleted: handleProjectDeleted }
+                  ? { onOpenProject: handleOpenProject, onProjectDeleted: handleProjectDeleted, activeProjectId: workspaceId }
                   : {})}
                 {...(activeSection === "audio"
                   ? { section: activeSection }

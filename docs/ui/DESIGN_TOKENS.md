@@ -18,6 +18,7 @@ Implementation: CSS custom properties + Tailwind CSS v4 `@theme` in
 | `studio-800`    | `#202021`                | Elevated surface                  |
 | `success`       | `#22C55E`                | Success status                    |
 | `warning`       | `#F59E0B`                | Warning status                    |
+| `live`          | `#A78BFA`                | Live/upcoming accent (restrained) |
 | `danger`        | `#EF4444`                | Danger status                     |
 | `ink`           | `#F1F1F1`                | Primary text                      |
 | `ink-muted`     | `#A1A1A4`                | Secondary text                    |
@@ -44,6 +45,7 @@ for layout surfaces.
 | `border` / `input`    | `border-border`           | `line` (solid)            |
 | `ring`                | `focus-visible:ring-ring` | `#B9B9BB`                  |
 | `success` / `warning` / `destructive` | status only | palette            |
+| `live`          | `text-live` / `bg-live`   | violet accent for live/upcoming only |
 | `surface`             | `bg-surface`              | `studio-900` (sidebar)    |
 | `surface-raised`      | `bg-surface-raised`       | `studio-850` (panels)     |
 | `elevated`            | `bg-elevated`             | `studio-800`              |
@@ -104,5 +106,6 @@ Body default is 13px/1.5; headings use `leading-tight`.
 
 - Components use semantic tokens; raw palette values appear only in
   `index.css` (and this document).
+- `live` marks live/upcoming moments only (eyebrows, upcoming badges); never body text or status.
 - Dark-only theme: `:root` holds the Studio values; `color-scheme: dark`.
 - Token changes update this document and `index.css` together.

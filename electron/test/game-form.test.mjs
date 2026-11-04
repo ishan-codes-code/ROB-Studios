@@ -4,35 +4,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Static guards for the file-path bridge (Electron 32 removed
-// File.path from the renderer) and the shared-Select migration of
-// the game metadata form. There is no JSX harness in this repo, so
-// these tests verify the source keeps its contracts.
+// Static guards for the shared game metadata form (editor Configure
+// tab): suggestion selects compose the shared Select primitive,
+// legacy values still render, and clearing keeps working. There is
+// no JSX harness in this repo, so these tests verify the source
+// keeps its contracts.
 const here = path.dirname(fileURLToPath(import.meta.url));
-const preload = fs.readFileSync(
-  path.join(here, '../src/preload.js'),
-  'utf8',
-);
-const creationDialog = fs.readFileSync(
-  path.join(here, '../src/components/ProjectCreationDialog.jsx'),
-  'utf8',
-);
 const gameForm = fs.readFileSync(
   path.join(here, '../src/components/GameMetadataForm.jsx'),
   'utf8',
 );
-
-test('preload resolves dropped-file paths through webUtils', () => {
-  assert.match(preload, /import \{ contextBridge, ipcRenderer, webUtils \} from 'electron';/);
-  assert.match(preload, /getPathForFile: \(file\) => webUtils\.getPathForFile\(file\),/);
-});
-
-test('creation dialog resolves the path the same way on accept and success', () => {
-  assert.match(creationDialog, /const resolveRecordingPath = \(file\) => \{/);
-  assert.match(creationDialog, /window\.api\?\.getPathForFile/);
-  assert.match(creationDialog, /if \(resolveRecordingPath\(file\) === ""\) \{/);
-  assert.match(creationDialog, /path: resolveRecordingPath\(file\)/);
-});
 
 test('game form suggestion selects compose the shared Select primitive', () => {
   assert.match(gameForm, /from "@\/components\/ui\/select\.jsx";/);

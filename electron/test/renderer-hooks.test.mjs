@@ -19,7 +19,6 @@ const COMPONENTS = [
   '../src/app/sections/ApiKeysSection.jsx',
   '../src/components/GameMetadataForm.jsx',
   '../src/components/ProjectCreationDialog.jsx',
-  '../src/components/kokonutui/file-upload.jsx',
   '../src/app/sections/OverviewSection.jsx',
   '../src/app/sections/providers/ModelPicker.jsx',
   '../src/app/sections/providers/ProviderStatusBadge.jsx',

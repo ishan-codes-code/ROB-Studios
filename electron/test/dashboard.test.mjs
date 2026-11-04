@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Static guards for the live-commentary dashboard redesign. There is no
-// JSX harness in this repo, so these tests verify the dashboard source
-// keeps its contracts: the exact Animate UI primitive reused from the
-// editor, the preserved project IPC flow, the removed worker-status
-// duplication, and the required hero/library copy and states.
+// Static guards for the Obsidian broadcast dashboard redesign. There is
+// no JSX harness in this repo, so these tests verify the dashboard
+// source keeps its contracts: the exact Animate UI primitive reused
+// from the editor, the preserved project IPC flow, the removed
+// worker-status duplication, honest statistics from persisted data,
+// cards with real thumbnails, quick actions into existing workflows,
+// and the required hero/banner states.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dashboard = fs.readFileSync(
   path.join(here, '../src/app/sections/DashboardSection.jsx'),
@@ -53,16 +55,62 @@ test('dashboard has no worker-status card while the header keeps its own', () =>
   assert.match(header, /<StatusIndicator status=\{status\}/);
 });
 
+test('dashboard opens with a workspace greeting', () => {
+  assert.match(dashboard, /Welcome back/);
+  assert.match(dashboard, /Your AI commentary and game analysis workspace\./);
+});
+
+test('statistics come from persisted data through shared selectors', () => {
+  assert.match(dashboard, /from "@\/lib\/dashboard-stats\.js";/);
+  assert.match(dashboard, /summarizeDashboard\(projects, listings\)/);
+  assert.match(dashboard, /window\.api\?\.listArtifacts/);
+  assert.match(dashboard, /label="Projects"/);
+  assert.match(dashboard, /label="Analyses"/);
+  assert.match(dashboard, /label="Commentaries"/);
+});
+
+test('project cards reuse extracted frames with an honest fallback', () => {
+  assert.match(dashboard, /firstFrameName\(listing\)/);
+  assert.match(dashboard, /projectMediaUrl\(project\.id, "frames", frame\)/);
+  assert.match(dashboard, /loading="lazy"/);
+  assert.match(dashboard, /describeArtifacts\(listing\)/);
+  assert.match(dashboard, /<Film className="size-6 text-subtle" aria-hidden \/>/);
+});
+
+test('quick actions reuse the existing workflows without placeholders', () => {
+  assert.match(dashboard, /Quick actions/);
+  assert.match(dashboard, /title="Import gameplay"/);
+  assert.match(dashboard, /title="Run AI analysis"/);
+  assert.match(dashboard, /title="Generate commentary"/);
+  assert.match(dashboard, /onClick=\{handleAdd\}/);
+  assert.match(dashboard, /onClick=\{handleRunAnalysis\}/);
+  assert.match(dashboard, /onClick=\{handleGenerateCommentary\}/);
+  assert.match(dashboard, /onOpenProject\(latestProjectId\)/);
+  assert.doesNotMatch(dashboard, /TODO/);
+  assert.doesNotMatch(dashboard, /not implemented/i);
+});
+
 test('hero announces the future capability without implying it works', () => {
-  assert.match(hero, /Live AI commentary/);
+  assert.match(hero, /Live commentary/);
   assert.match(hero, /Coming soon/);
-  assert.match(hero, /Every moment\. Every play\. Live\./);
-  assert.match(hero, /Live gameplay analysis/);
-  assert.match(hero, /Context-aware match intelligence/);
-  assert.match(hero, /Real-time AI voice commentary/);
+  assert.match(hero, /The next generation of live game commentary/);
+  assert.match(hero, /Real-time gameplay understanding, match memory and/);
+  assert.match(hero, /broadcast-ready AI voice commentary\./);
+  assert.match(hero, /assets\/images\/esports-setup\.webp/);
   assert.doesNotMatch(hero, /<Button/);
-  assert.doesNotMatch(hero, /Start Live/i);
+  assert.doesNotMatch(hero, /<a /);
+  assert.doesNotMatch(hero, /onClick/);
   assert.doesNotMatch(hero, /motion\/react/);
+  assert.doesNotMatch(hero, /https?:\/\//);
+});
+
+test('live banner renders below the project library, not above it', () => {
+  const libraryHeading = dashboard.indexOf('Recent projects');
+  const banner = dashboard.indexOf('<LiveCommentaryHero />');
+  assert.ok(
+    libraryHeading !== -1 && banner !== -1 && libraryHeading < banner,
+    'banner renders after the recent-projects library',
+  );
 });
 
 test('New project actions use the Plus icon and stay outside the collapsible body', () => {
@@ -86,18 +134,17 @@ test('project import flow keeps its IPC semantics and silent cancellation', () =
   assert.match(dashboard, /onOpenProject\(projectId\)/);
 });
 
-test('creation dialog centers the recording dropzone with a browse fallback', () => {
-  assert.match(creationDialog, /import FileUpload from "@\/components\/kokonutui\/file-upload\.jsx";/);
-  assert.match(creationDialog, /<FileUpload/);
-  assert.match(creationDialog, /multiple=\{false\}/);
-  assert.match(creationDialog, /maxFiles=\{1\}/);
-  assert.match(creationDialog, /acceptedFileTypes=\{SUPPORTED_VIDEO_EXTENSIONS\}/);
-  assert.match(creationDialog, /Gameplay recording/);
-  assert.match(creationDialog, /or browse files…/);
-  assert.match(creationDialog, /One recording per project/);
-  assert.match(creationDialog, /resolveRecordingPath/);
-  assert.match(creationDialog, /window\.api\?\.getPathForFile/);
-  assert.match(creationDialog, /Couldn't read this file's path/);
+test('creation dialog attaches video through a single Add video picker', () => {
+  assert.doesNotMatch(creationDialog, /kokonutui\/file-upload/);
+  assert.doesNotMatch(creationDialog, /<FileUpload/);
+  assert.doesNotMatch(creationDialog, /getPathForFile/);
+  assert.match(creationDialog, /Add video/);
+  assert.match(creationDialog, /Gameplay video/);
+  assert.match(creationDialog, /window\.api\?\.selectVideo/);
+  assert.match(creationDialog, /setRecording\(\{ path: res\.path, name: fileNameOf\(res\.path\) \}\)/);
+  assert.match(creationDialog, /Replace/);
+  assert.match(creationDialog, /Remove/);
+  assert.match(creationDialog, /setRecording\(null\)/);
 });
 
 test('creation dialog gates submit on name plus recording and stays open on failure', () => {
@@ -119,18 +166,17 @@ test('dashboard opens the dialog instead of an inline naming card', () => {
   assert.doesNotMatch(dashboard, /Match details \(optional\)/);
 });
 
-test('creation collects game metadata through the shared form', () => {
-  assert.match(creationDialog, /import GameMetadataForm from "@\/components\/GameMetadataForm\.jsx";/);
-  assert.match(creationDialog, /<GameMetadataForm disabled=\{creating\} onChange=\{setGame\} \/>/);
+test('creation keeps a minimal game form with stable ids and no teams', () => {
+  assert.match(creationDialog, /from "@\/components\/ui\/select\.jsx";/);
+  assert.match(creationDialog, /<SelectTrigger aria-label="Game"/);
+  assert.match(creationDialog, /\{GAMES\.map\(\(game\) => \(\s*<SelectItem key=\{game\.id\} value=\{game\.id\}>/);
+  assert.match(creationDialog, /matchTypesFor\(gameId\)/);
+  assert.match(creationDialog, /modesFor\(gameId, matchType \|\| null\)/);
+  assert.match(creationDialog, /mapsFor\(gameId\)/);
+  assert.match(creationDialog, /gameInputToRecord\(\{/);
+  assert.doesNotMatch(creationDialog, /<GameMetadataForm/);
+  assert.doesNotMatch(creationDialog, /Teams/);
   assert.doesNotMatch(dashboard, /GameMetadataForm/);
-});
-
-test('dialog video extensions match the main-process validator', async () => {
-  const { SUPPORTED_VIDEO_EXTENSIONS: mainExtensions } = await import('../src/worker-protocol.mjs');
-  const match = creationDialog.match(/export const SUPPORTED_VIDEO_EXTENSIONS = \[([^\]]+)\]/);
-  assert.ok(match, 'dialog exports its extension mirror');
-  const dialogExtensions = [...match[1].matchAll(/"(\.[a-z0-9]+)"/g)].map((entry) => entry[1]);
-  assert.deepEqual(new Set(dialogExtensions), mainExtensions);
 });
 
 test('library collapse is an accessible toggle with a stable region id', () => {
@@ -142,7 +188,7 @@ test('library collapse is an accessible toggle with a stable region id', () => {
 });
 
 test('loading uses skeletons and errors offer retry', () => {
-  assert.match(dashboard, /<ProjectListSkeleton \/>/);
+  assert.match(dashboard, /<ProjectGridSkeleton \/>/);
   assert.match(dashboard, /<Skeleton /);
   assert.match(dashboard, /role="status" aria-label="Loading projects"/);
   assert.match(dashboard, /onClick=\{handleRetry\}/);
@@ -182,8 +228,8 @@ test('deletion dialog composes the shared Dialog primitives', () => {
   assert.match(dashboard, /<Dialog open=\{/);
   assert.match(dashboard, /<DialogContent/);
   assert.match(dashboard, /<DialogHeader/);
-  assert.match(dashboard, /<DialogDescription/);
   assert.match(dashboard, /<DialogFooter/);
+  assert.match(dashboard, /<DialogDescription/);
   assert.match(dashboard, /variant="destructive"/);
   assert.match(dashboard, /showCloseButton=\{/);
 });
@@ -206,7 +252,7 @@ test('successful deletion removes locally before reconciling with the backend', 
   assert.match(dashboard, /refresh\(\)\.then\(setProjects,\s*\(\) => \{\}\)/);
 });
 
-test('deleted rows exit with a restrained shared-token transition', () => {
+test('deleted cards exit with a restrained shared-token transition', () => {
   assert.match(dashboard, /exit=\{\{ opacity: 0, x: 12 \}\}/);
   assert.match(dashboard, /transition=\{\{ duration: MOTION\.fast, ease: EASING\.entrance \}\}/);
   assert.doesNotMatch(dashboard, /exit=\{\{[^}]*blur/);
@@ -222,9 +268,10 @@ test('the delete action stays separate from opening the project', () => {
 });
 
 test('successful deletion notifies the shell to clear stale workspace state', () => {
-  assert.match(dashboard, /export default function DashboardSection\(\{ onOpenProject, onProjectDeleted \}\)/);
+  assert.match(dashboard, /export default function DashboardSection\(\{ onOpenProject, onProjectDeleted, activeProjectId/);
   assert.match(dashboard, /onProjectDeleted\?\.\(deletedId\)/);
   const app = fs.readFileSync(path.join(here, '../src/app/App.jsx'), 'utf8');
   assert.match(app, /onProjectDeleted: handleProjectDeleted/);
+  assert.match(app, /activeProjectId: workspaceId/);
   assert.match(app, /if \(workspaceId !== null && id === workspaceId\)/);
 });

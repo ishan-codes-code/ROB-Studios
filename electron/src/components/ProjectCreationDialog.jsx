@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Clapperboard, FolderOpen, X } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Button } from "@/components/ui/button.jsx";
@@ -11,84 +11,85 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.jsx";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
-import FileUpload from "@/components/kokonutui/file-upload.jsx";
-import GameMetadataForm from "@/components/GameMetadataForm.jsx";
-import { fileNameOf, formatBytes } from "@/lib/format.js";
+import { gameInputToRecord } from "@/components/GameMetadataForm.jsx";
+import { DEFAULT_GAME_ID, GAMES, mapsFor, matchTypesFor, modesFor } from "@/lib/games.js";
+import { fileNameOf } from "@/lib/format.js";
 
-// Renderer mirror of the main-process supported video list
-// (worker-protocol's set is node-only). The main process revalidates
-// every import; a test asserts both lists stay identical.
-export const SUPPORTED_VIDEO_EXTENSIONS = [".mp4", ".avi", ".mov", ".mkv", ".webm"];
+const inputClassName =
+  "h-9 rounded-md border border-input bg-background px-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+const triggerClassName = "w-full min-w-0 bg-background text-[13px] dark:bg-background";
 
-function stripExtension(name) {
-  return name.replace(/\.[^.]+$/, "");
+function Field({ label, children }) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1.5 text-[13px]">
+      <span className="font-medium text-foreground">{label}</span>
+      {children}
+    </label>
+  );
 }
 
 /**
- * Dedicated project creation dialog: name, one gameplay recording
- * (drag-and-drop or system file picker), game, and match details.
- * The recording path flows into the existing create-project IPC, so
- * import/copy stays in the main process; a failed import keeps the
- * dialog open with an inline error and never creates the project.
+ * Minimal project creation dialog: name, game, a few optional match
+ * details, and one gameplay video through the native picker. Import
+ * stays in the main process via the existing create-project IPC; a
+ * failed import keeps the dialog open and never creates the project.
+ * Full match details (category, tournament, teams, notes) live in
+ * the editor Configure tab, which owns the shared metadata form.
  */
 export default function ProjectCreationDialog({ open, onOpenChange, onCreated }) {
   const [name, setName] = useState("");
+  const [gameId, setGameId] = useState(DEFAULT_GAME_ID);
+  const [matchType, setMatchType] = useState("");
+  const [mode, setMode] = useState("");
+  const [map, setMap] = useState("");
   const [recording, setRecording] = useState(null);
-  const [game, setGame] = useState(null);
   const [creating, setCreating] = useState(false);
   const [browseBusy, setBrowseBusy] = useState(false);
   const [error, setError] = useState("");
   const busyRef = useRef(false);
+  const mapListId = useId();
 
   useEffect(() => {
     if (open) {
       setName("");
+      setGameId(DEFAULT_GAME_ID);
+      setMatchType("");
+      setMode("");
+      setMap("");
       setRecording(null);
-      setGame(null);
       setCreating(false);
       setBrowseBusy(false);
       setError("");
       busyRef.current = false;
     }
-  }, [open ]);
+  }, [open]);
 
-  const defaultNameFrom = (fileName) => {
-    setName((current) => (current.trim() === "" ? stripExtension(fileNameOf(fileName)) : current));
+  const modes = modesFor(gameId, matchType || null);
+  const maps = mapsFor(gameId);
+
+  const selectGame = (next) => {
+    if (next === gameId) return;
+    // Match type/mode option sets differ per game.
+    setGameId(next);
+    setMatchType("");
+    setMode("");
   };
 
-  // Renderer Files no longer carry .path (removed in Electron 32):
-  // the preload bridge resolves it; only the path crosses IPC —
-  // bytes are never read here.
-  const resolveRecordingPath = (file) => {
-    if (typeof file?.path === "string" && file.path !== "") {
-      return file.path;
-    }
-    if (typeof window.api?.getPathForFile === "function") {
-      try {
-        const bridged = window.api.getPathForFile(file);
-        if (typeof bridged === "string" && bridged !== "") {
-          return bridged;
-        }
-      } catch {
-        // Fall through to the actionable error below.
-      }
-    }
-    return "";
+  const selectMatchType = (next) => {
+    // A new match type can invalidate the mode (e.g. Clash Squad
+    // has none): drop modes the new type forbids.
+    const allowed = modesFor(gameId, next || null);
+    setMatchType(next);
+    setMode(allowed === null || (mode !== "" && !allowed.includes(mode)) ? "" : mode);
   };
-
-  const acceptRecording = async (file) => {
-    if (resolveRecordingPath(file) === "") {
-      throw new Error("Couldn't read this file's path. Use Browse instead.");
-    }
-  };
-
-  const handleDropSuccess = (file) => {
-    setRecording({ path: resolveRecordingPath(file), name: file.name, size: file.size });
-    defaultNameFrom(file.name);
-  };
-
-  const clearRecording = () => setRecording(null);
 
   async function handleBrowse() {
     if (busyRef.current || browseBusy || creating) {
@@ -111,8 +112,10 @@ export default function ProjectCreationDialog({ open, onOpenChange, onCreated })
       if (res.ok !== true || !res.path) {
         throw new Error(res.error ?? "Could not select a video.");
       }
-      setRecording({ path: res.path, name: fileNameOf(res.path), size: null });
-      defaultNameFrom(res.path);
+      setRecording({ path: res.path, name: fileNameOf(res.path) });
+      setName((current) => (
+        current.trim() === "" ? fileNameOf(res.path).replace(/\.[^.]+$/, "") : current
+      ));
     } catch (err) {
       setError(err?.message ?? "Could not select a video.");
     } finally {
@@ -136,6 +139,18 @@ export default function ProjectCreationDialog({ open, onOpenChange, onCreated })
       if (typeof window.api?.createProject !== "function") {
         throw new Error("Worker bridge unavailable (running outside Electron?).");
       }
+      const game = gameInputToRecord({
+        gameId,
+        matchType,
+        mode,
+        map,
+        category: "",
+        teams: "",
+        tournament: "",
+        stage: "",
+        language: "English",
+        additionalContext: "",
+      });
       const res = await window.api.createProject(trimmed, recording.path, game);
       if (!res || res.ok !== true || !res.project) {
         throw new Error(res?.error ?? "Could not create the project.");
@@ -169,17 +184,16 @@ export default function ProjectCreationDialog({ open, onOpenChange, onCreated })
         }
       }}
     >
-      <DialogContent className="flex max-h-[88vh] flex-col overflow-hidden sm:max-w-2xl">
+      <DialogContent className="flex max-h-[88vh] flex-col overflow-hidden sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New project</DialogTitle>
           <DialogDescription>
-            Name the project, attach its gameplay recording, then describe the match.
+            Name the project, pick its game, and attach the gameplay video.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-0.5 pb-1">
-          <label className="flex min-w-0 flex-col gap-1.5 text-[13px]">
-            <span className="font-medium text-foreground">Project name</span>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-0.5 pb-1">
+          <Field label="Project name">
             <input
               type="text"
               value={name}
@@ -187,80 +201,125 @@ export default function ProjectCreationDialog({ open, onOpenChange, onCreated })
               onChange={(event) => setName(event.target.value)}
               placeholder="Friday finals"
               disabled={creating}
-              className="rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className={`${inputClassName} w-full`}
             />
-          </label>
+          </Field>
+
+          <div className="grid min-w-0 grid-cols-2 gap-3">
+            <Field label="Game">
+              <Select value={gameId} disabled={creating} onValueChange={selectGame}>
+                <SelectTrigger aria-label="Game" className={triggerClassName}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {GAMES.map((game) => (
+                    <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Match type">
+              <Select
+                value={matchType}
+                disabled={creating}
+                onValueChange={selectMatchType}
+              >
+                <SelectTrigger aria-label="Match type" className={triggerClassName}>
+                  <SelectValue placeholder="Optional" />
+                </SelectTrigger>
+                <SelectContent>
+                  {matchTypesFor(gameId).map((option) => (
+                    <SelectItem key={option} value={option}>{option}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+
+          <div className="grid min-w-0 grid-cols-2 gap-3">
+            {modes !== null ? (
+              <Field label="Mode">
+                <Select value={mode} disabled={creating} onValueChange={setMode}>
+                  <SelectTrigger aria-label="Mode" className={triggerClassName}>
+                    <SelectValue placeholder="Optional" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modes.map((option) => (
+                      <SelectItem key={option} value={option}>{option}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : null}
+            <Field label="Map">
+              <input
+                className={`${inputClassName} min-w-0 w-full`}
+                value={map}
+                maxLength={80}
+                placeholder={maps[0] ?? "Optional"}
+                list={maps.length > 0 ? mapListId : undefined}
+                disabled={creating}
+                onChange={(event) => setMap(event.target.value)}
+              />
+              {maps.length > 0 ? (
+                <datalist id={mapListId}>
+                  {maps.map((entry) => (
+                    <option key={entry} value={entry} />
+                  ))}
+                </datalist>
+              ) : null}
+            </Field>
+          </div>
 
           <div className="flex min-w-0 flex-col gap-1.5">
-            <span className="text-[13px] font-medium text-foreground">Gameplay recording</span>
+            <span className="text-[13px] font-medium text-foreground">Gameplay video</span>
             {recording ? (
-              <div className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-                <span
-                  aria-hidden="true"
-                  className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted"
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="min-w-0 flex-1 truncate text-[13px] text-foreground" title={recording.path}>
+                  {recording.name}
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={browseBusy || creating}
+                  onClick={handleBrowse}
                 >
-                  <Clapperboard className="size-4 text-muted-foreground" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium text-foreground" title={recording.name}>
-                    {recording.name}
-                  </p>
-                  <p className="truncate font-mono text-[11px] tabular-nums text-muted-foreground" title={recording.path}>
-                    {typeof recording.size === "number" ? `${formatBytes(recording.size)} · ` : ""}
-                    One recording per project
-                  </p>
-                </div>
+                  Replace
+                </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   disabled={creating}
-                  onClick={clearRecording}
-                  title="Remove recording"
-                  aria-label="Remove recording"
+                  onClick={() => setRecording(null)}
                 >
-                  <X data-icon="inline-start" />
                   Remove
                 </Button>
               </div>
             ) : (
-              <>
-                <FileUpload
-                  multiple={false}
-                  maxFiles={1}
-                  acceptedFileTypes={SUPPORTED_VIDEO_EXTENSIONS}
-                  maxFileSize={Number.POSITIVE_INFINITY}
-                  onUpload={acceptRecording}
-                  onUploadSuccess={handleDropSuccess}
-                  onFileRemove={clearRecording}
-                  className="mx-0 max-w-none"
-                />
-                <div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={browseBusy || creating}
-                    onClick={handleBrowse}
-                  >
-                    {browseBusy ? (
-                      <>
-                        <Spinner data-icon="inline-start" />
-                        Opening…
-                      </>
-                    ) : (
-                      <>
-                        <FolderOpen data-icon="inline-start" />
-                        or browse files…
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </>
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={browseBusy || creating}
+                  onClick={handleBrowse}
+                >
+                  {browseBusy ? (
+                    <>
+                      <Spinner data-icon="inline-start" />
+                      Opening…
+                    </>
+                  ) : (
+                    <>
+                      <Plus data-icon="inline-start" />
+                      Add video
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
           </div>
-
-          <GameMetadataForm disabled={creating} onChange={setGame} />
 
           {error ? (
             <Alert variant="destructive">
