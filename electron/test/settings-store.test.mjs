@@ -66,13 +66,13 @@ test('global TTS layer rejects overlong and unknown fields', () => {
 
 test('onboarding progress defaults, persists, and round-trips', (t) => {
   const dir = temp(t);
-  assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null, dismissed: false });
   const saved = saveSettings(dir, {
     ...DEFAULT_SETTINGS,
     onboarding: { step: 3, credentialId: 'cred-abc123' },
   });
-  assert.deepEqual(saved.onboarding, { step: 3, credentialId: 'cred-abc123' });
-  assert.deepEqual(loadSettings(dir).onboarding, { step: 3, credentialId: 'cred-abc123' });
+  assert.deepEqual(saved.onboarding, { step: 3, credentialId: 'cred-abc123', dismissed: false });
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 3, credentialId: 'cred-abc123', dismissed: false });
   // Completion does not require clearing; the flag stays authoritative.
   const done = saveSettings(dir, { ...saved, onboardingCompleted: true });
   assert.equal(done.onboardingCompleted, true);
@@ -81,13 +81,36 @@ test('onboarding progress defaults, persists, and round-trips', (t) => {
 test('legacy settings without onboarding progress start at step zero', (t) => {
   const dir = temp(t);
   fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ prompt: { language: 'Japanese' } }));
-  assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+  assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null, dismissed: false });
 });
 
 test('malformed onboarding progress falls back instead of failing load', (t) => {
   const dir = temp(t);
   for (const onboarding of [{ step: 9 }, { step: -1, credentialId: 'x'.repeat(65) }, 'done', 42]) {
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ onboarding }));
-    assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null });
+    assert.deepEqual(loadSettings(dir).onboarding, { step: 0, credentialId: null, dismissed: false });
   }
+});
+
+test('finish-later dismissal persists without completing setup', (t) => {
+  const dir = temp(t);
+  const saved = saveSettings(dir, {
+    ...DEFAULT_SETTINGS,
+    onboarding: { step: 2, credentialId: null, dismissed: true },
+  });
+  assert.deepEqual(saved.onboarding, { step: 2, credentialId: null, dismissed: true });
+  assert.equal(saved.onboardingCompleted, false, 'dismissal never completes setup');
+  const reloaded = loadSettings(dir);
+  assert.deepEqual(reloaded.onboarding, { step: 2, credentialId: null, dismissed: true });
+  assert.equal(reloaded.onboardingCompleted, false);
+});
+
+test('dismissal normalizes strictly to boolean', (t) => {
+  const dir = temp(t);
+  for (const dismissed of ['yes', 1, {}, []]) {
+    const saved = saveSettings(dir, { ...DEFAULT_SETTINGS, onboarding: { step: 1, dismissed } });
+    assert.equal(saved.onboarding.dismissed, false, JSON.stringify(dismissed));
+  }
+  const saved = saveSettings(dir, { ...DEFAULT_SETTINGS, onboarding: { step: 1, dismissed: true } });
+  assert.equal(saved.onboarding.dismissed, true);
 });

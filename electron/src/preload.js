@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('api', {
   readArtifact: (id, kind, name) =>
     ipcRenderer.invoke('read-artifact', id, kind, name),
   getApiActivity: (id) => ipcRenderer.invoke('get-api-activity', id ?? null),
+  reportRendererEvent: (name, meta) => ipcRenderer.invoke('diagnostics-report', name, meta ?? {}),
   onWorkerEvent: (callback) => {
     if (typeof callback !== 'function') {
       throw new TypeError('callback must be a function.');

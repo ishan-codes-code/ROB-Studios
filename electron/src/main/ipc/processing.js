@@ -4,6 +4,7 @@ import { buildWorkerArgv, isVisionConfigured, resolvePythonExecutable, resolveWo
 import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../run-config.mjs';
 import { TTS_API_KEY_ENV_VAR } from '../../tts-config.mjs';
 import { loadSettings } from '../../settings-store.mjs';
+import { recordDiagnosticsEvent } from '../diagnostics-log.mjs';
 
 export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow, ttsCatalogLoader = null, packsLoader = null }) {
   // True once the active run emitted its terminal `stopped` message.
@@ -218,6 +219,11 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       workerEnv.BASETEN_MODEL = userSettings.provider.model;
       workerEnv.AI_COMMENTATOR_SETTINGS_JSON = JSON.stringify(userSettings);
     }
+    }
+    try {
+      recordDiagnosticsEvent(app.getPath('userData'), { type: 'worker.start' });
+    } catch {
+      // Diagnostics never break a run (the recorder is no-throw).
     }
     const startedJob = workerManager.start({
       executable,

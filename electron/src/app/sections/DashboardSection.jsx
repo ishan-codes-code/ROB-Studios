@@ -42,6 +42,7 @@ import {
   timeAgo,
 } from "@/lib/format.js";
 import { EASING, MOTION } from "@/lib/tokens.js";
+import { reportRendererEvent } from "@/lib/diagnostics.js";
 
 const STATUS_BADGE = {
   idle: "outline",
@@ -261,16 +262,30 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
     return res.projects ?? [];
   }, []);
 
+  // Mount milestones for crash forensics: if the renderer dies on
+  // the way to the dashboard, the diagnostics log shows how far the
+  // mount and hydration got. Counts only — never project content.
+  useEffect(() => {
+    reportRendererEvent("dashboard.mount.started", {});
+    const frame = requestAnimationFrame(() => {
+      reportRendererEvent("dashboard.mount.completed", {});
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   useEffect(() => {
     let alive = true;
+    reportRendererEvent("dashboard.hydration.started", {});
     refresh()
       .then((list) => {
+        reportRendererEvent("dashboard.hydration.completed", { ok: true, projectCount: list.length });
         if (alive) {
           setProjects(list);
           setLoading(false);
         }
       })
       .catch((err) => {
+        reportRendererEvent("dashboard.hydration.completed", { ok: false });
         if (alive) {
           setError(err?.message ?? "Could not load projects.");
           setLoading(false);

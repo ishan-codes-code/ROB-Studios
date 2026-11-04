@@ -1,5 +1,51 @@
 # Current state
 
+## Finish-later dismissal + crash-forensics lifecycle (uncommitted)
+
+Finish Later is now a persisted dismissal, not a bare navigation: the wizard
+exits through `exitSetup` (persists `onboarding.dismissed` before navigating,
+stays + errors on save failure), startup routes on `shouldShowOnboarding`
+(completed or dismissed hides the wizard), and Preferences replays from either
+state via `setupTogglePayload`. Dismissal never marks provider/model verified.
+Forensics for the affected-machine exit-132: renderer lifecycle milestones
+(wizard exit, persist, navigation, dashboard mount/hydration) flow through a
+new allowlisted `diagnostics-report` IPC into the bounded userData log;
+`worker.start` is recorded main-side; the ready snapshot gains CPU model and
+Linux instruction flags. The native SIGILL itself was not reproduced here
+(this container kills Electron pre-ready) and no native fix is claimed; the
+added trail pinpoints the crash phase on the next affected-machine run.
+
+Verification: Electron suite 616/617 (only the known pre-existing toast
+failure); dismissal/routing/payload logic covered behaviorally; transition
+verified in a jsdom harness with the real settings store (dismiss persists,
+reload lands on dashboard, full trail, max 1 active subscription, no errors);
+Vite build + forge-start main boot pass.
+
+## Exit-133 crash investigation + diagnostics persistence (uncommitted)
+
+Not a crash fix: the reported renderer crash (exit 133) was not reproduced
+here, so no crash-behavior change is claimed. Local finding: stock Electron
+36.9.5 cannot boot its browser process in this container at all (SIGTRAP
+pre-ready in 12/12 flag configurations, including single-process and
+no-sandbox) — a stricter, earlier failure than the reported one, where main
+boots and the renderer dies. Deduction from the user screenshot: the crash
+page itself renders, so renderer spawn works there and the trigger is
+content-specific (native crash; JS exceptions cannot kill the process). GPU
+remains an unconfirmed hypothesis. Shipped instead: a bounded JSONL
+diagnostics log under userData (`main/diagnostics-log.mjs`, secret-scrubbed,
+rotated, no-throw) recording app-ready environment snapshots (versions,
+platform, GPU feature status, crash-dumps path), window/child-process/crash/
+load/retry milestones; local-only crashReporter (no upload); separated
+failure screens (dev-load, packaged-load, renderer-crash, crash-exhausted
+with diagnostics path); explicit manual retry via an intercepted
+`rob-retry://` navigation that resets budgets only on user action.
+
+Verification: Electron suite 600/601 (only the known pre-existing toast
+failure); new diagnostics-log (8) + new recovery tests pass; Vite build
+passes; forge start boots the real main process. Real renderer-crash and
+packaged-build verification still require the affected machine; exact
+repro/diagnostic commands are in the task handoff.
+
 ## Blank-window recovery audit (uncommitted)
 
 Renderer failure handling completed around the committed ErrorBoundary and

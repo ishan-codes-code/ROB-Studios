@@ -34,8 +34,10 @@ import {
   clampOnboardingStep,
   modelsStepReady,
   onboardingReadiness,
+  persistOnboardingDismissal,
   providerStepReady,
 } from "@/lib/onboarding.js";
+import { reportRendererEvent } from "@/lib/diagnostics.js";
 import { EASING, MOTION } from "@/lib/tokens.js";
 
 const PROVIDER_OPTIONS = [
@@ -110,7 +112,11 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
     const current = settingsRef.current ?? {};
     const result = await window.api.saveSettings({
       ...current,
-      onboarding: { step: clampOnboardingStep(nextStep), credentialId: credentialId ?? null },
+      onboarding: {
+        step: clampOnboardingStep(nextStep),
+        credentialId: credentialId ?? null,
+        dismissed: current.onboarding?.dismissed === true,
+      },
     });
     if (!result?.ok) throw new Error("Could not save setup progress. Check the local data directory and try again.");
     settingsRef.current = result.settings;
@@ -405,6 +411,32 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
       setBusy("");
     }
   }, [credential, projectName, projectPath]);
+
+  // Finish-later exit: the dismissal persists before navigation
+  // counts as successful, so a reload or restart lands on the
+  // dashboard instead of reopening the wizard. A failed save keeps
+  // the user on the wizard with an error. Dismissal never marks the
+  // provider or model configured — verification state is untouched.
+  const exitSetup = useCallback(async () => {
+    if (busy) return;
+    setBusy("exit");
+    setStepError("");
+    reportRendererEvent("onboarding.finish_later.clicked", { step });
+    reportRendererEvent("onboarding.completion.persist.started", { step });
+    try {
+      const saved = await persistOnboardingDismissal(
+        window.api, settingsRef.current, step, credential?.id ?? null,
+      );
+      settingsRef.current = saved ?? settingsRef.current;
+      reportRendererEvent("onboarding.completion.persist.finished", { step, ok: true });
+      onExit?.();
+    } catch (err) {
+      reportRendererEvent("onboarding.completion.persist.finished", { step, ok: false });
+      setStepError(err?.message ?? "Could not save setup progress.");
+    } finally {
+      setBusy("");
+    }
+  }, [busy, credential?.id, onExit, step]);
 
   const complete = useCallback(async (openProject) => {
     setBusy("complete");
@@ -870,14 +902,14 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
                   <ArrowLeft data-icon="inline-start" /> Back
                 </Button>
               ) : (
-                <Button size="sm" variant="ghost" onClick={onExit}>
+                <Button size="sm" variant="ghost" disabled={!!busy || adopting} onClick={exitSetup}>
                   Finish later
                 </Button>
               )}
             </div>
             <div className="flex gap-2">
               {step > 0 && step < 3 ? (
-                <Button size="sm" variant="ghost" onClick={onExit}>
+                <Button size="sm" variant="ghost" disabled={!!busy || adopting} onClick={exitSetup}>
                   Finish later
                 </Button>
               ) : null}

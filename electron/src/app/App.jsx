@@ -17,6 +17,8 @@ import TtsStudioSection from "@/app/sections/TtsStudioSection.jsx";
 import WorkspaceSection from "@/app/sections/WorkspaceSection.jsx";
 import StudioPlaceholder from "@/app/sections/StudioPlaceholder.jsx";
 import { applySessionMessage, disposeSession, routeSessionTarget } from "@/lib/workspace-sessions.js";
+import { reportRendererEvent } from "@/lib/diagnostics.js";
+import { shouldShowOnboarding } from "@/lib/onboarding.js";
 import { MOTION, EASING } from "@/lib/tokens.js";
 
 const SECTION_VIEWS = {
@@ -50,8 +52,9 @@ export default function App() {
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   // First-launch guided setup: takes over the window until completed or
-  // deferred ("Finish later" returns to the dashboard; progress resumes
-  // next launch). Null while the settings check is in flight.
+  // dismissed ("Finish later" persists a dismissal and shows the
+  // dashboard; setup can be replayed from Preferences). Null while the
+  // settings check is in flight.
   const [onboarding, setOnboarding] = useState(null);
   // Sidebar state before the editor auto-collapsed it; restored when
   // leaving the workspace so the toggle stays predictable.
@@ -61,7 +64,7 @@ export default function App() {
     let alive = true;
     window.api?.loadSettings?.().then((result) => {
       if (!alive) return;
-      if (result?.ok && !result.settings?.onboardingCompleted) {
+      if (result?.ok && shouldShowOnboarding(result.settings)) {
         setOnboarding({ settings: result.settings });
       } else {
         setOnboarding(false);
@@ -73,12 +76,18 @@ export default function App() {
   }, []);
 
   const handleOnboardingComplete = useCallback(({ projectId } = {}) => {
+    reportRendererEvent("onboarding.navigation.dashboard", { via: "complete" });
     setOnboarding(false);
     if (projectId) {
       handleOpenProjectRef.current?.(projectId);
     } else {
       setActiveSection("dashboard");
     }
+  }, []);
+
+  const handleOnboardingExit = useCallback(() => {
+    reportRendererEvent("onboarding.navigation.dashboard", { via: "finish-later" });
+    setOnboarding(false);
   }, []);
 
   const handleOpenProject = useCallback((id) => {
@@ -165,7 +174,7 @@ export default function App() {
           <OnboardingWizard
             initialSettings={onboarding.settings}
             onComplete={handleOnboardingComplete}
-            onExit={() => setOnboarding(false)}
+            onExit={handleOnboardingExit}
           />
         </div>
         <Toaster theme="dark" position="bottom-right" />

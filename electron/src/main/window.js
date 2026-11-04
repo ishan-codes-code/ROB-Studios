@@ -10,18 +10,53 @@ export const WINDOW_LOAD_RETRY_MS = 500;
 // stops a deterministically crashing renderer from reload-looping.
 export const WINDOW_CRASH_MAX_RELOADS = 3;
 
-export function loadErrorHtml(detail) {
-  const safe = String(detail ?? 'the page could not be loaded.')
+// Explicit user retry target. The failure pages navigate here from
+// their Try-again button; the main process intercepts the
+// navigation, resets the recovery budgets, and reloads the real
+// target. Nothing else can produce this URL, so the reset cannot
+// fire without an explicit user action.
+export const MANUAL_RETRY_URL = 'rob-retry://manual';
+
+function escapeHtml(value) {
+  return String(value ?? '')
     .replace(/[<>&]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[char]));
+}
+
+// Failure pages, separated by cause so packaged crashes never blame
+// a development server. `kind` is one of 'dev-load',
+// 'packaged-load', 'renderer-crash', or 'crash-exhausted'. Every page
+// carries a Try-again button that triggers the explicit manual retry
+// above; only the exhausted page names the diagnostics log.
+export function loadErrorHtml({ kind = 'packaged-load', detail = '', diagnosticsPath = null } = {}) {
+  const safeDetail = escapeHtml(detail || 'The page could not be loaded.');
+  const bodies = {
+    'dev-load': 'Check that the development server is running, then try again.',
+    'packaged-load': 'The installed application files may be missing or damaged. Reinstalling usually fixes this.',
+    'renderer-crash': 'Automatic recovery could not bring the renderer back.',
+    'crash-exhausted': 'Automatic recovery was exhausted, including after a manual retry. The renderer keeps crashing on this machine.',
+  };
+  const titles = {
+    'dev-load': 'Could not reach the development server',
+    'packaged-load': 'Could not load ROB Studio',
+    'renderer-crash': 'The renderer crashed',
+    'crash-exhausted': 'Automatic recovery was exhausted',
+  };
+  const title = titles[kind] ?? titles['packaged-load'];
+  const advice = bodies[kind] ?? bodies['packaged-load'];
+  const diagnosticsLine = kind === 'crash-exhausted' && diagnosticsPath
+    ? `<p style="color:#a1a1aa;max-width:460px;word-break:break-all;">Diagnostics were saved to <code style="color:#f1f1f1;">${escapeHtml(diagnosticsPath)}</code></p>`
+    : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ROB Studio</title></head>`
     + `<body style="margin:0;background:#09090a;color:#f1f1f1;font:14px system-ui,sans-serif;">`
     + `<div style="display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px;">`
-    + `<div><h1 style="font-size:15px;margin:0 0 8px;">Could not load ROB Studio</h1>`
-    + `<p style="color:#a1a1aa;max-width:420px;">${safe} Check that the development server is running, then close and reopen the window.</p></div>`
+    + `<div><h1 style="font-size:15px;margin:0 0 8px;">${title}</h1>`
+    + `<p style="color:#a1a1aa;max-width:460px;">${safeDetail} ${advice}</p>`
+    + diagnosticsLine
+    + `<p style="margin:16px 0 0;"><button onclick="location.href='${MANUAL_RETRY_URL}'" style="background:#f1f1f1;color:#09090a;border:0;border-radius:6px;padding:8px 16px;font:600 13px system-ui,sans-serif;cursor:pointer;">Try again</button></p></div>`
     + `</div></body></html>`;
 }
 
-export function createMainWindow({ BrowserWindow, preloadPath, devServerUrl, rendererPath, iconPath = null, platform = process.platform, scheduleRetry = (fn, ms) => setTimeout(fn, ms), onEvent = null }) {
+export function createMainWindow({ BrowserWindow, preloadPath, devServerUrl, rendererPath, iconPath = null, platform = process.platform, scheduleRetry = (fn, ms) => setTimeout(fn, ms), onEvent = null, diagnosticsPath = null }) {
   // Native caption controls stay visible on Windows: the overlay paints
   // the Obsidian surface behind them while the renderer draws the
   // matching title bar beneath. Other platforms keep the native frame.
@@ -75,7 +110,10 @@ export function createMainWindow({ BrowserWindow, preloadPath, devServerUrl, ren
     if (loadAttempts >= WINDOW_LOAD_MAX_ATTEMPTS) {
       onEvent?.({ type: 'load-failed', detail: String(desc ?? '') });
       window.webContents?.loadURL?.(
-        `data:text/html;charset=utf-8,${encodeURIComponent(loadErrorHtml(desc))}`,
+        `data:text/html;charset=utf-8,${encodeURIComponent(loadErrorHtml({
+          kind: devServerUrl ? 'dev-load' : 'packaged-load',
+          detail: String(desc ?? ''),
+        }))}`,
       );
       return;
     }
@@ -95,11 +133,16 @@ export function createMainWindow({ BrowserWindow, preloadPath, devServerUrl, ren
   // crashes on every boot from looping forever.
   let crashReloads = 0;
   let recovering = false;
+  let manualRetries = 0;
   const showCrashPage = (reason, exitCode) => {
     const detail = `The renderer process ended (${reason ?? 'unknown reason'}`
       + `${typeof exitCode === 'number' ? `, exit code ${exitCode}` : ''}).`;
     window.webContents?.loadURL?.(
-      `data:text/html;charset=utf-8,${encodeURIComponent(loadErrorHtml(detail))}`,
+      `data:text/html;charset=utf-8,${encodeURIComponent(loadErrorHtml({
+        kind: manualRetries > 0 ? 'crash-exhausted' : 'renderer-crash',
+        detail,
+        diagnosticsPath,
+      }))}`,
     );
   };
   window.webContents?.on?.('render-process-gone', (_event, details) => {
@@ -124,6 +167,26 @@ export function createMainWindow({ BrowserWindow, preloadPath, devServerUrl, ren
   });
   window.webContents?.on?.('did-finish-load', () => {
     recovering = false;
+  });
+
+  // Explicit manual retry: the failure pages' Try-again button is the
+  // only producer of MANUAL_RETRY_URL, so intercepting it here resets
+  // the budgets solely on user action — automatic code paths can
+  // never loop through it.
+  window.webContents?.on?.('will-navigate', (event, url) => {
+    if (typeof url !== 'string' || !url.startsWith(MANUAL_RETRY_URL)) {
+      return;
+    }
+    event?.preventDefault?.();
+    if (window.isDestroyed?.()) {
+      return;
+    }
+    manualRetries += 1;
+    crashReloads = 0;
+    loadAttempts = 1;
+    recovering = false;
+    onEvent?.({ type: 'manual-retry', manualRetries });
+    loadTarget();
   });
 
   // Responsiveness is diagnostics only: a busy renderer (video

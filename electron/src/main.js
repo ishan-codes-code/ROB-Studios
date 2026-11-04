@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, safeStorage } from 'electron';
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, net, protocol, safeStorage } from 'electron';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createWorkerManager } from './python-worker.mjs';
@@ -14,11 +15,13 @@ import { registerProcessingIpc } from './main/ipc/processing.js';
 import { registerSettingsIpc } from './main/ipc/settings.js';
 import { registerTtsIpc } from './main/ipc/tts.js';
 import { registerVoiceConfigIpc } from './main/ipc/voice-configs.js';
+import { registerDiagnosticsIpc } from './main/ipc/diagnostics.js';
 import { createTtsCatalogLoader } from './tts-catalog.mjs';
 import { createPromptPackLoader } from './prompt-packs.mjs';
 import { registerProjectMediaProtocol } from './main/media-protocol.js';
 import { createMainWindow } from './main/window.js';
 import { handleChildProcessGone } from './main/process-events.js';
+import { diagnosticsEnvironment, diagnosticsLogPath, recordDiagnosticsEvent } from './main/diagnostics-log.mjs';
 import { flushApiActivity, recordApiActivityEvent, reconcileInterruptedRuns, resolveProjectMedia, sweepDeletionQuarantine } from './project-store.mjs';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -124,13 +127,31 @@ function windowIconPath() {
 }
 
 // Window/process diagnostics land on stderr (never stdout, never the
-// renderer): crash reasons, exit codes, and load failures operators
-// can correlate with a blank-window report.
+// renderer) and persist to the bounded diagnostics log so crash
+// evidence survives the app closing.
+function recordWindowEvent(event) {
+  try {
+    recordDiagnosticsEvent(app.getPath('userData'), event ?? { type: 'event' });
+  } catch {
+    // Diagnostics never break the app (the recorder is already
+    // no-throw; this guards getPath itself).
+  }
+}
+
 function logWindowEvent(event) {
   try {
     console.error(`[ROB window] ${event?.type ?? 'event'}: ${JSON.stringify(event ?? {})}`);
   } catch {
     // Diagnostics never break the app.
+  }
+  recordWindowEvent(event);
+}
+
+function diagnosticsPathOrNull() {
+  try {
+    return diagnosticsLogPath(app.getPath('userData'));
+  } catch {
+    return null;
   }
 }
 
@@ -142,7 +163,9 @@ function createWindow() {
     rendererPath: path.join(__dirname, '../renderer', `${MAIN_WINDOW_VITE_NAME}/index.html`),
     iconPath: windowIconPath(),
     onEvent: logWindowEvent,
+    diagnosticsPath: diagnosticsPathOrNull(),
   });
+  recordWindowEvent({ type: 'window-created', packaged: app.isPackaged });
 }
 
 function sendWorkerEvent(message) {
@@ -181,6 +204,65 @@ function sendExportEvent(message) {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  // Local-only crash dumps: minidumps stay on this machine for
+  // post-mortem inspection, nothing is ever uploaded anywhere.
+  try {
+    crashReporter.start({ uploadToServer: false });
+  } catch {
+    // Crash reporting is best effort; the app runs without it.
+  }
+  try {
+    const gpuFeatureStatus = typeof app.getGPUFeatureStatus === 'function'
+      ? app.getGPUFeatureStatus()
+      : null;
+    let crashDumpsPath = null;
+    try {
+      crashDumpsPath = app.getPath('crashDumps');
+    } catch {
+      crashDumpsPath = null;
+    }
+    let appVersion = null;
+    try {
+      appVersion = app.getVersion();
+    } catch {
+      appVersion = null;
+    }
+    // CPU identity matters for native-code crashes (SIGILL-class):
+    // model from Node, instruction flags from /proc/cpuinfo on Linux.
+    let cpuModel = null;
+    let cpuFlags = null;
+    try {
+      cpuModel = os.cpus()?.[0]?.model ?? null;
+    } catch {
+      cpuModel = null;
+    }
+    if (process.platform === 'linux') {
+      try {
+        const match = fs.readFileSync('/proc/cpuinfo', 'utf8').match(/^flags\s*:\s*(.+)$/m);
+        cpuFlags = match?.[1]?.trim() || null;
+      } catch {
+        cpuFlags = null;
+      }
+    }
+    recordWindowEvent({
+      type: 'app-ready',
+      environment: diagnosticsEnvironment({
+        appVersion,
+        electronVersion: process.versions.electron ?? null,
+        chromiumVersion: process.versions.chrome ?? null,
+        nodeVersion: process.versions.node ?? null,
+        platform: process.platform,
+        arch: process.arch,
+        cpuModel,
+        cpuFlags,
+        packaged: app.isPackaged,
+        gpuFeatureStatus,
+        crashDumpsPath,
+      }),
+    });
+  } catch {
+    // The ready milestone is best effort.
+  }
   try {
     reconcileInterruptedRuns(app.getPath('userData'));
     void sweepDeletionQuarantine(app.getPath('userData')).catch(() => {
@@ -244,6 +326,7 @@ registerExportIpc({ ipcMain, app, dialog, fs, exportManager, sendExportEvent, ge
 registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader });
 registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });
 registerVoiceConfigIpc({ ipcMain, app, safeStorage });
+registerDiagnosticsIpc({ ipcMain, app });
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.

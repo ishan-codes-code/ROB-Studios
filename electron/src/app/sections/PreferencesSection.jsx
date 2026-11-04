@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
+import { setupTogglePayload } from "@/lib/onboarding.js";
 
 /**
  * Application-wide preferences. Only real, supported settings live here:
@@ -58,13 +59,12 @@ export default function PreferencesSection() {
     setError("");
     setNotice("");
     try {
-      const replay = settings.onboardingCompleted;
+      // Replaying starts the wizard from the welcome step and clears
+      // any Finish-later dismissal so it actually shows; the saved
+      // vault credential (if any) is adopted, never duplicated.
       const result = await window.api.saveSettings({
         ...settings,
-        onboardingCompleted: !settings.onboardingCompleted,
-        // Replaying starts the wizard from the welcome step; the saved
-        // vault credential (if any) is adopted, never duplicated.
-        ...(replay ? { onboarding: { step: 0, credentialId: settings.onboarding?.credentialId ?? null } } : {}),
+        ...setupTogglePayload(settings),
       });
       if (!result?.ok) throw new Error("Could not save preferences.");
       setSettings(result.settings);
@@ -125,11 +125,15 @@ export default function PreferencesSection() {
             </CardHeader>
             <CardContent className="flex flex-wrap items-center gap-2">
               <span className="mr-auto text-[13px] text-muted-foreground">
-                {settings?.onboardingCompleted ? "Setup complete." : "Welcome flow pending."}
+                {settings?.onboardingCompleted
+                  ? "Setup complete."
+                  : settings?.onboarding?.dismissed === true
+                    ? "Setup deferred (Finish later). Replay to configure."
+                    : "Welcome flow pending."}
               </span>
               <Button size="sm" variant="outline" disabled={busy || !settings} onClick={toggleSetup}>
                 {busy ? <LoaderCircle data-icon="inline-start" className="animate-spin" /> : null}
-                {settings?.onboardingCompleted ? "Replay welcome flow" : "Mark setup complete"}
+                {settings?.onboardingCompleted || settings?.onboarding?.dismissed === true ? "Replay welcome flow" : "Mark setup complete"}
               </Button>
             </CardContent>
           </Card>

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WINDOW_CRASH_MAX_RELOADS, createMainWindow } from '../src/main/window.js';
+import { MANUAL_RETRY_URL, WINDOW_CRASH_MAX_RELOADS, createMainWindow } from '../src/main/window.js';
 import { describeChildProcessGone, handleChildProcessGone } from '../src/main/process-events.js';
 
 // Behavioral recovery tests with realistic Electron event mocks:
@@ -230,6 +230,118 @@ test('child process diagnostics tolerate malformed input and notify once', () =>
     assert.deepEqual(seen[0], event);
   }
   assert.doesNotThrow(() => handleChildProcessGone({ type: 'GPU' }));
+});
+
+test('explicit manual retry resets budgets and reloads the target', () => {
+  const { api } = makeRecoveryWorld();
+  api.create();
+  for (let incident = 0; incident < WINDOW_CRASH_MAX_RELOADS; incident += 1) {
+    api.crash({ reason: 'crashed', exitCode: 133 });
+    api.finishLoad();
+  }
+  api.crash({ reason: 'crashed', exitCode: 133 });
+  assert.equal(api.calls.reloads, WINDOW_CRASH_MAX_RELOADS);
+  assert.ok(String(api.calls.errorPage).startsWith('data:text/html'));
+  assert.match(decodeURIComponent(api.calls.errorPage), /The renderer crashed/);
+
+  let prevented = 0;
+  const loadsBefore = api.calls.loads.length;
+  api.calls.handlers['will-navigate']({ preventDefault: () => { prevented += 1; } }, MANUAL_RETRY_URL);
+
+  assert.equal(prevented, 1, 'retry navigation intercepted, never leaves the app');
+  assert.equal(api.calls.loads.length, loadsBefore + 1, 'real target reloaded');
+  assert.deepEqual(api.calls.events.at(-1), { type: 'manual-retry', manualRetries: 1 });
+
+  api.crash({ reason: 'crashed', exitCode: 133 });
+  assert.equal(api.calls.reloads, WINDOW_CRASH_MAX_RELOADS + 1, 'fresh budget after explicit retry');
+});
+
+test('second exhaustion names the diagnostics log for the operator', () => {
+  const { api } = makeRecoveryWorld();
+  api.create({ diagnosticsPath: '/home/op/.config/ROB Studio/diagnostics.log' });
+  const exhaust = () => {
+    for (let incident = 0; incident < WINDOW_CRASH_MAX_RELOADS; incident += 1) {
+      api.crash({ reason: 'crashed', exitCode: 133 });
+      api.finishLoad();
+    }
+    api.crash({ reason: 'crashed', exitCode: 133 });
+  };
+  exhaust();
+  assert.match(decodeURIComponent(api.calls.errorPage), /The renderer crashed/);
+  assert.doesNotMatch(decodeURIComponent(api.calls.errorPage), /Diagnostics were saved/);
+
+  api.calls.handlers['will-navigate']({ preventDefault: () => {} }, MANUAL_RETRY_URL);
+  exhaust();
+  const page = decodeURIComponent(api.calls.errorPage);
+  assert.match(page, /Automatic recovery was exhausted/);
+  assert.match(page, /Diagnostics were saved to/);
+  assert.match(page, /diagnostics\.log/);
+});
+
+test('ordinary navigations never reset recovery budgets', () => {
+  const { api } = makeRecoveryWorld();
+  api.create();
+  api.crash({ reason: 'crashed', exitCode: 133 });
+  api.finishLoad();
+  const reloadsBefore = api.calls.reloads;
+
+  api.calls.handlers['will-navigate']({ preventDefault: () => {} }, 'https://example.invalid/');
+  api.calls.handlers['will-navigate']({ preventDefault: () => {} }, 'data:text/html,hello');
+
+  assert.equal(api.calls.reloads, reloadsBefore, 'no reload from foreign navigation');
+  assert.equal(api.calls.loads.length, 1, 'no target load from foreign navigation');
+  assert.ok(api.calls.events.every((entry) => entry.type !== 'manual-retry'));
+});
+
+test('manual retry on a destroyed window is a safe no-op', () => {
+  const { api, window } = makeRecoveryWorld();
+  api.create();
+  window.destroy();
+
+  assert.doesNotThrow(() => {
+    api.calls.handlers['will-navigate']({ preventDefault: () => {} }, MANUAL_RETRY_URL);
+  });
+  assert.equal(api.calls.loads.length, 1, 'initial load only');
+});
+
+test('recovery operates only through the window surface, never the worker', () => {
+  const { api, window } = makeRecoveryWorld();
+  api.create();
+  // Full incident lifecycle: crashes to exhaustion, manual retry,
+  // a load failure, responsiveness noise.
+  for (let incident = 0; incident < WINDOW_CRASH_MAX_RELOADS; incident += 1) {
+    api.crash({ reason: 'oom', exitCode: 133 });
+    api.finishLoad();
+  }
+  api.crash({ reason: 'oom', exitCode: 133 });
+  api.calls.handlers['will-navigate']({ preventDefault: () => {} }, MANUAL_RETRY_URL);
+  api.calls.handlers['did-fail-load']({}, -102, 'ERR_ABORTED', 'http://localhost:5173/', true);
+  api.calls.windowHandlers.unresponsive();
+  api.calls.windowHandlers.responsive();
+
+  // Behavioral confinement: the only side effects recovery can
+  // produce are window loads, in-place reloads, the error page, and
+  // diagnostics events — createMainWindow receives no worker handle
+  // and the factory exposes none.
+  assert.equal(api.calls.windows, 1, 'no duplicate windows');
+  assert.equal(api.calls.closes, 0, 'never closed');
+  assert.equal(api.calls.destroys, 0, 'never destroyed');
+  assert.equal(window.isDestroyed(), false);
+  assert.ok(api.calls.reloads >= 1, 'recovery reloaded in place');
+  for (const entry of api.calls.events) {
+    assert.ok(
+      ['render-process-gone', 'manual-retry', 'load-failed', 'renderer-unresponsive', 'renderer-responsive'].includes(entry.type),
+      `diagnostics-only event ${entry.type}`,
+    );
+  }
+  // Supplemental static guard: recovery modules must not reference
+  // worker control surfaces at all.
+  for (const relative of ['../src/main/window.js', '../src/main/process-events.js', '../src/main/diagnostics-log.mjs']) {
+    const source = fs.readFileSync(path.join(here, relative), 'utf8');
+    assert.doesNotMatch(source, /workerManager/, relative);
+    assert.doesNotMatch(source, /cancelProcessing/, relative);
+    assert.doesNotMatch(source, /request-stop/, relative);
+  }
 });
 
 test('main process wires diagnostics into window creation and app events', () => {

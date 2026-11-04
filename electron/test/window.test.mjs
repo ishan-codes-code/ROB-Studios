@@ -180,8 +180,24 @@ test('retries stop at the attempt budget and land on an error page', () => {
   failMainFrame(calls, 'ERR_FILE_NOT_FOUND');
   assert.equal(calls.loads.length, WINDOW_LOAD_MAX_ATTEMPTS, 'no further retries past the budget');
   assert.ok(String(calls.errorPage).startsWith('data:text/html'), 'visible error page instead of blank');
-  assert.match(decodeURIComponent(calls.errorPage), /Could not load ROB Studio/);
+  assert.match(decodeURIComponent(calls.errorPage), /Could not reach the development server/);
   assert.match(decodeURIComponent(calls.errorPage), /ERR_FILE_NOT_FOUND/);
+});
+
+test('packaged load failures never blame a development server', () => {
+  const { calls, BrowserWindow, scheduleRetry } = makeRecoveryFactory();
+  createMainWindow({
+    BrowserWindow, preloadPath: '/preload.js', devServerUrl: null,
+    rendererPath: '/index.html', platform: 'win32', scheduleRetry,
+  });
+
+  for (let attempt = 1; attempt <= WINDOW_LOAD_MAX_ATTEMPTS; attempt += 1) {
+    failMainFrame(calls, 'ERR_FILE_NOT_FOUND');
+  }
+  const page = decodeURIComponent(calls.errorPage);
+  assert.match(page, /Could not load ROB Studio/);
+  assert.match(page, /Reinstalling usually fixes this/);
+  assert.doesNotMatch(page, /development server/);
 });
 
 test('subframe failures never disturb the main window', () => {
@@ -198,7 +214,38 @@ test('subframe failures never disturb the main window', () => {
 });
 
 test('load error page escapes untrusted detail', () => {
-  const html = loadErrorHtml('<script>alert(1)</script>');
+  const html = loadErrorHtml({ kind: 'dev-load', detail: '<script>alert(1)</script>' });
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /&lt;script&gt;/);
+});
+
+test('crash pages name the reason, exit code, and retry action', () => {
+  const first = loadErrorHtml({ kind: 'renderer-crash', detail: 'The renderer process ended (crashed, exit code 133).' });
+  assert.match(first, /The renderer crashed/);
+  assert.match(first, /exit code 133/);
+  assert.match(first, /Try again/);
+  assert.match(first, /rob-retry:\/\/manual/);
+  assert.doesNotMatch(first, /Diagnostics were saved/);
+
+  const exhausted = loadErrorHtml({
+    kind: 'crash-exhausted',
+    detail: 'The renderer process ended (crashed, exit code 133).',
+    diagnosticsPath: '/data/ROB Studio/diagnostics.log',
+  });
+  assert.match(exhausted, /Automatic recovery was exhausted/);
+  assert.match(exhausted, /Diagnostics were saved to/);
+  assert.match(exhausted, /\/data\/ROB Studio\/diagnostics\.log/);
+  assert.doesNotMatch(exhausted, /development server/);
+});
+
+test('diagnostics path is escaped and omitted when unknown', () => {
+  const evil = loadErrorHtml({
+    kind: 'crash-exhausted',
+    detail: 'crashed',
+    diagnosticsPath: '</code><script>alert(1)</script>',
+  });
+  assert.doesNotMatch(evil, /<script>alert/);
+  assert.match(evil, /&lt;\/code&gt;/);
+  const missing = loadErrorHtml({ kind: 'crash-exhausted', detail: 'crashed' });
+  assert.doesNotMatch(missing, /Diagnostics were saved/);
 });
