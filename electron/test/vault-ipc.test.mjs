@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { registerSettingsIpc } from '../src/main/ipc/settings.js';
 import { createCredential as vaultCreate, setCredentialKey, setCredentialModel } from '../src/credentials-store.mjs';
-import { createGameProfile, createCommentaryPreset } from '../src/game-store.mjs';
+
 import { createProject, updateProject } from '../src/project-store.mjs';
 import { getApiActivity } from '../src/project-store/api-activity.mjs';
 import { loadSettings, saveSettings } from '../src/settings-store.mjs';
@@ -261,12 +261,11 @@ test('editor loads legacy partial configuration with defaults', async (t) => {
   const got = await handlers['project-config-get']({}, project.id);
   assert.equal(got.ok, true);
   assert.equal(got.configuration.credentialId, created.credential.id);
-  assert.equal(got.configuration.gameProfileId, 'free-fire-default');
-  assert.equal(got.configuration.commentaryPresetId, 'default-energetic');
+  assert.equal(got.configuration.game.id, 'free-fire');
   assert.equal(got.credential.id, created.credential.id);
   assert.equal(got.credential.verified, false);
-  assert.equal(got.profile.id, 'free-fire-default');
-  assert.equal(got.preset.id, 'default-energetic');
+  assert.equal(got.profile, undefined);
+  assert.equal(got.preset, undefined);
   // Unverified credentials are listed: nothing hides them from the editor.
   const listed = await handlers['credential-list']();
   assert.equal(listed.credentials.length, 1);
@@ -335,26 +334,22 @@ test('model change during verification refuses to mark verified', async (t) => {
   assert.equal(result.code, 'stale');
 });
 
-test('game and preset IPC enforce built-in immutability and references', async (t) => {
+test('project game metadata saves through the project channel', async (t) => {
   const { dir, handlers } = setup(t);
-  const profiles = await handlers['game-profile-list']();
-  assert.equal(profiles.profiles.length, 1);
-  const custom = await handlers['game-profile-create']({}, { name: 'Ranked', context: 'Zones.' });
-  assert.equal(custom.profile.gameId, 'free-fire');
-  const preset = await handlers['preset-create']({}, {
-    profileId: custom.profile.id, name: 'Caster', tone: 'hype',
-  });
-  assert.equal(preset.preset.profileId, custom.profile.id);
-  const dupe = await handlers['preset-duplicate']({}, preset.preset.id);
-  assert.ok(dupe.preset.id !== preset.preset.id);
   const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
-  await handlers['project-config-set']({}, project.id, {
-    gameProfileId: custom.profile.id, commentaryPresetId: preset.preset.id,
+  const set = await handlers['project-config-set']({}, project.id, {
+    game: { map: 'Bermuda', language: 'Hindi', teams: ['A', 'B'] },
   });
-  const blockedProfile = await handlers['game-profile-delete']({}, custom.profile.id);
-  assert.equal(blockedProfile.ok, false);
-  const blockedPreset = await handlers['preset-delete']({}, preset.preset.id);
-  assert.equal(blockedPreset.ok, false);
-  const builtInEdit = await handlers['preset-update']({}, 'default-energetic', { tone: 'calm' });
-  assert.equal(builtInEdit.ok, false);
+  assert.equal(set.ok, true);
+  assert.equal(set.configuration.game.map, 'Bermuda');
+  assert.equal(set.configuration.game.language, 'Hindi');
+  assert.deepEqual(set.configuration.game.teams, ['A', 'B']);
+  const got = await handlers['project-config-get']({}, project.id);
+  assert.equal(got.configuration.game.map, 'Bermuda');
+  const bad = await handlers['project-config-set']({}, project.id, { game: { id: 'unknown-game' } });
+  assert.equal(bad.ok, false);
+  // Retired library channels no longer exist.
+  for (const channel of ['game-profile-list', 'game-profile-create', 'preset-list', 'preset-create', 'preset-delete']) {
+    assert.equal(handlers[channel], undefined);
+  }
 });

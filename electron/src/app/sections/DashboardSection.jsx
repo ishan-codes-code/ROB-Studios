@@ -25,6 +25,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import GlassCard from "@/primitives/GlassCard.jsx";
+import GameMetadataForm from "@/components/GameMetadataForm.jsx";
 import LiveCommentaryHero from "./LiveCommentaryHero.jsx";
 import {
   extensionOf,
@@ -125,6 +126,7 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
   const [dialogBusy, setDialogBusy] = useState(false);
   const [pendingPath, setPendingPath] = useState(null);
   const [name, setName] = useState("");
+  const [game, setGame] = useState(null);
   const [creating, setCreating] = useState(false);
   const [flowError, setFlowError] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -225,12 +227,13 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
       if (typeof window.api?.createProject !== "function") {
         throw bridgeError();
       }
-      const res = await window.api.createProject(name, pendingPath);
+      const res = await window.api.createProject(name, pendingPath, game);
       if (!res || res.ok !== true || !res.project) {
         throw new Error(res?.error ?? "Could not create the project.");
       }
       setPendingPath(null);
       setName("");
+      setGame(null);
       setProjects(await refresh());
       toast.success("Project created", {
         id: "project-created",
@@ -417,6 +420,19 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
                       placeholder="Friday finals"
                       className="rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
+                    <details className="group min-w-0">
+                      <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-[12px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                        <ChevronDown className="size-3.5 transition-transform duration-150 group-open:rotate-180" aria-hidden />
+                        Match details (optional)
+                      </summary>
+                      <div className="min-w-0 pt-3">
+                        <GameMetadataForm
+                          key={pendingPath}
+                          disabled={creating}
+                          onChange={setGame}
+                        />
+                      </div>
+                    </details>
                     <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
@@ -443,6 +459,7 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted }) {
                         onClick={() => {
                           setPendingPath(null);
                           setName("");
+                          setGame(null);
                           setFlowError(null);
                         }}
                       >

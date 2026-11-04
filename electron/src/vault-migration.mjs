@@ -3,18 +3,18 @@
 // Legacy state: `settings.json` (global provider {type, baseUrl, model,
 // modelVisionVerified} + game/prompt prefs) and at most one
 // `provider-key.enc` ciphertext. Migration creates one named credential
-// (only when the legacy base URL maps cleanly to a supported provider),
-// preserves game context / commentary preferences as custom library
-// records when they differ from the built-ins, and only then archives
-// the legacy key file. Nothing is deleted before the new records are
-// safely written and validated. Unmappable URLs are left untouched with
-// a reconfiguration notice; undecryptable keys produce a "re-enter key"
-// outcome without inventing a replacement.
+// (only when the legacy base URL maps cleanly to a supported provider)
+// and only then archives the legacy key file. Legacy game/commentary
+// preferences stay untouched in the old settings file: game metadata is
+// project-owned now and there is no library to preserve them into.
+// Nothing is deleted before the new credential is safely written and
+// validated. Unmappable URLs are left untouched with a reconfiguration
+// notice; undecryptable keys produce a "re-enter key" outcome without
+// inventing a replacement.
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { inferProviderFromBaseUrl, getProvider } from './provider-catalog.mjs';
-import { DEFAULT_SETTINGS } from './settings-defaults.mjs';
 
 const LEGACY_KEY_FILE = 'provider-key.enc';
 const LEGACY_KEY_ARCHIVE = 'provider-key.enc.migrated';
@@ -44,20 +44,12 @@ function readLegacyKey(userDataPath, safeStorage) {
   }
 }
 
-function differsFromDefaultPrompt(prompt) {
-  const defaults = DEFAULT_SETTINGS.prompt;
-  return prompt.personality !== defaults.personality
-    || prompt.tone !== defaults.tone
-    || prompt.language !== defaults.language
-    || (prompt.instructions ?? '') !== defaults.instructions;
-}
-
 /**
  * Run the migration when the vault has no credentials yet.
  * Returns a summary `{ migrated, credentialId, archivedLegacyKey,
- * gameProfileId, commentaryPresetId, notice }`. `migrated` is false when
- * there was nothing to migrate or migration was not possible; `notice`
- * carries a human-readable, secret-free explanation in every case.
+ * notice }`. `migrated` is false when there was nothing to migrate or
+ * migration was not possible; `notice` carries a human-readable,
+ * secret-free explanation in every case.
  */
 export function migrateLegacyVault(userDataPath, {
   safeStorage,
@@ -65,8 +57,6 @@ export function migrateLegacyVault(userDataPath, {
   vaultHasCredentials,
   createCredential,
   markCredentialVerified,
-  createGameProfile,
-  createCommentaryPreset,
 }) {
   if (vaultHasCredentials()) {
     return { migrated: false, notice: 'Credential vault already initialized.' };
@@ -123,26 +113,9 @@ export function migrateLegacyVault(userDataPath, {
       markCredentialVerified(credential.id, credential.model);
     } catch { /* stays unverified; user can verify explicitly */ }
   }
-  let gameProfileId = null;
-  let commentaryPresetId = null;
-  try {
-    if (typeof settings.game?.context === 'string' && settings.game.context !== '') {
-      const profile = createGameProfile({ name: 'Migrated Free Fire', context: settings.game.context });
-      gameProfileId = profile.id;
-    }
-    if (differsFromDefaultPrompt(settings.prompt ?? {})) {
-      const preset = createCommentaryPreset({
-        profileId: gameProfileId ?? 'free-fire-default',
-        name: 'Migrated style',
-        personality: settings.prompt?.personality ?? '',
-        tone: settings.prompt?.tone ?? '',
-        language: settings.prompt?.language ?? '',
-        instructions: settings.prompt?.instructions ?? '',
-      });
-      commentaryPresetId = preset.id;
-    }
-  } catch { /* preferences stay in legacy settings; vault credential stands */ }
-  // Only now that every new record is safe: archive (never delete) the key.
+  // Only now that the credential record is safe: archive (never
+  // delete) the key. Legacy game/prompt preferences stay in the old
+  // settings file, untouched.
   let archivedLegacyKey = false;
   try {
     fs.renameSync(
@@ -155,8 +128,6 @@ export function migrateLegacyVault(userDataPath, {
     migrated: true,
     credentialId: credential.id,
     archivedLegacyKey,
-    gameProfileId,
-    commentaryPresetId,
     notice: `Migrated one ${displayName} configuration. Verify image support before paid runs.`,
   };
 }

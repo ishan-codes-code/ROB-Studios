@@ -1,5 +1,40 @@
 # Current state
 
+## Project-owned game configuration (uncommitted)
+
+Game Profiles and Commentary Presets are removed as user-facing
+systems: no library pages, nav entries, selectors, stores, hooks, or
+IPC — `game-store.mjs`, both settings sections, `useGameLibrary`, and
+their tests are deleted. Each project owns its game metadata in
+`project.json` (`configuration.game`: fixed `free-fire` id, optional
+mode/match type/map/language/teams/additional context), collected by a
+shared `GameMetadataForm` in the Dashboard creation flow ("Match
+details (optional)") and editable in the editor Configure tab, which
+keeps vision + prompt-pack selection and drops the style section.
+Run resolution builds the unchanged worker `{game, prompt}` snapshot
+from owned metadata (structured context composition; built-in
+Esports/energetic voice; project language), so no Python change was
+needed and default runs behave byte-identically. Legacy
+`gameProfileId`/`commentaryPresetId` configs migrate on read (custom
+context and language survive; unresolvable refs fall back to
+defaults; never breaks loading; idempotent; persisted on next save),
+`game-library.json` is never written or deleted, and Prompt Packs,
+TTS/Voice, credentials, and the worker protocol are untouched.
+Onboarding is four steps (style step removed; stored step 4 clamps to
+done); `vault-migration` keeps credential migration only.
+
+Verification (targeted only): rewritten/extended `project-config`
+(17), `onboarding`, `onboarding-wizard`, `vault-migration`,
+`vault-ipc`, `settings-sections`, `renderer-hooks`, `config-display`,
+`dashboard`, `project-store`, `processing`, `settings-ipc`,
+`voice-config-ipc`, `tts-ipc` suites pass (216/216 across the
+affected batches, run with TEMP redirected: sandbox EPERM blocks
+`os.tmpdir()`); renderer production build succeeds. One transient
+failure during verification was traced to a concurrent edit of
+`ApiKeysSection.jsx` by the other active agent and passes on rerun.
+No Python tests run (no Python-facing change). Manually unverified:
+creation-flow feel and Configure-tab editing in a running shell.
+
 ## Unified API diagnostics + live processing pipeline (uncommitted)
 
 Every outbound AI request is now tracked at the call boundary and

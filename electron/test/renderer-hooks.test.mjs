@@ -17,8 +17,7 @@ const COMPONENTS = [
   '../src/app/sections/WorkspaceSection.jsx',
   '../src/app/sections/OnboardingWizard.jsx',
   '../src/app/sections/ApiKeysSection.jsx',
-  '../src/app/sections/GameProfilesSection.jsx',
-  '../src/app/sections/CommentaryPresetsSection.jsx',
+  '../src/components/GameMetadataForm.jsx',
   '../src/app/sections/OverviewSection.jsx',
   '../src/app/sections/providers/ModelPicker.jsx',
   '../src/app/sections/providers/ProviderStatusBadge.jsx',
@@ -104,13 +103,14 @@ test('project configuration links to managers instead of nesting dialogs', () =>
     'utf8',
   );
   assert.match(source, /onNavigate\?\.\("api-keys"\)/);
-  assert.match(source, /onNavigate\?\.\("game-profiles"\)/);
-  assert.match(source, /onNavigate\?\.\("commentary-presets"\)/);
   assert.match(source, /onNavigate\?\.\("prompt-packs"\)/);
+  assert.doesNotMatch(source, /game-profiles/);
+  assert.doesNotMatch(source, /commentary-presets/);
   assert.match(source, /Manage providers/);
   assert.match(source, /aria-label="AI vision"/);
-  assert.match(source, /aria-label="Game profile"/);
-  assert.match(source, /aria-label="Commentary style"/);
+  assert.match(source, /aria-label="Game"/);
+  assert.match(source, /GameMetadataForm/);
+  assert.match(source, /save\("game", pendingGame\)/);
   assert.match(source, /isRunReady\(\{ credential, warnings \}\)/);
   assert.doesNotMatch(source, /import ApiKeysSection from/);
   assert.doesNotMatch(source, /import GamesPromptsSection from/);

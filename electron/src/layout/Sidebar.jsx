@@ -1,11 +1,9 @@
 import {
   AudioWaveform,
   Clapperboard,
-  Gamepad2,
   KeyRound,
   LayoutDashboard,
   MessagesSquare,
-  MessageSquareText,
   Mic,
   ScanSearch,
   ScrollText,
@@ -25,8 +23,6 @@ const CONFIGURATION_ITEMS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "api-keys", label: "AI Providers", icon: KeyRound },
   { id: "tts-studio", label: "Voice Providers", icon: Mic },
-  { id: "game-profiles", label: "Game Profiles", icon: Gamepad2 },
-  { id: "commentary-presets", label: "Commentary Presets", icon: MessageSquareText },
   { id: "prompt-packs", label: "Prompt Packs", icon: ScrollText },
   { id: "preferences", label: "General", icon: Settings },
 ];

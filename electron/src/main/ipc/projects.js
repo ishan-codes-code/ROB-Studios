@@ -20,9 +20,9 @@ export function registerProjectIpc({ ipcMain, app, workerManager, exportManager 
     }
   });
 
-  ipcMain.handle('create-project', async (_event, name, sourcePath) => {
+  ipcMain.handle('create-project', async (_event, name, sourcePath, game = null) => {
     try {
-      const project = createProject(app.getPath('userData'), { name, sourcePath });
+      const project = createProject(app.getPath('userData'), { name, sourcePath, game });
       return { ok: true, project };
     } catch (err) {
       return projectError(err);

@@ -3,10 +3,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { validateVideoInput } from '../worker-protocol.mjs';
 import { normalizePartialTtsConfig } from '../tts-config.mjs';
-import {
-  DEFAULT_COMMENTARY_PRESET_ID,
-  DEFAULT_GAME_PROFILE_ID,
-} from '../game-store.mjs';
 
 export const SCHEMA_VERSION = 1;
 export const PROJECTS_DIR_NAME = 'projects';
@@ -14,7 +10,163 @@ export const DELETION_QUARANTINE_DIR_NAME = '.deleted';
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_NAME_LENGTH = 100;
-const CONFIGURATION_FIELDS = new Set(['credentialId', 'gameProfileId', 'commentaryPresetId', 'promptPackId', 'tts']);
+const CONFIGURATION_FIELDS = new Set(['credentialId', 'game', 'promptPackId', 'tts']);
+
+// Project-owned game metadata. Only Free Fire is supported today, so
+// the game id is an enum of one; the shape already carries the match
+// context future games will need.
+export const SUPPORTED_GAME_IDS = ['free-fire'];
+export const DEFAULT_GAME_ID = 'free-fire';
+export const DEFAULT_GAME_LANGUAGE = 'English';
+// Commentary voice formerly owned by the built-in preset. The worker
+// still receives these verbatim, so runs behave exactly as before.
+export const DEFAULT_COMMENTARY_PERSONALITY = 'Esports commentator';
+export const DEFAULT_COMMENTARY_TONE = 'energetic';
+const GAME_TEXT_MAX = 80;
+const GAME_CONTEXT_MAX = 2000;
+const GAME_TEAMS_MAX = 8;
+
+export function defaultGameMetadata() {
+  return {
+    id: DEFAULT_GAME_ID,
+    mode: null,
+    matchType: null,
+    map: null,
+    language: DEFAULT_GAME_LANGUAGE,
+    teams: [],
+    additionalContext: '',
+  };
+}
+
+function cleanGameText(value, { required = false } = {}) {
+  if (value === null || value === undefined || value === '') {
+    if (required) throw new Error('Invalid game metadata.');
+    return null;
+  }
+  if (typeof value !== 'string') throw new Error('Invalid game metadata.');
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    if (required) throw new Error('Invalid game metadata.');
+    return null;
+  }
+  if (trimmed.length > GAME_TEXT_MAX) throw new Error('Invalid game metadata.');
+  return trimmed;
+}
+
+/**
+ * Validate project-owned game metadata, filling defaults for omitted
+ * optional fields. Accepts partial input (creation and patch flows);
+ * unknown game ids are rejected — unsupported games must never reach
+ * a run.
+ */
+export function normalizeGameMetadata(value) {
+  if (!value || typeof value !== 'object') throw new Error('Invalid game metadata.');
+  const id = value.id ?? DEFAULT_GAME_ID;
+  if (!SUPPORTED_GAME_IDS.includes(id)) throw new Error('Invalid game metadata.');
+  const teams = value.teams ?? [];
+  if (!Array.isArray(teams) || teams.length > GAME_TEAMS_MAX) {
+    throw new Error('Invalid game metadata.');
+  }
+  const cleanTeams = [];
+  for (const entry of teams) {
+    const cleaned = cleanGameText(entry);
+    if (cleaned !== null) cleanTeams.push(cleaned);
+  }
+  let additionalContext = '';
+  if (value.additionalContext !== null && value.additionalContext !== undefined && value.additionalContext !== '') {
+    if (typeof value.additionalContext !== 'string') throw new Error('Invalid game metadata.');
+    additionalContext = value.additionalContext.trim();
+    if (additionalContext.length > GAME_CONTEXT_MAX) throw new Error('Invalid game metadata.');
+  }
+  return {
+    id,
+    mode: cleanGameText(value.mode),
+    matchType: cleanGameText(value.matchType),
+    map: cleanGameText(value.map),
+    language: cleanGameText(value.language) ?? DEFAULT_GAME_LANGUAGE,
+    teams: cleanTeams,
+    additionalContext,
+  };
+}
+
+/**
+ * Compose the bounded worker game-context string from project-owned
+ * metadata. Structured fields come first, free-form additional
+ * context last; the bound only ever trims the tail.
+ */
+export function composeGameContext(game) {
+  const parts = [];
+  if (game?.mode) parts.push(`Mode: ${game.mode}.`);
+  if (game?.matchType) parts.push(`Match: ${game.matchType}.`);
+  if (game?.map) parts.push(`Map: ${game.map}.`);
+  if (Array.isArray(game?.teams) && game.teams.length > 0) {
+    parts.push(`Teams: ${game.teams.join(' vs ')}.`);
+  }
+  if (game?.additionalContext) parts.push(game.additionalContext);
+  return parts.join(' ').slice(0, GAME_CONTEXT_MAX);
+}
+
+/**
+ * Non-secret worker preferences from project-owned game metadata.
+ * Same shape the engine has always consumed (`{game, prompt}`), so no
+ * Python change is required. Personality/tone mirror the retired
+ * built-in preset; language follows the project.
+ */
+export function buildWorkerPreferences(game) {
+  const normalized = normalizeGameMetadata(game ?? {});
+  return {
+    game: { id: normalized.id, context: composeGameContext(normalized) },
+    prompt: {
+      personality: DEFAULT_COMMENTARY_PERSONALITY,
+      tone: DEFAULT_COMMENTARY_TONE,
+      language: normalized.language,
+      instructions: '',
+    },
+  };
+}
+
+const GAME_LIBRARY_FILE = 'game-library.json';
+const LEGACY_DEFAULT_PROFILE_ID = 'free-fire-default';
+
+/**
+ * Tolerant read of one legacy library record. The retired game library
+ * file is never written or deleted anymore; this exists only to carry
+ * custom match context and commentary language into project-owned
+ * metadata on first read. Anything unexpected yields null (defaults).
+ */
+function readLegacyLibraryEntry(userDataPath, kind, id) {
+  try {
+    if (typeof userDataPath !== 'string' || typeof id !== 'string' || id === '') return null;
+    const raw = fs.readFileSync(path.join(userDataPath, GAME_LIBRARY_FILE), 'utf8');
+    const parsed = JSON.parse(raw);
+    const entries = kind === 'profile' ? parsed?.profiles : parsed?.presets;
+    if (!Array.isArray(entries)) return null;
+    const entry = entries.find((candidate) => candidate?.id === id);
+    return entry && typeof entry === 'object' ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
+function migrateLegacyGameConfig(userDataPath, value) {
+  const game = defaultGameMetadata();
+  const profileId = typeof value.gameProfileId === 'string' ? value.gameProfileId : null;
+  if (profileId && profileId !== LEGACY_DEFAULT_PROFILE_ID) {
+    const profile = readLegacyLibraryEntry(userDataPath, 'profile', profileId);
+    const context = typeof profile?.context === 'string' ? profile.context.trim() : '';
+    if (context !== '') game.additionalContext = context.slice(0, GAME_CONTEXT_MAX);
+    if (profile && typeof profile.gameId === 'string' && SUPPORTED_GAME_IDS.includes(profile.gameId)) {
+      game.id = profile.gameId;
+    }
+  }
+  const presetId = typeof value.commentaryPresetId === 'string' ? value.commentaryPresetId : null;
+  if (presetId && presetId !== 'default-energetic') {
+    const preset = readLegacyLibraryEntry(userDataPath, 'preset', presetId);
+    const language = typeof preset?.language === 'string' ? preset.language.trim() : '';
+    if (language !== '') game.language = language.slice(0, GAME_TEXT_MAX);
+  }
+  return game;
+}
 const PATCHABLE_FIELDS = new Set(['processingStatus', 'lastOpenedAt', 'configuration']);
 const PROCESSING_STATUSES = new Set(['idle', 'processing', 'done', 'stopped', 'error', 'cancelled', 'interrupted']);
 
@@ -64,26 +216,17 @@ function validateName(name) {
   return trimmed;
 }
 
-function validateConfiguration(value) {
+function validateConfiguration(value, userDataPath = null) {
   if (!value || typeof value !== 'object') throw new Error('Invalid project configuration.');
   // Older projects may store a partial configuration object (e.g. only
-  // credentialId). Missing game/prompt selections fall back to the
-  // built-in defaults at read time instead of failing the whole
-  // project load; the stored file is only rewritten on the next
-  // explicit configuration save.
+  // credentialId). Missing selections fall back to defaults at read
+  // time instead of failing the whole project load; the stored file is
+  // only rewritten on the next explicit configuration save.
   const {
     credentialId = null,
-    gameProfileId = DEFAULT_GAME_PROFILE_ID,
-    commentaryPresetId = DEFAULT_COMMENTARY_PRESET_ID,
     promptPackId = null,
   } = value;
   if (credentialId !== null && (typeof credentialId !== 'string' || !ID_PATTERN.test(credentialId))) {
-    throw new Error('Invalid project configuration.');
-  }
-  if (typeof gameProfileId !== 'string' || !ID_PATTERN.test(gameProfileId)) {
-    throw new Error('Invalid project configuration.');
-  }
-  if (typeof commentaryPresetId !== 'string' || !ID_PATTERN.test(commentaryPresetId)) {
     throw new Error('Invalid project configuration.');
   }
   // Null means the application default pack (Free Fire factory wording),
@@ -91,10 +234,22 @@ function validateConfiguration(value) {
   if (promptPackId !== null && (typeof promptPackId !== 'string' || !ID_PATTERN.test(promptPackId))) {
     throw new Error('Invalid project configuration.');
   }
+  let game;
+  if (value.game === null || value.game === undefined) {
+    // Legacy configs carried profile/preset IDs instead of owned
+    // metadata: migrate once (custom context and language survive),
+    // then drop the obsolete references. Idempotent: migrated configs
+    // carry `game` and never take this path again.
+    game = (value.gameProfileId !== null && value.gameProfileId !== undefined)
+      || (value.commentaryPresetId !== null && value.commentaryPresetId !== undefined)
+      ? migrateLegacyGameConfig(userDataPath, value)
+      : defaultGameMetadata();
+  } else {
+    game = normalizeGameMetadata(value.game);
+  }
   return {
     credentialId,
-    gameProfileId,
-    commentaryPresetId,
+    game,
     promptPackId,
     tts: normalizePartialTtsConfig(value.tts ?? null),
   };
@@ -103,14 +258,13 @@ function validateConfiguration(value) {
 export function defaultProjectConfiguration() {
   return {
     credentialId: null,
-    gameProfileId: DEFAULT_GAME_PROFILE_ID,
-    commentaryPresetId: DEFAULT_COMMENTARY_PRESET_ID,
+    game: defaultGameMetadata(),
     promptPackId: null,
     tts: { model: null, voice: null, voiceDirection: null, credentialId: null },
   };
 }
 
-function validateMetadata(value) {
+function validateMetadata(value, userDataPath = null) {
   if (!value || typeof value !== 'object') throw new Error('Invalid project metadata.');
   assertId(value.id);
   validateName(value.name);
@@ -120,7 +274,7 @@ function validateMetadata(value) {
   }
   if (!value.sourceVideo || typeof value.sourceVideo.path !== 'string' || typeof value.sourceVideo.sizeBytes !== 'number') throw new Error('Invalid project source video.');
   if (!PROCESSING_STATUSES.has(value.processingStatus)) throw new Error('Invalid processing status.');
-  value.configuration = validateConfiguration(value.configuration ?? defaultProjectConfiguration());
+  value.configuration = validateConfiguration(value.configuration ?? defaultProjectConfiguration(), userDataPath);
   return value;
 }
 
@@ -130,8 +284,8 @@ function writeAtomic(filePath, text) {
   fs.renameSync(tmpPath, filePath);
 }
 
-function readMetadata(projectDir) {
-  return validateMetadata(JSON.parse(fs.readFileSync(path.join(projectDir, 'project.json'), 'utf8')));
+function readMetadata(projectDir, userDataPath = null) {
+  return validateMetadata(JSON.parse(fs.readFileSync(path.join(projectDir, 'project.json'), 'utf8')), userDataPath);
 }
 
 function toPublicMetadata(meta) {
@@ -153,7 +307,7 @@ export function listProjects(userDataPath) {
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.tmp-')) continue;
     if (entry.name === DELETION_QUARANTINE_DIR_NAME) continue;
-    try { projects.push(toPublicMetadata(readMetadata(path.join(root, entry.name)))); } catch { continue; }
+    try { projects.push(toPublicMetadata(readMetadata(path.join(root, entry.name), userDataPath))); } catch { continue; }
   }
   projects.sort((a, b) => {
     const key = (p) => p.lastOpenedAt || p.updatedAt || p.createdAt || '';
@@ -163,10 +317,10 @@ export function listProjects(userDataPath) {
 }
 
 export function getProject(userDataPath, id) {
-  return toPublicMetadata(readMetadata(resolveProjectDir(getProjectsRoot(userDataPath), id)));
+  return toPublicMetadata(readMetadata(resolveProjectDir(getProjectsRoot(userDataPath), id), userDataPath));
 }
 
-export function createProject(userDataPath, { name, sourcePath } = {}) {
+export function createProject(userDataPath, { name, sourcePath, game } = {}) {
   const cleanName = validateName(name);
   if (typeof sourcePath !== 'string' || sourcePath === '') throw new Error('A source video path is required.');
   const inputError = validateVideoInput(sourcePath);
@@ -200,17 +354,20 @@ export function createProject(userDataPath, { name, sourcePath } = {}) {
     const metadata = {
       schemaVersion: SCHEMA_VERSION, id, name: cleanName, createdAt: now, updatedAt: now, lastOpenedAt: now,
       sourceVideo: { path: path.join(finalDir, 'source', `gameplay${ext}`), sizeBytes: copied.size }, processingStatus: 'idle',
-      configuration: defaultProjectConfiguration(),
+      configuration: validateConfiguration(
+        { ...defaultProjectConfiguration(), ...(game === null || game === undefined ? {} : { game }) },
+        userDataPath,
+      ),
     };
     writeAtomic(path.join(stagingDir, 'project.json'), JSON.stringify(metadata, null, 2));
     fs.renameSync(stagingDir, finalDir);
-    return toPublicMetadata(validateMetadata(metadata));
+    return toPublicMetadata(validateMetadata(metadata, userDataPath));
   } catch (err) { fs.rmSync(stagingDir, { recursive: true, force: true }); throw err; }
 }
 
 export function updateProject(userDataPath, id, patch = {}) {
   const dir = resolveProjectDir(getProjectsRoot(userDataPath), id);
-  const meta = readMetadata(dir);
+  const meta = readMetadata(dir, userDataPath);
   if (!patch || typeof patch !== 'object') throw new Error('Invalid project update.');
   const next = { ...meta, sourceVideo: { ...meta.sourceVideo } };
   for (const [key, value] of Object.entries(patch)) {
@@ -220,7 +377,7 @@ export function updateProject(userDataPath, id, patch = {}) {
       for (const field of Object.keys(value)) {
         if (!CONFIGURATION_FIELDS.has(field)) throw new Error(`Project field '${field}' cannot be updated.`);
       }
-      next.configuration = validateConfiguration({ ...meta.configuration, ...value });
+      next.configuration = validateConfiguration({ ...meta.configuration, ...value }, userDataPath);
       continue;
     }
     if (key === 'processingStatus' && !PROCESSING_STATUSES.has(value)) throw new Error('Invalid processing status.');
@@ -228,13 +385,13 @@ export function updateProject(userDataPath, id, patch = {}) {
     next[key] = value;
   }
   next.updatedAt = new Date().toISOString();
-  writeAtomic(path.join(dir, 'project.json'), JSON.stringify(validateMetadata(next), null, 2));
+  writeAtomic(path.join(dir, 'project.json'), JSON.stringify(validateMetadata(next, userDataPath), null, 2));
   return toPublicMetadata(next);
 }
 
 export function settleProjectRun(userDataPath, id, status) {
   if (!PROCESSING_STATUSES.has(status) || status === 'processing' || status === 'idle') throw new Error('Invalid settle status.');
-  const meta = readMetadata(resolveProjectDir(getProjectsRoot(userDataPath), id));
+  const meta = readMetadata(resolveProjectDir(getProjectsRoot(userDataPath), id), userDataPath);
   if (meta.processingStatus !== 'processing') return { settled: false, project: toPublicMetadata(meta) };
   return { settled: true, project: updateProject(userDataPath, id, { processingStatus: status }) };
 }

@@ -68,3 +68,13 @@ test('wizard completion offers an optional first project', () => {
   assert.match(wizard, /Complete & open project/);
   assert.match(wizard, /Complete setup/);
 });
+
+test('wizard is four steps with no style selection', () => {
+  assert.match(wizard, /const STEP_LABELS = \["Welcome", "Provider", "Model", "Ready"\]/);
+  assert.match(wizard, /step === 3 \? null : "Continue"/);
+  assert.doesNotMatch(wizard, /commentatorStepReady/);
+  assert.doesNotMatch(wizard, /listGameProfiles/);
+  assert.doesNotMatch(wizard, /listPresets/);
+  assert.doesNotMatch(wizard, /gameProfileId/);
+  assert.doesNotMatch(wizard, /commentaryPresetId/);
+});

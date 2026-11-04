@@ -10,8 +10,6 @@ import MatchesSection from "@/app/sections/MatchesSection.jsx";
 import CommentarySection from "@/app/sections/CommentarySection.jsx";
 import OnboardingWizard from "@/app/sections/OnboardingWizard.jsx";
 import ApiKeysSection from "@/app/sections/ApiKeysSection.jsx";
-import GameProfilesSection from "@/app/sections/GameProfilesSection.jsx";
-import CommentaryPresetsSection from "@/app/sections/CommentaryPresetsSection.jsx";
 import OverviewSection from "@/app/sections/OverviewSection.jsx";
 import PromptPacksSection from "@/app/sections/PromptPacksSection.jsx";
 import PreferencesSection from "@/app/sections/PreferencesSection.jsx";
@@ -28,8 +26,6 @@ const SECTION_VIEWS = {
   audio: StudioPlaceholder,
   overview: OverviewSection,
   "api-keys": ApiKeysSection,
-  "game-profiles": GameProfilesSection,
-  "commentary-presets": CommentaryPresetsSection,
   "prompt-packs": PromptPacksSection,
   "tts-studio": TtsStudioSection,
   preferences: PreferencesSection,
@@ -42,8 +38,6 @@ const SECTION_META = {
   audio: { title: "Audio", context: "Playback lanes are not available yet" },
   overview: { title: "Overview", context: "Configuration status at a glance" },
   "api-keys": { title: "AI Providers", context: "Vision and speech provider configurations" },
-  "game-profiles": { title: "Game Profiles", context: "Match-context records" },
-  "commentary-presets": { title: "Commentary Presets", context: "Commentary personalities and tones" },
   "prompt-packs": { title: "Prompt Packs", context: "Game-specific prompt wording and defaults" },
   "tts-studio": { title: "Voice Providers", context: "Commentary voice configuration and previews" },
   preferences: { title: "General", context: "Application preferences" },
@@ -230,8 +224,7 @@ export default function App() {
                   ? { section: activeSection }
                   : {})}
                 {...(workspaceId !== null &&
-                (activeSection === "api-keys" || activeSection === "game-profiles"
-                  || activeSection === "commentary-presets" || activeSection === "prompt-packs")
+                (activeSection === "api-keys" || activeSection === "prompt-packs")
                   ? { onBackToEditor: handleBackToEditor }
                   : {})}
                 {...(activeSection === "overview"

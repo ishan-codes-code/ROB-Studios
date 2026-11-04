@@ -75,14 +75,21 @@ export default function ModelPicker({
   }, [discoveryInput, onError]);
 
   if (provider === "baseten") {
+    // Pinned display: this literal must match the model saved for new
+    // Baseten configurations in ApiKeysSection (creation pins it; the
+    // backend catalogue allowlists it). Never show a different ID here.
     return (
       <div className="flex flex-col gap-1.5">
         <span className="text-[13px] font-medium text-foreground">Model</span>
-        <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5">
+        <div className="flex min-w-0 items-center justify-between gap-3 rounded-md bg-muted/60 px-3 py-2.5">
           <code className="truncate font-mono text-[11px] text-foreground">meta-models/muse-spark-open</code>
           <span className="shrink-0 text-[11px] text-muted-foreground">Pinned</span>
         </div>
-        <span className="text-[12px] text-muted-foreground">This model is fixed for Baseten.</span>
+        <span className="text-[12px] leading-relaxed text-muted-foreground">
+          Fixed for Baseten: this configuration always uses this exact model — model
+          selection is not offered. Baseten provides OpenAI-compatible inference;
+          the key works with this pinned model.
+        </span>
       </div>
     );
   }

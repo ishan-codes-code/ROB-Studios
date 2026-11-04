@@ -44,6 +44,8 @@ out/
 # Build artifacts
 **/build/Release/
 
+dist/ 
+
 # =================================
 # CACHES / COVERAGE
 # =================================

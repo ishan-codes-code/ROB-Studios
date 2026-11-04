@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, Gamepad2, LoaderCircle, MessageSquareText, ScanEye } from "lucide-react";
+import { ArrowUpRight, Gamepad2, LoaderCircle, ScanEye } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
-import { isRunReady, presetsForProfile } from "@/lib/config-display.js";
+import GameMetadataForm, { gameRecordToInput } from "@/components/GameMetadataForm.jsx";
+import { isRunReady } from "@/lib/config-display.js";
 
 const selectClassName =
   "h-8 w-full rounded-sm border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
@@ -30,49 +31,52 @@ export function GroupHeading({ icon: Icon, title, actionLabel, onAction }) {
   );
 }
 
+function gameSummary(game) {
+  if (!game) return "Free Fire";
+  const parts = ["Free Fire"];
+  const meta = [game.mode, game.map].filter(Boolean).join(" · ");
+  if (meta) parts.push(meta);
+  if (game.language && game.language !== "English") parts.push(game.language);
+  return parts.join(" · ");
+}
+
 /**
  * Compact project configuration overview for the editor Configure tab.
- * Three summary groups (AI vision, game profile, commentary style —
- * the prompt pack selector lives with the game profile it flavors)
- * plus a readiness summary. Project selections stay project-scoped;
- * global resources open in their settings sections (workspace state is
- * preserved) instead of nested management dialogs.
+ * Three summary groups (AI vision, project-owned game metadata, prompt
+ * pack) plus a readiness summary. Game metadata edits save explicitly
+ * via the project channel; the prompt pack it flavors opens in its
+ * settings section (workspace state is preserved) instead of a nested
+ * management dialog.
  */
 export default function ProjectConfiguration({ projectId, onReadinessChange, onNavigate }) {
   const [configuration, setConfiguration] = useState(null);
   const [credential, setCredential] = useState(null);
   const [warnings, setWarnings] = useState([]);
   const [credentials, setCredentials] = useState([]);
-  const [profiles, setProfiles] = useState([]);
-  const [presets, setPresets] = useState([]);
   const [packs, setPacks] = useState([]);
   const [defaultPackId, setDefaultPackId] = useState("free-fire");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
   const [failedLists, setFailedLists] = useState([]);
+  const [pendingGame, setPendingGame] = useState(null);
+  const [gameSavedAt, setGameSavedAt] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     setFailedLists([]);
     try {
-      const [configRes, credRes, profileRes, presetRes, packsRes] = await Promise.all([
+      const [configRes, credRes, packsRes] = await Promise.all([
         window.api.getProjectConfig(projectId),
         window.api.listCredentials().catch(() => null),
-        window.api.listGameProfiles().catch(() => null),
-        window.api.listPresets(null).catch(() => null),
         window.api.listPromptPacks().catch(() => null),
       ]);
       const failed = [];
       if (!credRes?.ok) failed.push("AI providers");
-      if (!profileRes?.ok) failed.push("game profiles");
-      if (!presetRes?.ok) failed.push("commentary presets");
       setCredentials(credRes?.ok
         ? (credRes.credentials ?? []).filter((entry) => entry.purpose !== "tts")
         : []);
-      setProfiles(profileRes?.ok ? (profileRes.profiles ?? []) : []);
-      setPresets(presetRes?.ok ? (presetRes.presets ?? []) : []);
       if (packsRes?.ok) {
         setPacks(packsRes.packs ?? []);
         setDefaultPackId(packsRes.defaultPackId ?? "free-fire");
@@ -81,6 +85,7 @@ export default function ProjectConfiguration({ projectId, onReadinessChange, onN
       setConfiguration(configRes.configuration);
       setCredential(configRes.credential);
       setWarnings(configRes.warnings ?? []);
+      setPendingGame(null);
       onReadinessChange?.(configRes.credential?.verified === true);
       if (failed.length > 0) setFailedLists(failed);
     } catch (err) {
@@ -110,6 +115,10 @@ export default function ProjectConfiguration({ projectId, onReadinessChange, onN
       } else {
         setConfiguration(result.configuration);
       }
+      if (field === "game") {
+        setPendingGame(null);
+        setGameSavedAt(Date.now());
+      }
     } catch (err) {
       setError(err?.message ?? "Could not save the project configuration.");
     } finally {
@@ -117,13 +126,12 @@ export default function ProjectConfiguration({ projectId, onReadinessChange, onN
     }
   }, [onReadinessChange, projectId]);
 
-  const selectedProfile = profiles.find((entry) => entry.id === configuration?.gameProfileId) ?? null;
-  const profilePresets = presetsForProfile(presets, configuration?.gameProfileId);
-  const selectedPreset = profilePresets.find((entry) => entry.id === configuration?.commentaryPresetId) ?? null;
   const selectedPack = packs.find((entry) => entry.packId === (configuration?.promptPackId ?? defaultPackId)) ?? null;
   const savedCredentialMissing = (configuration?.credentialId ?? "") !== ""
     && !credentials.some((entry) => entry.id === configuration.credentialId);
   const ready = isRunReady({ credential, warnings });
+  const gameDirty = pendingGame !== null
+    && JSON.stringify(pendingGame) !== JSON.stringify(configuration?.game ?? null);
 
   const controlsDisabled = loading || saving !== "";
 
@@ -186,27 +194,34 @@ export default function ProjectConfiguration({ projectId, onReadinessChange, onN
 
       <Separator />
 
-      <section className="flex min-w-0 flex-col gap-2" aria-label="Game profile">
-        <GroupHeading icon={Gamepad2} title="Game profile" actionLabel="Manage games" onAction={() => onNavigate?.("game-profiles")} />
-        <select
-          aria-label="Game profile"
-          className={selectClassName}
-          value={configuration?.gameProfileId ?? "free-fire-default"}
-          disabled={controlsDisabled}
-          onChange={(event) => save("gameProfileId", event.target.value)}
-        >
-          {profiles.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name}
-              {entry.builtIn ? "" : " · custom"}
-            </option>
-          ))}
-        </select>
-        {selectedProfile?.context ? (
-          <p className="truncate text-[11px] text-muted-foreground" title={selectedProfile.context}>
-            {selectedProfile.context}
-          </p>
-        ) : null}
+      <section className="flex min-w-0 flex-col gap-2" aria-label="Game">
+        <GroupHeading icon={Gamepad2} title="Game" />
+        <p className="truncate text-[12px] text-foreground" title={gameSummary(configuration?.game)}>
+          {gameSummary(configuration?.game)}
+        </p>
+        <details className="group min-w-0">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-[11px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            Edit match details
+          </summary>
+          <div className="flex min-w-0 flex-col gap-2 pt-2">
+            <GameMetadataForm
+              key={`${projectId}-${gameSavedAt}`}
+              initial={gameRecordToInput(configuration?.game)}
+              disabled={controlsDisabled}
+              onChange={setPendingGame}
+            />
+            <div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={controlsDisabled || !gameDirty}
+                onClick={() => pendingGame && save("game", pendingGame)}
+              >
+                Save game details
+              </Button>
+            </div>
+          </div>
+        </details>
         <select
           aria-label="Prompt pack"
           className={selectClassName}
@@ -232,33 +247,6 @@ export default function ProjectConfiguration({ projectId, onReadinessChange, onN
             Inspect prompt wording <ArrowUpRight className="size-3" aria-hidden />
           </button>
         ) : null}
-      </section>
-
-      <Separator />
-
-      <section className="flex min-w-0 flex-col gap-2" aria-label="Commentary style">
-        <GroupHeading icon={MessageSquareText} title="Commentary style" actionLabel="Manage styles" onAction={() => onNavigate?.("commentary-presets")} />
-        <select
-          aria-label="Commentary preset"
-          className={selectClassName}
-          value={configuration?.commentaryPresetId ?? "default-energetic"}
-          disabled={controlsDisabled}
-          onChange={(event) => save("commentaryPresetId", event.target.value)}
-        >
-          {profilePresets.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name}
-              {[entry.tone, entry.language].filter(Boolean).join(" · ")
-                ? ` · ${[entry.tone, entry.language].filter(Boolean).join(" · ")}`
-                : ""}
-            </option>
-          ))}
-        </select>
-        <p className="truncate text-[11px] text-muted-foreground">
-          {selectedPreset
-            ? ([selectedPreset.personality, selectedPreset.tone, selectedPreset.language].filter(Boolean).join(" · ") || "Default style")
-            : "The saved preset is missing — pick a replacement."}
-        </p>
       </section>
 
       <Separator />

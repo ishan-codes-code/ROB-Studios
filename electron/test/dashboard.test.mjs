@@ -82,6 +82,14 @@ test('project import flow keeps its IPC semantics and silent cancellation', () =
   assert.match(dashboard, /deleteBusyRef\.current/);
 });
 
+test('creation collects optional game metadata through the shared form', () => {
+  assert.match(dashboard, /import GameMetadataForm from "@\/components\/GameMetadataForm\.jsx";/);
+  assert.match(dashboard, /window\.api\.createProject\(name, pendingPath, game\)/);
+  assert.match(dashboard, /Match details \(optional\)/);
+  assert.match(dashboard, /<GameMetadataForm/);
+  assert.match(dashboard, /key=\{pendingPath\}/);
+});
+
 test('library collapse is an accessible toggle with a stable region id', () => {
   assert.match(dashboard, /aria-expanded=\{libraryOpen\}/);
   assert.match(dashboard, /aria-controls="project-library-body"/);
