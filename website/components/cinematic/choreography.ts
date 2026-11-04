@@ -91,6 +91,7 @@ export function setupCinematicScenes(root: HTMLElement): () => void {
           0.28,
         )
         .from(select(".hero-title + p"), { y: 24, autoAlpha: 0, duration: 0.9 }, 0.5)
+        .from(select(".hero-ctas"), { y: 16, autoAlpha: 0, duration: 0.8 }, 0.62)
         .from(select(".hero-explore"), { y: 12, autoAlpha: 0, duration: 0.7 }, 0.7);
 
       // ---- Scene handoffs: every following panel pushes its predecessor
@@ -111,9 +112,10 @@ export function setupCinematicScenes(root: HTMLElement): () => void {
 
           const isHero = index === 0;
           gsap.to(outgoingScene, {
-            scale: isHero ? 0.9 : 0.94,
-            y: isHero ? -32 : -20,
-            opacity: isHero ? 0.3 : 0.48,
+            scale: isHero ? 0.95 : 0.96,
+            y: isHero ? -18 : -12,
+            opacity: isHero ? 0.55 : 0.65,
+            filter: "brightness(0.72)",
             ease: "none",
             transformOrigin: "center center",
             scrollTrigger: {
@@ -170,6 +172,22 @@ export function setupCinematicScenes(root: HTMLElement): () => void {
           }
         }
       }
+
+      // ---- Showcase / Demo / Studio: frame + stage reveals ----
+      for (const [sectionSel, targets] of [
+        [".showcase-section", ".showcase-section .section-index, .showcase-section .section-heading, .showcase-section .body-copy"],
+        [".demo-section", ".demo-section .section-index, .demo-section .section-heading, .demo-section .body-copy"],
+        [".studio-section", ".studio-section .section-index, .studio-section .section-heading, .studio-section .body-copy"],
+      ] as const) {
+        const sec = first(sectionSel);
+        if (sec) reveal(select(targets), sec, { y: isDesktop ? 26 : 18 });
+      }
+      const showcaseFrame = first(".showcase-frame");
+      if (showcaseFrame) gsap.from(showcaseFrame, { y: isDesktop ? 36 : 20, autoAlpha: 0, duration: 1, ease: EASE, overwrite: "auto", scrollTrigger: { trigger: showcaseFrame, start: "top 82%", toggleActions: ENTER } });
+      const demoPipeline = first(".demo-pipeline");
+      if (demoPipeline) gsap.from(select(".demo-stage"), { y: 22, autoAlpha: 0, duration: 0.7, stagger: 0.12, ease: "power2.out", overwrite: "auto", scrollTrigger: { trigger: demoPipeline, start: "top 80%", toggleActions: ENTER } });
+      const studioFrame = first(".studio-frame");
+      if (studioFrame) gsap.from(studioFrame, { y: isDesktop ? 40 : 22, autoAlpha: 0, duration: 1, ease: EASE, overwrite: "auto", scrollTrigger: { trigger: studioFrame, start: "top 82%", toggleActions: ENTER } });
 
       // ---- Capabilities: structured row-by-row reveal ----
       const capabilitiesSection = first(".capabilities-section");

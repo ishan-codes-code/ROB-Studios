@@ -1,6 +1,6 @@
 export default function FinalCta() {
   return (
-    <footer className="closing-section">
+    <footer id="closing" className="closing-section">
       <div className="section-shell closing-content scene-surface">
         <p className="section-index">The next voice in gaming</p>
         <h2 className="closing-heading">

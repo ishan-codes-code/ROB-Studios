@@ -40,7 +40,8 @@ export default function CapabilitiesSection() {
   return (
     <section
       aria-labelledby="capabilities-title"
-      className="story-section capabilities-section"
+      id="capabilities"
+      className="story-section capabilities-section scroll-mt-8"
     >
       <div className="section-shell scene-surface">
         <div className="section-heading-row">

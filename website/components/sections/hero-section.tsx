@@ -5,6 +5,7 @@ import GlitchText from "@/components/kokonutui/glitch-text";
 export default function HeroSection() {
   return (
     <section
+      id="hero"
       aria-labelledby="hero-title"
       className="hero-section relative isolate flex min-h-svh items-center justify-center overflow-hidden bg-void px-6 text-center"
     >
@@ -39,6 +40,10 @@ export default function HeroSection() {
             An intelligent commentary engine that turns gameplay into a story
             worth watching.
           </p>
+          <div className="hero-ctas mt-9 flex flex-wrap items-center justify-center gap-3">
+            <a href="#showcase" className="inline-flex min-h-11 items-center border border-white bg-white px-5 text-xs font-medium tracking-wide text-black transition hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">Watch it think</a>
+            <a href="#studio" className="inline-flex min-h-11 items-center border border-white/25 px-5 text-xs font-medium tracking-wide text-white transition hover:border-white/60 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">Enter the Studio</a>
+          </div>
         </div>
 
         <a

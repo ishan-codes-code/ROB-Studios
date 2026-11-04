@@ -10,7 +10,8 @@ export default function WorkflowSection() {
   return (
     <section
       aria-labelledby="workflow-title"
-      className="story-section workflow-section"
+      id="workflow"
+      className="story-section workflow-section scroll-mt-8"
     >
       <div className="section-shell scene-surface">
         <div className="workflow-heading">

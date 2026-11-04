@@ -19,7 +19,7 @@ const horizons = [
 
 export default function FutureSection() {
   return (
-    <section aria-labelledby="future-title" className="story-section future-section">
+    <section id="roadmap" aria-labelledby="future-title" className="story-section future-section scroll-mt-8">
       <div className="section-shell future-layout scene-surface">
         <div className="future-intro">
           <p className="section-index">In development</p>
