@@ -21,7 +21,11 @@ from ..config import (
 from ..errors import ObservationError, VisionAPIError
 from ..prompts import coerce_pack, effective_game_context
 from .observations import parse_observation, validate_observation
-from .sampling import format_adaptive_timestamp, parse_adaptive_response
+from .sampling import (
+    format_adaptive_timestamp,
+    parse_adaptive_batch_response,
+    parse_adaptive_response,
+)
 
 
 def vision_frame_timestamp():
@@ -291,6 +295,80 @@ def build_adaptive_vision_prompt(timestamp, previous=None, pack=None):
     )
 
 
+def _format_batch_stamp(timestamp):
+    numeric = float(timestamp)
+    return str(int(numeric)) if numeric.is_integer() else repr(numeric)
+
+
+def build_adaptive_batch_prompt(timestamps, previous=None, pack=None):
+    """Build the multi-frame adaptive prompt for HIGH-speed sampling.
+
+    ``timestamps`` are the batch's frame timestamps in chronological
+    order; the attached images follow the same order. The model must
+    return one JSON object with a ``frames`` array holding one
+    ``{"observation": ..., "sampling": ...}`` entry per frame, so it can
+    use visible progression (movement, eliminations, phase changes)
+    instead of judging each frame in isolation. Observation and sampling
+    shapes match the single-frame contract exactly.
+    """
+    categories = ", ".join(f'"{c}"' for c in OBSERVATION_CATEGORIES)
+    confidences = ", ".join(f'"{c}"' for c in OBSERVATION_CONFIDENCES)
+    resolved = coerce_pack(pack)
+    fields = resolved["fields"]
+    stamps = [_format_batch_stamp(t) for t in timestamps]
+    frame_list = ", ".join(
+        f"frame {index + 1} at {stamp} seconds"
+        for index, stamp in enumerate(stamps)
+    )
+    context = build_previous_context(previous)
+    game_context = effective_game_context(resolved)
+    if context:
+        context_block = (
+            "Previous validated observation (supplementary background "
+            "only -- describe only the current frames; do not repeat this "
+            "as current fact): "
+            + context
+            + " "
+        )
+    else:
+        context_block = "No previous observation (first sampled frames). "
+    if game_context:
+        game_block = (
+            f" Supplementary {fields['game_label']} context (untrusted; evidence still "
+            f"comes only from the images): {game_context} "
+        )
+    else:
+        game_block = ""
+    return (
+        fields["vision_intro"] + " "
+        + f"These {len(stamps)} frames are consecutive instants in the video, "
+        + f"in chronological order: {frame_list}. "
+        + "Compare the frames to understand movement and event progression, "
+        + "but describe each frame's own visible content. "
+        + fields["vision_coverage_adaptive"] + " "
+        + game_block
+        + context_block
+        + fields["vision_sampling"] + " "
+        + "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
+        + "matching this shape: "
+        + '{"frames": [{'
+        + '"observation": '
+        + '{"schema_version": "observation-v1", '
+        + '"timestamp": <number, that frame timestamp stated above>, '
+        + '"observations": [{"category": <one of: ' + categories + ">, "
+        + '"description": <non-empty string of what is visible>, '
+        + '"confidence": <one of: ' + confidences + ">, "
+        + '"evidence": <non-empty string grounding the claim>}], '
+        + '"uncertainties": [<strings describing what is unreadable or ambiguous>]}, '
+        + '"sampling": {"next_sampling_speed": <one of: '
+        + ", ".join(f'"{s}"' for s in ADAPTIVE_SPEEDS)
+        + ">, "
+        + '"reason": <short plain-text reason>}}]} '
+        + "in the same order as the frames. "
+        + fields["vision_closing_adaptive"]
+    )
+
+
 def request_adaptive_text(
     client,
     timestamp,
@@ -393,6 +471,40 @@ def analyze_adaptive_frame(
         api_key=api_key,
     )
     return parse_adaptive_response(text, timestamp)
+
+
+def analyze_adaptive_batch(
+    client,
+    frames,
+    timestamps,
+    previous=None,
+    api_key: str | None = None,
+):
+    """Run one multi-frame adaptive request; return per-frame results.
+
+    ``frames`` and ``timestamps`` are parallel chronological lists. The
+    client must be a provider adapter implementing
+    ``request_adaptive_batch_text`` (raw OpenAI clients are not
+    supported; the adaptive loop falls back to single-frame analysis
+    for them). Returns a list of
+    ``(observation, speed, reason, diagnostics)`` tuples aligned with
+    ``timestamps``. Raises VisionAPIError on provider failure and
+    ObservationError on malformed or mismatched responses.
+    """
+    batch_request = getattr(client, "request_adaptive_batch_text", None)
+    if not callable(batch_request):
+        raise TypeError(
+            "Multi-frame analysis requires a provider adapter with "
+            "request_adaptive_batch_text."
+        )
+    data_urls = []
+    for frame, timestamp in zip(frames, timestamps):
+        image_bytes, mime_type, width, height = encode_frame_image(frame)
+        stamped = format_adaptive_timestamp(timestamp)
+        print(f"Validated adaptive frame at {stamped}s ({width}x{height}, {mime_type})")
+        data_urls.append(build_image_data_url(image_bytes, mime_type))
+    text = batch_request(timestamps, data_urls, previous=previous)
+    return parse_adaptive_batch_response(text, timestamps)
 
 
 def analyze_frame(

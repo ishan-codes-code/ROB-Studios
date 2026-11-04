@@ -123,39 +123,45 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
         error: 'Adaptive sampling needs an API key. Open AI Providers to configure a provider.',
       };
     }
-    // TTS runs resolve here, never from renderer values: the renderer only
-    // opts in with `requestTts`. Worker argv and the TTS key below derive
-    // exclusively from the vault plus stored configuration.
+    // Spoken audio is automatic: every script/streaming run attempts TTS
+    // resolution, and runs without audio when it is not configured. The
+    // outcome rides the accept response so the renderer can report it;
+    // missing TTS never fails the run. Worker argv and the TTS key below
+    // derive exclusively from the vault plus stored configuration.
     delete opts.generateTts;
     delete opts.ttsModel;
     delete opts.ttsVoice;
     delete opts.ttsVoiceDirection;
+    delete opts.requestTts;
     let ttsRun = null;
-    if (opts.requestTts === true) {
+    let ttsStatus = { enabled: false, reason: null };
+    if (opts.withScript === true || opts.streaming === true) {
       if (runConfig === null) {
-        return { ok: false, error: 'Commentary audio needs a project with TTS configuration. Open the TTS Studio to configure it.' };
+        ttsStatus = { enabled: false, reason: 'Commentary audio needs a project with TTS configuration. Open the TTS Studio to configure it.' };
+      } else if (!ttsCatalogLoader) {
+        ttsStatus = { enabled: false, reason: 'TTS catalogue is unavailable.' };
+      } else {
+        let catalog = null;
+        try {
+          catalog = await ttsCatalogLoader.load();
+        } catch (err) {
+          ttsStatus = { enabled: false, reason: err?.message ?? 'TTS catalogue is unavailable.' };
+        }
+        if (catalog !== null) {
+          try {
+            ttsRun = resolveTtsRunConfig(app.getPath('userData'), safeStorage, opts.projectId, catalog);
+          } catch (err) {
+            ttsStatus = { enabled: false, reason: err?.message ?? 'The TTS configuration could not be resolved.' };
+          }
+        }
       }
-      if (opts.withScript !== true && opts.streaming !== true) {
-        return { ok: false, error: 'Commentary audio requires the final casting script. Enable both options.' };
+      if (ttsRun !== null) {
+        opts.generateTts = true;
+        opts.ttsModel = ttsRun.config.model;
+        opts.ttsVoice = ttsRun.config.voice;
+        opts.ttsVoiceDirection = ttsRun.config.voiceDirection;
+        ttsStatus = { enabled: true, reason: null };
       }
-      if (!ttsCatalogLoader) {
-        return { ok: false, error: 'TTS catalogue is unavailable.' };
-      }
-      let catalog;
-      try {
-        catalog = await ttsCatalogLoader.load();
-      } catch (err) {
-        return { ok: false, error: err?.message ?? 'TTS catalogue is unavailable.' };
-      }
-      try {
-        ttsRun = resolveTtsRunConfig(app.getPath('userData'), safeStorage, opts.projectId, catalog);
-      } catch (err) {
-        return { ok: false, error: err?.message ?? 'The TTS configuration could not be resolved.' };
-      }
-      opts.generateTts = true;
-      opts.ttsModel = ttsRun.config.model;
-      opts.ttsVoice = ttsRun.config.voice;
-      opts.ttsVoiceDirection = ttsRun.config.voiceDirection;
     }
     let argv;
     try {
@@ -186,7 +192,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       if (runConfig.provider === 'custom') {
         workerEnv.AI_COMMENTATOR_BASE_URL = runConfig.baseUrl;
       }
-      // The TTS key is injected only for runs that requested audio, and
+      // The TTS key is injected only for runs with resolved audio, and
       // only from the resolved vault credential — never renderer input.
       if (ttsRun !== null) {
         workerEnv[TTS_API_KEY_ENV_VAR] = ttsRun.apiKey;
@@ -259,7 +265,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       return { ok: false, error: 'A video is already being processed.' };
     }
     state.activeProjectId = typeof opts.projectId === 'string' ? opts.projectId : null;
-    return { ok: true, pid: startedJob.pid };
+    return { ok: true, pid: startedJob.pid, tts: ttsStatus };
   });
   
   ipcMain.handle('vision-status', async () => {

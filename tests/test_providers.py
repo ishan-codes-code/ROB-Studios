@@ -741,5 +741,51 @@ class RegistryTests(unittest.TestCase):
                 resolve_provider_config()
 
 
+class BatchRequestTests(unittest.TestCase):
+    def test_baseten_batch_attaches_images_in_order(self):
+        fake = FakeOpenAIClient()
+        adapter = BasetenAdapter(
+            model="meta-models/muse-spark-open",
+            api_key="k", client=fake)
+        adapter.request_adaptive_batch_text(
+            [0.5, 1.0],
+            ["data:image/jpeg;base64,AAA", "data:image/jpeg;base64,BBB"],
+        )
+        call = fake.calls[0]
+        content = call["messages"][0]["content"]
+        self.assertEqual(content[0]["type"], "text")
+        self.assertIn("frame 1 at 0.5 seconds", content[0]["text"])
+        self.assertIn("frame 2 at 1 seconds", content[0]["text"])
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertEqual(content[2]["type"], "image_url")
+        self.assertEqual(content[1]["image_url"]["url"],
+                         "data:image/jpeg;base64,AAA")
+        self.assertEqual(content[2]["image_url"]["url"],
+                         "data:image/jpeg;base64,BBB")
+
+    def test_meta_batch_posts_images_in_order(self):
+        adapter = MetaAdapter(model="muse-spark-1.3", api_key="meta-key")
+        seen = {}
+
+        def fake_urlopen(request, timeout=None):
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return FakeHTTPResponse(make_response_payload(TINY_OBSERVATION))
+
+        with mock.patch.object(meta_module.urllib.request, "urlopen",
+                               side_effect=fake_urlopen):
+            adapter.request_adaptive_batch_text(
+                [0.5, 1.0],
+                ["data:image/jpeg;base64,AAA", "data:image/jpeg;base64,BBB"],
+            )
+        content = seen["body"]["input"][0]["content"]
+        self.assertEqual(content[0]["type"], "input_text")
+        self.assertIn("frame 1 at 0.5 seconds", content[0]["text"])
+        images = [part for part in content if part["type"] == "input_image"]
+        self.assertEqual(
+            [part["image_url"] for part in images],
+            ["data:image/jpeg;base64,AAA", "data:image/jpeg;base64,BBB"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

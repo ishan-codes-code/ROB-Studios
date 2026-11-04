@@ -213,8 +213,10 @@ from ai_commentator.vision.batch import (
     process_batch_frame,
 )
 from ai_commentator.vision.client import (
+    analyze_adaptive_batch,
     analyze_adaptive_frame,
     analyze_frame,
+    build_adaptive_batch_prompt,
     build_adaptive_vision_prompt,
     build_image_data_url,
     build_previous_context,
@@ -261,6 +263,7 @@ from ai_commentator.vision.sampling import (
     AdaptiveScheduler,
     format_adaptive_timestamp,
     observation_path_for_timestamp,
+    parse_adaptive_batch_response,
     parse_adaptive_response,
     validate_intervals,
     validate_sampling,

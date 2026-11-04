@@ -8,6 +8,13 @@ validated speed label. The loop ends at the video duration, at the
 ``max_frames`` bound (or, when ``max_frames`` is None, until video
 end), on the first failure, or on a cooperative stop.
 
+While the sampling speed is HIGH, one paid request carries a small batch
+of consecutive frames (``ADAPTIVE_HIGH_BATCH_FRAMES``) so the model
+observes gameplay progression instead of isolated instants; NORMAL and
+LOW always analyze one frame per request. Batching needs a provider
+adapter with ``request_adaptive_batch_text`` — all runtime providers —
+and falls back to single-frame analysis otherwise.
+
 Cooperative stop: a thread-safe :class:`StopToken` is checked before every
 capture and before every paid request, and again after each persisted
 observation. A stop requested during an in-flight request never cancels
@@ -20,25 +27,24 @@ import os
 import sys
 import threading
 
-from openai import OpenAI
-
 from ..config import (
     ADAPTIVE_DEFAULT_MAX_FRAMES,
     ADAPTIVE_HARD_MAX_FRAMES,
+    ADAPTIVE_HIGH_BATCH_FRAMES,
     ADAPTIVE_REQUEST_TIMEOUT_S,
     ADAPTIVE_RUN_MANIFEST_FILENAME,
     ADAPTIVE_RUN_SCHEMA_VERSION,
-    BASETEN_BASE_URL,
     OBSERVATIONS_DIR,
     VIDEO_PATH,
 )
 from ..errors import ObservationError, VisionAPIError
 from ..storage import write_json_atomic
-from .client import analyze_adaptive_frame
+from .client import analyze_adaptive_batch, analyze_adaptive_frame
 from .reader import ScheduledVideoReader
 from .sampling import (
     AdaptiveScheduler,
     observation_path_for_timestamp,
+    quantize_timestamp,
     validate_intervals,
 )
 
@@ -144,8 +150,14 @@ def new_run_manifest(video, obs_dir, intervals, max_frames):
     }
 
 
-def record_iteration(manifest, timestamp, destination, speed, reason, diagnostics):
-    """Append one validated iteration to the manifest (in memory)."""
+def record_iteration(manifest, timestamp, destination, speed, reason, diagnostics,
+                     count_request=True):
+    """Append one validated iteration to the manifest (in memory).
+
+    ``count_request`` is False for the non-leading frames of a
+    multi-frame batch: one batch costs one paid request even though it
+    persists several observations.
+    """
     manifest["requested_timestamps"].append(timestamp)
     manifest["iterations"].append(
         {
@@ -158,8 +170,41 @@ def record_iteration(manifest, timestamp, destination, speed, reason, diagnostic
         }
     )
     manifest["observations"] += 1
-    manifest["requests"] += 1
+    if count_request:
+        manifest["requests"] += 1
     manifest["speed_counts"][speed] += 1
+
+
+def _supports_batch_analysis(client) -> bool:
+    """Whether the client can analyze several frames in one request.
+
+    Provider adapters implement ``request_adaptive_batch_text``; raw
+    OpenAI clients (and older injected clients) do not, and the loop
+    falls back to single-frame analysis for them.
+    """
+    return callable(getattr(client, "request_adaptive_batch_text", None))
+
+
+def _plan_batch_timestamps(scheduler, timestamp):
+    """Plan the HIGH-speed multi-frame batch starting at ``timestamp``.
+
+    Returns up to ``ADAPTIVE_HIGH_BATCH_FRAMES`` strictly increasing
+    quantized timestamps spaced across one HIGH interval, all before
+    the video duration. Fewer when the video ends first.
+    """
+    step = scheduler.interval_for("HIGH") / ADAPTIVE_HIGH_BATCH_FRAMES
+    planned = [quantize_timestamp(timestamp)]
+    candidate = planned[0]
+    for _ in range(ADAPTIVE_HIGH_BATCH_FRAMES - 1):
+        candidate = quantize_timestamp(candidate + step)
+        if candidate <= planned[-1]:
+            candidate = quantize_timestamp(
+                planned[-1] + scheduler.minimum_step
+            )
+        if candidate >= scheduler.duration:
+            break
+        planned.append(candidate)
+    return planned
 
 
 def run_adaptive_vision(
@@ -188,6 +233,12 @@ def run_adaptive_vision(
     request and its own exceptions are contained so reporting can never
     break the loop. Result ``status`` is ``completed``, ``stopped``,
     or ``failed`` with a ``termination`` reason and an optional ``error``.
+
+    While the sampling speed is HIGH and the client supports it, each
+    loop iteration captures a small batch of consecutive frames and
+    analyzes them in a single request; every frame still persists its
+    own validated ``observation-v1`` document and reports its own
+    iteration, so downstream stages and the UI see per-frame results.
     """
     from pathlib import Path
 
@@ -257,9 +308,11 @@ def run_adaptive_vision(
                 timeout=ADAPTIVE_REQUEST_TIMEOUT_S,
             )
         else:
-            owned_client = OpenAI(
+            from .providers.baseten import BasetenAdapter
+
+            owned_client = BasetenAdapter(
+                model=model,
                 api_key=api_key,
-                base_url=BASETEN_BASE_URL,
                 timeout=ADAPTIVE_REQUEST_TIMEOUT_S,
             )
         vision_client = owned_client
@@ -293,27 +346,52 @@ def run_adaptive_vision(
             )
             timestamp = scheduler.first_timestamp()
             previous = None
+            current_speed = None
             while True:
                 if token.is_stopping():
                     print("Adaptive run stopping before next capture.")
                     return finish("stopped", TERMINATION_STOP_REQUESTED)
+                use_batch = (
+                    current_speed == "HIGH"
+                    and _supports_batch_analysis(vision_client)
+                )
+                if use_batch:
+                    batch_timestamps = _plan_batch_timestamps(
+                        scheduler, timestamp
+                    )
+                else:
+                    batch_timestamps = [quantize_timestamp(timestamp)]
+                if len(batch_timestamps) < 2:
+                    use_batch = False
+                    batch_timestamps = [quantize_timestamp(timestamp)]
                 try:
-                    frame = reader.capture_at(timestamp)
+                    batch_frames = [
+                        reader.capture_at(frame_ts)
+                        for frame_ts in batch_timestamps
+                    ]
                 except (ValueError, RuntimeError) as exc:
                     return fail(TERMINATION_CAPTURE_FAILED, str(exc))
                 if token.is_stopping():
                     print("Adaptive run stopping before vision request.")
                     return finish("stopped", TERMINATION_STOP_REQUESTED)
                 try:
-                    validated, speed, reason, sampling_diagnostics = (
-                        analyze_adaptive_frame(
+                    if use_batch:
+                        frame_results = analyze_adaptive_batch(
                             vision_client,
-                            frame,
-                            timestamp,
+                            batch_frames,
+                            batch_timestamps,
                             previous,
-                            api_key=api_key,
                         )
-                    )
+                    else:
+                        frame_results = [
+                            analyze_adaptive_frame(
+                                vision_client,
+                                batch_frames[0],
+                                batch_timestamps[0],
+                                previous,
+                                api_key=api_key,
+                            )
+                        ]
                 except VisionAPIError as exc:
                     manifest["requests"] += 1
                     manifest["failed_requests"] += 1
@@ -341,63 +419,81 @@ def run_adaptive_vision(
                 except ValueError as exc:
                     # Local frame-encoding failure: no request was sent.
                     return fail(TERMINATION_CAPTURE_FAILED, str(exc))
-                destination = observation_path_for_timestamp(timestamp, obs_dir)
-                try:
-                    write_json_atomic(destination, validated)
-                except OSError as exc:
-                    # The request itself succeeded; persistence failed.
-                    manifest["requests"] += 1
-                    return fail(
-                        TERMINATION_WRITE_FAILED,
-                        f"could not write {destination}: {exc}",
+                last_speed = None
+                for position, frame_ts in enumerate(batch_timestamps):
+                    validated, speed, reason, sampling_diagnostics = (
+                        frame_results[position]
                     )
-                record_iteration(
-                    manifest,
-                    timestamp,
-                    destination,
-                    speed,
-                    reason,
-                    sampling_diagnostics,
-                )
-                previous = validated
-                try:
-                    save_manifest()
-                except OSError as exc:
-                    return fail(TERMINATION_MANIFEST_FAILED, str(exc))
-                bound = str(limit) if limit is not None else "unlimited"
-                if sampling_diagnostics:
-                    print(
-                        f"[{manifest['observations']}/{bound}] Sampled "
-                        f"{timestamp}s -> {speed} "
-                        f"({'; '.join(sampling_diagnostics)})."
+                    destination = observation_path_for_timestamp(
+                        frame_ts, obs_dir
                     )
-                else:
-                    print(
-                        f"[{manifest['observations']}/{bound}] Sampled "
-                        f"{timestamp}s -> {speed}."
-                    )
-                next_timestamp = scheduler.next_timestamp(timestamp, speed)
-                if on_iteration is not None:
                     try:
-                        on_iteration(
-                            {
-                                "timestamp": timestamp,
-                                "speed": speed,
-                                "reason": reason,
-                                "next_timestamp": next_timestamp,
-                                "observations": manifest["observations"],
-                                "requests": manifest["requests"],
-                            }
+                        write_json_atomic(destination, validated)
+                    except OSError as exc:
+                        # The request itself succeeded; persistence failed.
+                        # Later batch frames already counted the request.
+                        if position == 0:
+                            manifest["requests"] += 1
+                        return fail(
+                            TERMINATION_WRITE_FAILED,
+                            f"could not write {destination}: {exc}",
                         )
-                    except Exception as exc:
+                    record_iteration(
+                        manifest,
+                        frame_ts,
+                        destination,
+                        speed,
+                        reason,
+                        sampling_diagnostics,
+                        count_request=(position == 0),
+                    )
+                    previous = validated
+                    last_speed = speed
+                    try:
+                        save_manifest()
+                    except OSError as exc:
+                        return fail(TERMINATION_MANIFEST_FAILED, str(exc))
+                    bound = str(limit) if limit is not None else "unlimited"
+                    if sampling_diagnostics:
                         print(
-                            "Adaptive iteration hook failed; "
-                            f"continuing without it: {exc}",
-                            file=sys.stderr,
+                            f"[{manifest['observations']}/{bound}] Sampled "
+                            f"{frame_ts}s -> {speed} "
+                            f"({'; '.join(sampling_diagnostics)})."
                         )
-                if token.is_stopping():
-                    print("Adaptive run stopping after persisted observation.")
-                    return finish("stopped", TERMINATION_STOP_REQUESTED)
+                    else:
+                        print(
+                            f"[{manifest['observations']}/{bound}] Sampled "
+                            f"{frame_ts}s -> {speed}."
+                        )
+                    if position + 1 < len(batch_timestamps):
+                        frame_next = batch_timestamps[position + 1]
+                    else:
+                        frame_next = scheduler.next_timestamp(frame_ts, speed)
+                    if on_iteration is not None:
+                        try:
+                            on_iteration(
+                                {
+                                    "timestamp": frame_ts,
+                                    "speed": speed,
+                                    "reason": reason,
+                                    "next_timestamp": frame_next,
+                                    "observations": manifest["observations"],
+                                    "requests": manifest["requests"],
+                                }
+                            )
+                        except Exception as exc:
+                            print(
+                                "Adaptive iteration hook failed; "
+                                f"continuing without it: {exc}",
+                                file=sys.stderr,
+                            )
+                    if token.is_stopping():
+                        print("Adaptive run stopping after persisted observation.")
+                        return finish("stopped", TERMINATION_STOP_REQUESTED)
+                current_speed = last_speed
+                next_timestamp = scheduler.next_timestamp(
+                    batch_timestamps[-1], last_speed
+                )
                 if next_timestamp is None:
                     print(
                         "Adaptive run finished: reached video end "

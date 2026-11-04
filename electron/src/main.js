@@ -117,7 +117,12 @@ function createWindow() {
 
 function sendWorkerEvent(message) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('worker-event', message);
+    // Tag the run's project so the renderer routes events to the right
+    // workspace session (additive: consumers ignore unknown fields).
+    const tagged = message && typeof message === 'object' && message.projectId === undefined
+      ? { ...message, projectId: processingState.activeProjectId ?? null }
+      : message;
+    mainWindow.webContents.send('worker-event', tagged);
   }
 }
 

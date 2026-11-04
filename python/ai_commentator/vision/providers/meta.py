@@ -254,6 +254,45 @@ class MetaAdapter(VisionProviderAdapter):
                 provider="meta",
             ) from None
 
+    def request_adaptive_batch_text(self, timestamps, image_data_urls,
+                                    previous=None) -> str:
+        """Request one multi-frame adaptive document for HIGH-speed sampling.
+
+        ``timestamps`` and ``image_data_urls`` are parallel chronological
+        lists; images are attached in order after the batch prompt.
+        """
+        from .. import client as client_module
+
+        content = [
+            {"type": "input_text",
+             "text": client_module.build_adaptive_batch_prompt(
+                 list(timestamps), previous)},
+        ]
+        for image_data_url in image_data_urls:
+            content.append(
+                {"type": "input_image", "image_url": image_data_url}
+            )
+        payload: dict = {
+            "model": self.model,
+            "input": [{"type": "message", "role": "user",
+                       "content": []}],
+            "stream": False,
+        }
+        payload["input"][0]["content"] = content
+        try:
+            _, body = _post_json(
+                self.responses_url, payload, self.api_key, self.timeout
+            )
+            return extract_output_text(body)
+        except (VisionAPIError, ObservationError):
+            raise
+        except Exception as exc:
+            raise VisionAPIError(
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
+            ) from None
+
     def request_adaptive_text(self, timestamp, image_data_url: str,
                               previous=None) -> str:
         from .. import client as client_module

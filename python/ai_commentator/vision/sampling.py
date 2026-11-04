@@ -184,6 +184,74 @@ def parse_adaptive_response(text, expected_timestamp):
     return validated, speed, reason, diagnostics
 
 
+def parse_adaptive_batch_response(text, expected_timestamps):
+    """Parse one multi-frame adaptive response into per-frame results.
+
+    The model must return ``{"frames": [{...}, ...]}`` with exactly one
+    entry per requested timestamp, in order. Each entry carries the same
+    ``{"observation": ..., "sampling": ...}`` shape as a single-frame
+    response and is validated identically: observation-v1 documents are
+    strict (wrong timestamp or extra fields fail the batch), sampling
+    decisions fall back to NORMAL. Returns a list of
+    ``(validated, speed, reason, diagnostics)`` tuples aligned with
+    ``expected_timestamps``.
+    """
+    wrapper = parse_observation(text)
+    if not isinstance(wrapper, dict):
+        raise ObservationError(
+            "Adaptive batch response must be a JSON object."
+        )
+    extra = sorted(set(wrapper) - {"frames"})
+    if extra:
+        raise ObservationError(
+            "Adaptive batch response has unsupported fields: "
+            f"{', '.join(extra)}."
+        )
+    if "frames" not in wrapper:
+        raise ObservationError("Adaptive batch response requires field 'frames'.")
+    frames = wrapper["frames"]
+    if not isinstance(frames, list):
+        raise ObservationError("Adaptive batch response field 'frames' must be an array.")
+    if len(frames) != len(expected_timestamps):
+        raise ObservationError(
+            f"Adaptive batch returned {len(frames)} frames, expected "
+            f"{len(expected_timestamps)}."
+        )
+    results = []
+    for entry, expected_timestamp in zip(frames, expected_timestamps):
+        if not isinstance(entry, dict):
+            raise ObservationError(
+                "Adaptive batch frame entries must be objects."
+            )
+        entry_extra = sorted(set(entry) - {"observation", "sampling"})
+        if entry_extra:
+            raise ObservationError(
+                "Adaptive batch frame has unsupported fields: "
+                f"{', '.join(entry_extra)}."
+            )
+        if "observation" not in entry:
+            raise ObservationError(
+                "Adaptive batch frame requires field 'observation'."
+            )
+        observation = entry["observation"]
+        if not isinstance(observation, dict):
+            raise ObservationError(
+                "Adaptive batch field 'observation' must be an object."
+            )
+        validated = validate_observation(observation)
+        actual = validated.get("timestamp")
+        if actual != expected_timestamp:
+            raise ObservationError(
+                f"Model returned timestamp {actual!r}, expected "
+                f"{expected_timestamp!r} for this frame."
+            )
+        if "sampling" not in entry:
+            results.append((validated, DEFAULT_SPEED, "", ["sampling-missing"]))
+            continue
+        results.append((validated, *validate_sampling(entry["sampling"])))
+    return results
+
+
 class AdaptiveScheduler:
     """Map validated speed labels to configured intervals deterministically.
 

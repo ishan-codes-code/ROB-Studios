@@ -272,10 +272,11 @@ def emit_tts_segment(record: dict) -> None:
 def run_adaptive_stage(args, video: Path, obs_dir: Path, on_iteration) -> dict:
     """Run the adaptive vision loop; return the engine result dict.
 
-    Shared by the sequential and streaming paths: one captured frame at
-    a time from the video, one observation + sampling decision per
-    frame, cooperative stop via the stdin control channel. No extracted
-    JPEG set is written beforehand.
+    Shared by the sequential and streaming paths: frames are captured
+    from the video (batched into one request per iteration at HIGH
+    speed), one observation + sampling decision persisted per frame.
+    Cooperative stop via the stdin control channel. No extracted JPEG set
+    is written beforehand.
     """
     stop_token = engine.StopToken()
     previous_handler = install_stop_handler(stop_token)
@@ -663,13 +664,18 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
                 voice_direction=tts_direction,
             )
         if code != 0:
-            emit_error(
-                "tts",
-                "Commentary audio generation failed; see worker stderr.",
+            # Spoken audio is best-effort: a TTS failure must not discard
+            # completed text commentary. The tts stage completes with its
+            # recorded error status and the run still reports results.
+            print(
+                "Warning: commentary audio generation failed; keeping text "
+                "commentary without audio.",
+                file=sys.stderr,
             )
-            return 1, {}
         tts_doc = read_json_summary(tts_path) or {}
         tts_status = str(tts_doc.get("status", "unknown"))
+        if code != 0 and tts_status == "unknown":
+            tts_status = "error"
         tts_entries = tts_doc.get("entries", [])
         if not isinstance(tts_entries, list):
             tts_entries = []

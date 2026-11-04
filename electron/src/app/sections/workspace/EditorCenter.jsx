@@ -107,7 +107,7 @@ function ExportCluster({ projectId, readyCount, view, exportState, onStart, onCa
           !projectId
             ? "Open a project to export."
             : readyCount === 0
-              ? "Generate spoken audio before exporting."
+              ? "Export needs commentary audio — run with a TTS voice configured."
               : "Export video with commentary"
         }
       >

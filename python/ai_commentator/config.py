@@ -220,5 +220,10 @@ ADAPTIVE_CONTEXT_MAX_OBSERVATIONS = 8
 ADAPTIVE_CONTEXT_MAX_FIELD_CHARS = 200
 ADAPTIVE_CONTEXT_MAX_UNCERTAINTIES = 4
 ADAPTIVE_CONTEXT_MAX_CHARS = 2000
+# Multi-frame analysis: while the sampling speed is HIGH, one paid
+# request carries this many consecutive frames so the model observes
+# gameplay progression instead of isolated instants. Bounded and fixed:
+# NORMAL/LOW always analyze one frame per request.
+ADAPTIVE_HIGH_BATCH_FRAMES = 3
 
 

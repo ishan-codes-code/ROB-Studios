@@ -160,7 +160,7 @@ function SamplingActivity({ adaptive, runStatus }) {
   );
 }
 
-function ReadyState({ adaptiveMaxFrames, requestTts, visionConfigured, visionChecked, onShowConfigure }) {
+function ReadyState({ adaptiveMaxFrames, ttsRun, visionConfigured, visionChecked, onShowConfigure }) {
   const limitText = adaptiveMaxFrames === null || adaptiveMaxFrames === undefined || adaptiveMaxFrames === ""
     ? "Unlimited"
     : `Up to ${adaptiveMaxFrames}`;
@@ -182,7 +182,7 @@ function ReadyState({ adaptiveMaxFrames, requestTts, visionConfigured, visionChe
         </div>
         <div className="flex min-w-0 items-baseline justify-between gap-3">
           <dt className="shrink-0 text-[11px] text-muted-foreground">Spoken audio</dt>
-          <dd className="min-w-0 truncate text-right text-[11px] text-foreground">{requestTts ? "On" : "Off"}</dd>
+          <dd className="min-w-0 truncate text-right text-[11px] text-foreground">Automatic</dd>
         </div>
       </dl>
       {visionChecked && !visionConfigured ? (
@@ -230,7 +230,7 @@ function Diagnostics({ workerLogs }) {
   );
 }
 
-function ProcessingContent({ project, run, canStart, starting, cancelling, cancelError, stopping, stopError, runIsAdaptive, adaptiveMaxFrames, requestTts, visionConfigured, visionChecked, onStart, onCancel, onStop, onShowConfigure }) {
+function ProcessingContent({ project, run, canStart, starting, cancelling, cancelError, stopping, stopError, runIsAdaptive, adaptiveMaxFrames, ttsRun, visionConfigured, visionChecked, onStart, onCancel, onStop, onShowConfigure }) {
   const interrupted = project.processingStatus === "interrupted" && run.status === "idle";
   const stoppingNow = stopping && run.status === "processing";
   const cancellingNow = cancelling && run.status === "processing";
@@ -291,12 +291,25 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
           <Separator />
           <ReadyState
             adaptiveMaxFrames={adaptiveMaxFrames}
-            requestTts={requestTts}
+            ttsRun={ttsRun}
             visionConfigured={visionConfigured}
             visionChecked={visionChecked}
             onShowConfigure={onShowConfigure}
           />
         </>
+      ) : null}
+
+      {ttsRun && ttsRun.enabled === false && typeof ttsRun.reason === "string" && ttsRun.reason !== "" ? (
+        <p role="status" className="rounded-sm border border-border bg-background px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          Spoken audio is off for this run: {ttsRun.reason}{" "}
+          <button
+            type="button"
+            onClick={onShowConfigure}
+            className="rounded-sm text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Open Configure
+          </button>
+        </p>
       ) : null}
 
       <Separator />
@@ -407,7 +420,7 @@ function GroupTitle({ children }) {
   );
 }
 
-function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, requestTts, setRequestTts, onReadinessChange, onNavigate }) {
+function ConfigurationContent({ projectId, visionConfigured, visionChecked, canStart, adaptiveMaxFrames, setAdaptiveMaxFrames, onReadinessChange, onNavigate }) {
   const limitValid = isValidAdaptiveMaxFrames(adaptiveMaxFrames);
   return (
     <div className="flex min-w-0 flex-col gap-1 p-3">
@@ -469,23 +482,10 @@ function ConfigurationContent({ projectId, visionConfigured, visionChecked, canS
         <SectionHeading id="commentary-audio-title">Commentary audio</SectionHeading>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           Commentary text is always generated live as the video is analyzed.
+          Spoken audio generates automatically with every run, using this
+          project&apos;s voice. Runs continue with text commentary when no
+          verified TTS credential is configured.
         </p>
-        <label className="flex min-w-0 cursor-pointer items-start gap-2">
-          <input
-            type="checkbox"
-            checked={requestTts}
-            disabled={!canStart}
-            onChange={(event) => setRequestTts(event.target.checked)}
-            className="mt-0.5 size-4 shrink-0 accent-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:opacity-50"
-          />
-          <span className="min-w-0">
-            <span className="block text-[12px] text-foreground">Generate spoken audio</span>
-            <span className="block text-[11px] leading-relaxed text-muted-foreground">
-              Speak each commentary line as it arrives, using this project&apos;s voice.
-              Needs a verified TTS credential.
-            </span>
-          </span>
-        </label>
         {onNavigate ? (
           <button
             type="button"
@@ -572,8 +572,7 @@ export default function ProcessingInspector({
   runIsAdaptive,
   adaptiveMaxFrames,
   setAdaptiveMaxFrames,
-  requestTts,
-  setRequestTts,
+  ttsRun,
   script = null,
   runStatus = "idle",
   audio = null,
@@ -617,7 +616,7 @@ export default function ProcessingInspector({
           stopError={stopError}
           runIsAdaptive={runIsAdaptive}
           adaptiveMaxFrames={adaptiveMaxFrames}
-          requestTts={requestTts}
+          ttsRun={ttsRun}
           visionConfigured={visionConfigured}
           visionChecked={visionChecked}
           onStart={onStart}
@@ -644,8 +643,6 @@ export default function ProcessingInspector({
           canStart={canStart}
           adaptiveMaxFrames={adaptiveMaxFrames}
           setAdaptiveMaxFrames={setAdaptiveMaxFrames}
-          requestTts={requestTts}
-          setRequestTts={setRequestTts}
           onReadinessChange={onReadinessChange}
           onNavigate={onNavigate}
         />

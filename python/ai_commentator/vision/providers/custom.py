@@ -223,6 +223,49 @@ class CustomAdapter(VisionProviderAdapter):
             ) from None
         return prompts.extract_response_text(response)
 
+    def request_adaptive_batch_text(self, timestamps, image_data_urls,
+                                    previous=None) -> str:
+        """Request one multi-frame adaptive document for HIGH-speed sampling.
+
+        ``timestamps`` and ``image_data_urls`` are parallel chronological
+        lists; images are attached in order after the batch prompt.
+        """
+        prompts = self._prompts()
+        content = [
+            {"type": "text",
+             "text": prompts.build_adaptive_batch_prompt(
+                 list(timestamps), previous)},
+        ]
+        for image_data_url in image_data_urls:
+            content.append(
+                {"type": "image_url", "image_url": {"url": image_data_url}}
+            )
+        try:
+            raw_response = self._client.chat.completions.with_raw_response.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": content,
+                    }
+                ],
+                timeout=self.timeout,
+            )
+            print(f"Custom API response: HTTP {raw_response.status_code}")
+            response = raw_response.parse()
+        except APIError as exc:
+            raise self._wrap_error(exc) from None
+        except ObservationError:
+            raise
+        except Exception as exc:
+            raise VisionAPIError(
+                f"Custom API request error: "
+                f"{redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider=PROVIDER_ID,
+            ) from None
+        return prompts.extract_response_text(response)
+
     def request_adaptive_text(self, timestamp, image_data_url: str,
                               previous=None) -> str:
         prompts = self._prompts()

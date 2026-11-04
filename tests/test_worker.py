@@ -873,7 +873,7 @@ class TtsStageTests(unittest.TestCase):
                 },
             )
 
-    def test_tts_failure_fails_run_without_results(self):
+    def test_tts_failure_keeps_commentary_without_audio(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             video = write_test_video(root / "clip.mp4")
@@ -892,12 +892,19 @@ class TtsStageTests(unittest.TestCase):
                 code, data, messages = self.run_pipeline_quiet(
                     self.tts_args(str(video), str(out))
                 )
-        self.assertEqual(code, 1)
-        self.assertEqual(data, {})
-        errors = [m for m in messages if m["type"] == "error"]
-        self.assertEqual(len(errors), 1)
-        self.assertEqual(errors[0]["stage"], "tts")
-        self.assertFalse([m for m in messages if m["type"] == "result"])
+        # Spoken audio is best-effort: the run succeeds with text
+        # commentary, and the tts stage/result records the failure.
+        self.assertEqual(code, 0)
+        self.assertEqual(data["script"], "success")
+        self.assertEqual(data["tts"], "error")
+        self.assertFalse([m for m in messages if m["type"] == "error"])
+        tts_stages = [
+            m
+            for m in messages
+            if m["type"] == "stage_completed" and m["stage"] == "tts"
+        ]
+        self.assertEqual(len(tts_stages), 1)
+        self.assertEqual(tts_stages[0]["detail"]["status"], "error")
 
 
 if __name__ == "__main__":

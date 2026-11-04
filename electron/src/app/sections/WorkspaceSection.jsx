@@ -5,10 +5,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import {
-  applyWorkerMessage,
   createInitialRunState,
 } from "@/lib/worker-view.js";
 import { RUN_MODES, buildProcessOptions, defaultRunMode, isAdaptiveMode, isValidAdaptiveMaxFrames } from "@/lib/run-options.js";
+import {
+  hydrateSession,
+  updateSessionState,
+  useWorkspaceSession,
+} from "@/lib/workspace-sessions.js";
 import useProjectAudio from "@/hooks/useProjectAudio.js";
 import EditorCenter from "./workspace/EditorCenter.jsx";
 import ProcessingInspector from "./workspace/ProcessingInspector.jsx";
@@ -18,7 +22,12 @@ import ProjectWorkspaceLayout from "./workspace/ProjectWorkspaceLayout.jsx";
  * Dedicated workspace for one opened project. The source video lives in
  * the project's isolated directory (loaded via audited IPC); processing
  * runs project-bound so artifacts can never leak across projects.
- * Audio lanes are honest empty states until extraction/TTS land.
+ *
+ * Run state lives in the per-project session store, not here: leaving
+ * the editor unmounts this view (releasing video/audio resources) while
+ * the session keeps receiving worker events, and reopening reattaches
+ * to the exact same state. Audio lanes are honest empty states until
+ * extraction/TTS land.
  */
 
 /** One-line summary of measured result counts, or undefined when empty. */
@@ -39,29 +48,17 @@ function resultSummary(result) {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLoaded, onBack, onNavigate }) {
-  const [project, setProject] = useState(null);
+  const session = useWorkspaceSession(projectId);
+  const { run, project, runMode, adaptiveMaxFrames, runIsAdaptive, stopping, hydration, toastNotified } = session;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [run, setRun] = useState(() => createInitialRunState());
-  const [runMode, setRunMode] = useState(RUN_MODES.ADAPTIVE);
   const [visionConfigured, setVisionConfigured] = useState(false);
   const [visionMissing, setVisionMissing] = useState('API key');
   const [visionChecked, setVisionChecked] = useState(false);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState(null);
-  // null = unlimited (the default): sample to video end unless
-  // stopped. A positive integer caps paid vision requests instead.
-  const [adaptiveMaxFrames, setAdaptiveMaxFrames] = useState(null);
-  const [requestTts, setRequestTts] = useState(false);
-  // True while a cooperative stop was accepted and the run is still
-  // alive. Set only after the main process confirms acceptance; the
-  // worker's terminal message clears it.
-  const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState(null);
-  // Whether the active run is adaptive (captured at start so a later
-  // mode change cannot rewire a live run's controls).
-  const [runIsAdaptive, setRunIsAdaptive] = useState(false);
   const mountedRef = useRef(true);
   // Single audio-discovery boundary for the editor: the commentary
   // timeline and the inspector script panel join the same files and
@@ -72,7 +69,12 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   // both follow explicit user actions whose inline pending and terminal
   // states already confirm the outcome.
   const runToastId = `processing-${projectId}`;
-  const lastTerminalNotified = useRef(null);
+
+  const setRun = useCallback((next) => {
+    updateSessionState(projectId, (current) => ({
+      run: typeof next === "function" ? next(current.run) : next,
+    }));
+  }, [projectId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -86,14 +88,16 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
         if (!res || res.ok !== true || !res.project) {
           throw new Error(res?.error ?? "Could not open the project.");
         }
+        if (!alive) {
+          return;
+        }
+        updateSessionState(projectId, { project: res.project });
+        onProjectLoaded?.(res.project);
+        // Restore prior work from persisted artifacts before showing
+        // the editor, so a project with results never flashes fresh.
+        // Resolves immediately when this session already hydrated.
+        await hydrateSession(projectId, window.api);
         if (alive) {
-          setProject(res.project);
-          onProjectLoaded?.(res.project);
-          setRun((prev) =>
-            res.project.processingStatus === "processing"
-              ? { ...prev, status: "processing", settled: false }
-              : prev,
-          );
           setLoading(false);
         }
         // Project-scoped readiness: the selected vault credential must
@@ -106,7 +110,9 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
               const verified = config.credential?.verified === true;
               setVisionConfigured(verified);
               setVisionMissing(verified ? null : "verified API configuration");
-              setRunMode(defaultRunMode(verified));
+              updateSessionState(projectId, (current) => (
+                current.touched ? {} : { runMode: defaultRunMode(verified) }
+              ));
             }
           }
         } catch {
@@ -125,29 +131,20 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
     }
     load();
 
-    let unsubscribe;
-    if (typeof window.api?.onWorkerEvent === "function") {
-      unsubscribe = window.api.onWorkerEvent((message) => {
-        if (mountedRef.current) {
-          setRun((prev) => applyWorkerMessage(prev, message));
-        }
-      });
-    }
     return () => {
       alive = false;
       mountedRef.current = false;
-      if (unsubscribe) {
-        unsubscribe();
-      }
       toast.dismiss(`processing-${projectId}`);
     };
   }, [projectId, onProjectLoaded]);
 
   useEffect(() => {
     if (run.status === "processing" || run.status === "idle") {
-      lastTerminalNotified.current = null;
-    } else if (lastTerminalNotified.current !== run.status) {
-      lastTerminalNotified.current = run.status;
+      if (toastNotified !== null) {
+        updateSessionState(projectId, { toastNotified: null });
+      }
+    } else if (toastNotified !== run.status) {
+      updateSessionState(projectId, { toastNotified: run.status });
       if (run.status === "completed") {
         toast.success("Processing complete", {
           id: runToastId,
@@ -169,8 +166,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       run.status === "stopped"
     ) {
       setCancelling(false);
-      setStopping(false);
-      setRunIsAdaptive(false);
+      updateSessionState(projectId, { stopping: false, runIsAdaptive: false });
       if (project && typeof window.api?.updateProject === "function") {
         const terminal =
           run.status === "completed"
@@ -184,22 +180,35 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
           window.api
             .updateProject(project.id, { processingStatus: terminal })
             .catch(() => {});
-          setProject((current) =>
-            current?.id === project.id
-              ? { ...current, processingStatus: terminal }
-              : current,
-          );
+          const nextStatus = terminal;
+          updateSessionState(projectId, (current) => (
+            current.project?.id === project.id
+              ? { project: { ...current.project, processingStatus: nextStatus } }
+              : {}
+          ));
         }
       }
     }
-  }, [run.status, project]);
+  }, [run.status, project, projectId, runToastId, toastNotified, run.result, run.error]);
 
   const handleReadinessChange = useCallback((verified) => {
     const ready = verified === true;
     setVisionConfigured(ready);
     setVisionMissing(ready ? null : "verified API configuration");
-    setRunMode(RUN_MODES.ADAPTIVE);
-  }, []);
+    updateSessionState(projectId, { runMode: RUN_MODES.ADAPTIVE });
+  }, [projectId]);
+
+  const setRunMode = useCallback((next) => {
+    updateSessionState(projectId, (current) => ({
+      runMode: typeof next === "function" ? next(current.runMode) : next,
+    }));
+  }, [projectId]);
+
+  const setAdaptiveMaxFrames = useCallback((next) => {
+    updateSessionState(projectId, (current) => ({
+      adaptiveMaxFrames: typeof next === "function" ? next(current.adaptiveMaxFrames) : next,
+    }));
+  }, [projectId]);
 
   const processing = run.status === "processing";
   const limitValid = isValidAdaptiveMaxFrames(adaptiveMaxFrames);
@@ -214,10 +223,9 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
     setStarting(true);
     setCancelError(null);
     setStopError(null);
-    setStopping(false);
-    setRunIsAdaptive(adaptive);
+    updateSessionState(projectId, { stopping: false, runIsAdaptive: adaptive });
     try {
-      const runOptions = buildProcessOptions(runMode, { adaptiveMaxFrames, requestTts });
+      const runOptions = buildProcessOptions(runMode, { adaptiveMaxFrames });
       const res = await window.api.processVideo(project.sourceVideo.path, {
         projectId: project.id,
         ...runOptions,
@@ -236,11 +244,14 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
           },
         });
       } else if (typeof window.api?.updateProject === "function") {
+        updateSessionState(projectId, { ttsRun: res.tts ?? null });
         toast.loading("Processing video…", { id: runToastId });
         window.api
           .updateProject(project.id, { processingStatus: "processing" })
           .catch(() => {});
-        setProject((current) => ({ ...current, processingStatus: "processing" }));
+        updateSessionState(projectId, (current) => (
+          current.project ? { project: { ...current.project, processingStatus: "processing" } } : {}
+        ));
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -285,7 +296,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       setStopError("Cooperative stop is unavailable in this build.");
       return;
     }
-    setStopping(true);
+    updateSessionState(projectId, { stopping: true });
     setStopError(null);
     try {
       const res = await window.api.requestStop();
@@ -296,7 +307,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       // run has stopped: `stopping` stays true until the terminal
       // `stopped` message lands. A rejection leaves the stopping state.
       if (!res || res.ok !== true || res.requested !== true) {
-        setStopping(false);
+        updateSessionState(projectId, { stopping: false });
         setStopError(
           res && res.reason
             ? `Stop request was not accepted (${res.reason}).`
@@ -305,16 +316,17 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       }
     } catch (err) {
       if (mountedRef.current) {
-        setStopping(false);
+        updateSessionState(projectId, { stopping: false });
         setStopError(err?.message ?? "Could not request stop.");
       }
     }
   }
 
-  const mainContent = loading ? (
+  const restoring = hydration !== "ready";
+  const mainContent = loading || restoring ? (
     <div className="flex h-full min-h-0 items-center justify-center gap-2 text-[13px] text-muted-foreground">
       <Spinner />
-      Opening project…
+      {loading ? "Opening project…" : "Restoring workspace…"}
     </div>
   ) : error || !project ? (
     <div className="flex h-full min-h-0 flex-col items-start justify-center gap-3 p-5">
@@ -349,8 +361,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
       runIsAdaptive={runIsAdaptive}
       adaptiveMaxFrames={adaptiveMaxFrames}
       setAdaptiveMaxFrames={setAdaptiveMaxFrames}
-      requestTts={requestTts}
-      setRequestTts={setRequestTts}
+      ttsRun={session.ttsRun}
       script={run.script}
       runStatus={run.status}
       audio={audio}

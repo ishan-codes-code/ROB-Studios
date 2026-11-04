@@ -157,7 +157,7 @@ export function registerExportIpc({
       if (candidates.length === 0) {
         return {
           ok: false,
-          error: 'No usable commentary audio. Generate spoken audio before exporting.',
+          error: 'No usable commentary audio. Run with a TTS voice configured, then export.',
         };
       }
       let videosDir;

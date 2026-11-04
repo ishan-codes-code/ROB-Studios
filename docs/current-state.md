@@ -1,5 +1,40 @@
 # Current state
 
+## Workspace persistence, HIGH multi-frame & default spoken audio (uncommitted)
+
+Back navigation no longer destroys the editor: run state moved from
+`WorkspaceSection` locals into a per-project session store
+(`lib/workspace-sessions.js`, no new dependencies) fed by one
+shell-owned worker subscription, so leaving the editor unmounts the
+view (video/audio resources still release on unmount) while the
+session keeps receiving events, and reopening restores the exact
+state. First opens hydrate from persisted artifacts (manifest,
+script, TTS entries plus listing counts) into stages, adaptive
+samples, script segments with TTS join, and honest terminal states —
+worker logs are not persisted and stay empty. Worker events carry the
+run's `projectId` (additive main-side tag) for cross-project routing;
+deletion disposes the session. HIGH adaptive sampling now analyzes
+up to 3 consecutive frames in one request (strict `{"frames": [...]}`
+validation reusing observation-v1/sampling validators, one request
+counted, per-frame persistence/hooks unchanged) via new adapter batch
+methods; NORMAL/LOW and adapter-less clients keep single-frame
+behavior, and the baseten runtime path now uses `BasetenAdapter`.
+Spoken audio is default: the checkbox and `requestTts` are gone, the
+main process attempts TTS for every script/streaming run and reports
+`{enabled, reason}` on accept, the inspector shows Automatic plus a
+configure note when skipped, and sequential TTS failure no longer
+fails the run (commentary kept, `tts: error` recorded).
+
+Verification (targeted only): new `workspace-sessions` (9) and
+`test_adaptive_batch` (14) suites pass; `test_adaptive`,
+`test_providers`, `test_worker` (35), `test_streaming`,
+`test_control` pass; Electron `processing`, `run-options`,
+`worker-view`, `renderer-hooks`, `export-ipc`, `dashboard` pass
+(120/120 in the affected set); renderer production build succeeds.
+Not manually verified in a running shell: Back/reopen feel,
+hydration loading state, HIGH batch live behavior, and TTS
+skip/failure messaging.
+
 ## Reliable project deletion & premium window chrome (uncommitted)
 
 Root cause of the Windows deletion bug was reproduced with a real

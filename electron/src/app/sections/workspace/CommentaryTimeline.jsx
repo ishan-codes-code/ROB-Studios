@@ -248,7 +248,7 @@ export default function CommentaryTimeline({ projectId = null, videoRef = null, 
               body={
                 live
                   ? "Commentary segments appear on this timeline as audio finishes generating."
-                  : "Generate spoken audio to fill this timeline with commentary waveforms."
+                  : "Runs generate spoken audio automatically when a TTS voice is configured."
               }
             />
           ) : (

@@ -18,6 +18,7 @@ import PreferencesSection from "@/app/sections/PreferencesSection.jsx";
 import TtsStudioSection from "@/app/sections/TtsStudioSection.jsx";
 import WorkspaceSection from "@/app/sections/WorkspaceSection.jsx";
 import StudioPlaceholder from "@/app/sections/StudioPlaceholder.jsx";
+import { applySessionMessage, disposeSession, routeSessionTarget } from "@/lib/workspace-sessions.js";
 import { MOTION, EASING } from "@/lib/tokens.js";
 
 const SECTION_VIEWS = {
@@ -115,9 +116,10 @@ export default function App() {
     setActiveSection(id);
   }, []);
 
+  // Back preserves the workspace session: the editor unmounts (which
+  // releases video/audio resources) but the session keeps receiving
+  // worker events, so reopening restores the exact visible state.
   const handleBackToProjects = useCallback(() => {
-    setWorkspaceId(null);
-    setProjectName(null);
     setActiveSection("dashboard");
     if (savedNavigationCollapsed.current !== null) {
       setNavigationCollapsed(savedNavigationCollapsed.current);
@@ -126,12 +128,19 @@ export default function App() {
   }, []);
 
   const handleProjectDeleted = useCallback((id) => {
+    disposeSession(id);
     // Deleting the open project invalidates the editor workspace:
     // clear it so no stale state survives for a removed project.
     if (workspaceId !== null && id === workspaceId) {
-      handleBackToProjects();
+      setWorkspaceId(null);
+      setProjectName(null);
+      setActiveSection("dashboard");
+      if (savedNavigationCollapsed.current !== null) {
+        setNavigationCollapsed(savedNavigationCollapsed.current);
+        savedNavigationCollapsed.current = null;
+      }
     }
-  }, [workspaceId, handleBackToProjects]);
+  }, [workspaceId]);
 
   const handleProjectLoaded = useCallback((project) => {
     setProjectName(project.name);
@@ -139,6 +148,19 @@ export default function App() {
 
   const handleBackToEditor = useCallback(() => {
     if (workspaceId !== null) setActiveSection("editor");
+  }, [workspaceId]);
+
+  // One worker subscription for the open workspace, owned by the shell
+  // so events keep flowing while the user is on the dashboard. The
+  // editor view only reads its session; it never subscribes itself, so
+  // reopening cannot create duplicate subscriptions.
+  useEffect(() => {
+    if (workspaceId === null || typeof window.api?.onWorkerEvent !== "function") {
+      return undefined;
+    }
+    return window.api.onWorkerEvent((message) => {
+      applySessionMessage(routeSessionTarget(workspaceId, message), message);
+    });
   }, [workspaceId]);
 
   if (onboarding) {

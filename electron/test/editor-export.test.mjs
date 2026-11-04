@@ -91,5 +91,5 @@ test('run toasts replace one loading toast instead of stacking', () => {
   assert.match(source, /toast\.loading\("Processing video…", \{ id: runToastId \}\)/);
   assert.match(source, /toast\.success\("Processing complete", \{\s*id: runToastId,/);
   assert.match(source, /toast\.error\("Processing failed", \{\s*id: runToastId,/);
-  assert.match(source, /lastTerminalNotified/);
+  assert.match(source, /toastNotified/);
 });
