@@ -1,0 +1,100 @@
+name: Windows Release Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/refinements
+
+permissions:
+  contents: read
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Run Python tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build Python worker
+        run: python -m PyInstaller --noconfirm --clean --distpath python/dist --workpath python/build python/ROBEngine.spec
+
+      - name: Verify packaged worker
+        shell: pwsh
+        run: |
+          $worker = Join-Path $PWD "python/dist/ROBEngine/ROBEngine.exe"
+          if (-not (Test-Path $worker -PathType Leaf)) {
+            throw "PyInstaller did not produce $worker"
+          }
+
+          $packsOutput = & $worker prompt-packs
+          if ($LASTEXITCODE -ne 0) { throw "Packaged prompt-packs probe failed with exit code $LASTEXITCODE" }
+          $packs = ($packsOutput -join "`n") | ConvertFrom-Json
+          if ($packs.ok -ne $true) { throw "Packaged prompt-packs probe returned an invalid response" }
+
+          $catalogOutput = & $worker tts-catalog
+          if ($LASTEXITCODE -ne 0) { throw "Packaged TTS catalogue probe failed with exit code $LASTEXITCODE" }
+          $catalog = ($catalogOutput -join "`n") | ConvertFrom-Json
+          if ($catalog.ok -ne $true) { throw "Packaged TTS catalogue probe returned an invalid response" }
+
+          $missingVideo = Join-Path $env:TEMP "rob-worker-smoke-missing.mp4"
+          $workerOutput = & $worker worker $missingVideo --adaptive
+          $workerExit = $LASTEXITCODE
+          if ($workerExit -ne 2) { throw "Packaged worker validation returned exit code $workerExit, expected 2" }
+          $messages = @($workerOutput | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($messages.Count -ne 1 -or $messages[0].type -ne "error") {
+            throw "Packaged worker did not emit exactly one NDJSON validation error"
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install Electron dependencies
+        working-directory: electron
+        run: npm ci
+
+      - name: Run Electron tests
+        working-directory: electron
+        run: npm test
+
+      - name: Build Squirrel installer
+        working-directory: electron
+        run: npm run make:win
+
+      - name: Verify installer
+        shell: pwsh
+        run: |
+          $installer = Join-Path $PWD "electron/out/make/squirrel.windows/x64/ROB-Studios-Setup.exe"
+          if (-not (Test-Path $installer -PathType Leaf)) {
+            Get-ChildItem (Join-Path $PWD "electron/out/make") -Recurse -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "Squirrel installer was not generated at $installer"
+          }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ROB-Studios-Setup
+          path: electron/out/make/squirrel.windows/x64/ROB-Studios-Setup.exe
+          if-no-files-found: error
+          compression-level: 0
