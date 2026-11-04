@@ -22,6 +22,25 @@ export const PROMPT_PACKS_FILE_NAME = 'prompt-packs.json';
 export const PROMPT_PACK_SCHEMA_VERSION = 'game-pack-v1';
 export const DEFAULT_PROMPT_PACK_ID = 'free-fire';
 
+/**
+ * Default prompt pack per project game, used only when the project has
+ * no explicit `promptPackId` selection. Unknown games fall back to the
+ * application default so a null selection never throws.
+ */
+export const GAME_DEFAULT_PACK_IDS = {
+  'free-fire': 'free-fire',
+  cod: 'cod',
+  bgmi: 'bgmi',
+};
+
+export function defaultPackIdForGame(gameId) {
+  if (typeof gameId === 'string') {
+    const mapped = GAME_DEFAULT_PACK_IDS[gameId];
+    if (typeof mapped === 'string') return mapped;
+  }
+  return DEFAULT_PROMPT_PACK_ID;
+}
+
 export const PROMPT_PACK_LOADER_TIMEOUT_MS = 25000;
 const MAX_OUTPUT_CHARS = 262144;
 const MAX_FACTORY_PACKS = 16;
@@ -333,12 +352,14 @@ export function resetPromptPack(userDataPath, factory, packId) {
 /**
  * Resolve the run snapshot for a project's pack selection: `{ packId,
  * custom }` for `AI_COMMENTATOR_SETTINGS_JSON.promptPack`. A null/blank
- * selection means the application default. `factory` may be null when
+ * selection means the project game's default pack (see
+ * `GAME_DEFAULT_PACK_IDS`; unknown games use the application default).
+ * An explicit id always wins over the game default. `factory` may be null when
  * the probe is unavailable: customs pass through and Python validates
  * the pack id and every custom field again before any paid call.
  */
-export function buildPackSnapshot(userDataPath, factory, promptPackId) {
-  let packId = DEFAULT_PROMPT_PACK_ID;
+export function buildPackSnapshot(userDataPath, factory, promptPackId, gameId = null) {
+  let packId = defaultPackIdForGame(gameId);
   if (typeof promptPackId === 'string' && promptPackId.trim() !== '') {
     validateId(promptPackId);
     packId = promptPackId;

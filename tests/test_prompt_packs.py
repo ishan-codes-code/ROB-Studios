@@ -138,6 +138,37 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(resolved["pack_id"], "free-fire")
         self.assertEqual(resolved["customized"], [])
 
+    def test_game_id_selects_pack_when_unselected(self):
+        for game_id, pack_id in (
+            ("free-fire", "free-fire"),
+            ("cod", "cod"),
+            ("bgmi", "bgmi"),
+        ):
+            settings = json.dumps({"game": {"id": game_id}})
+            with pack_env(settings=settings):
+                resolved = engine.resolve_pack()
+            self.assertEqual(resolved["pack_id"], pack_id, game_id)
+
+    def test_explicit_pack_selection_wins_over_game_id(self):
+        settings = json.dumps(
+            {"promptPack": {"packId": "cod", "custom": {}}, "game": {"id": "bgmi"}}
+        )
+        with pack_env(settings=settings):
+            resolved = engine.resolve_pack()
+        self.assertEqual(resolved["pack_id"], "cod")
+
+    def test_env_pack_id_wins_over_game_id(self):
+        settings = json.dumps({"game": {"id": "bgmi"}})
+        with pack_env(pack_id="cod", settings=settings):
+            resolved = engine.resolve_pack()
+        self.assertEqual(resolved["pack_id"], "cod")
+
+    def test_unknown_game_id_falls_back_to_default(self):
+        settings = json.dumps({"game": {"id": "unknown-game"}})
+        with pack_env(settings=settings):
+            resolved = engine.resolve_pack()
+        self.assertEqual(resolved["pack_id"], "free-fire")
+
     def test_effective_game_context_combines_pack_and_profile(self):
         settings = json.dumps({"game": {"context": "User map notes."}})
         with pack_env(pack_id="cod", settings=settings):
@@ -224,9 +255,13 @@ class PromptPackProbeTests(unittest.TestCase):
 class GameVocabularyTests(unittest.TestCase):
     def test_required_terms_present(self):
         required = {
-            "free-fire": ["Gloo Wall", "Booyah", "knocked down", "Clash Squad"],
-            "bgmi": ["blue zone", "knock", "finish", "airdrop", "flare gun"],
-            "cod": ["operator", "Hardpoint", "hill", "dog tag", "armor"],
+            "free-fire": ["Gloo Wall", "Booyah", "knocked down", "Clash Squad",
+                          "Med kit", "active or passive skill", "revive"],
+            "bgmi": ["blue zone", "knock", "finish", "airdrop", "flare gun",
+                     "Winner Winner Chicken Dinner", "med kit", "molotov",
+                     "revive"],
+            "cod": ["operator", "Hardpoint", "hill", "dog tag", "armor",
+                    "lethal", "tactical", "revive"],
         }
         for pack_id, terms in required.items():
             joined = " ".join(engine.get_factory_pack(pack_id)["fields"].values())
@@ -240,12 +275,14 @@ class GameVocabularyTests(unittest.TestCase):
         forbidden = {
             "free-fire": ["blue zone", "scorestreak", "killstreak", "operator",
                           "dog tag", "hardpoint", "domination", "flush",
-                          "flare", "airdrop"],
+                          "flare", "airdrop", "chicken dinner", "lethal",
+                          "tactical"],
             "bgmi": ["gloo", "booyah", "kill secure", "scorestreak",
                      "killstreak", "operator", "dog tag", "hardpoint",
-                     "domination", "clash squad"],
+                     "domination", "clash squad", "lethal", "tactical"],
             "cod": ["gloo", "booyah", "kill secure", "blue zone", "red zone",
-                    "flush", "flare", "airdrop", "clash squad"],
+                    "flush", "flare", "airdrop", "clash squad",
+                    "chicken dinner", "med kit"],
         }
         for pack_id, terms in forbidden.items():
             joined = " ".join(
@@ -253,6 +290,31 @@ class GameVocabularyTests(unittest.TestCase):
             ).lower()
             for term in terms:
                 self.assertNotIn(term, joined, f"{pack_id} must not use {term!r}")
+
+    def test_knockdown_elimination_distinction_pinned(self):
+        free_fire = " ".join(engine.get_factory_pack("free-fire")["fields"].values())
+        self.assertIn("not eliminated", free_fire)
+        bgmi = " ".join(engine.get_factory_pack("bgmi")["fields"].values())
+        self.assertIn("never confuse", bgmi)
+        cod = " ".join(engine.get_factory_pack("cod")["fields"].values())
+        self.assertIn("never assume", cod)
+
+    def test_terminology_reaches_every_prompt_stage(self):
+        markers = {
+            "free-fire": ("Gloo Wall", "Gloo Wall", "Gloo Wall", "Gloo Wall"),
+            "bgmi": ("blue zone", "blue-zone", "blue zone", "blue zone"),
+            "cod": ("operator", "operator", "operator", "operator"),
+        }
+        for pack_id, (vision, adaptive, script, writer) in markers.items():
+            with pack_env(pack_id=pack_id):
+                self.assertIn(vision, engine.build_vision_prompt(0))
+                self.assertIn(adaptive, engine.build_adaptive_vision_prompt(0))
+                self.assertIn(
+                    script, engine.build_script_prompt([sample_claim()], [])
+                )
+                self.assertIn(
+                    writer, engine.build_writer_prompt([sample_claim()], [])
+                )
 
     def test_gloo_wall_never_called_shield(self):
         fields = engine.get_factory_pack("free-fire")["fields"]
@@ -273,8 +335,9 @@ class GameVocabularyTests(unittest.TestCase):
 
 class PresentationExclusionTests(unittest.TestCase):
     def test_vision_ignores_stream_presentation(self):
-        excluded = ["face cam", "OBS", "chat", "donation", "overlay",
-                    "loading screen", "desktop UI"]
+        excluded = ["face cam", "webcam", "streamer camera", "reaction box",
+                    "OBS", "chat", "donation", "overlay", "sponsor banner",
+                    "broadcast graphics", "loading screen", "desktop UI"]
         for pack_id in ("free-fire", "cod", "bgmi"):
             fields = engine.get_factory_pack(pack_id)["fields"]
             for key in ("vision_coverage", "vision_coverage_adaptive"):

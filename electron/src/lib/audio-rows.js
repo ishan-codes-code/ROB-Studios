@@ -47,6 +47,34 @@ function asText(value) {
 }
 
 /**
+ * Select the manifest entries to render, or null for the live view.
+ * A manifest is fresh when this session started no TTS run yet
+ * (`sessionGeneration` nullish — hydration and pre-run views accept
+ * whatever is persisted) or when its `generation_id` matches the
+ * generation the worker reported for the current run. A stale
+ * manifest (previous run, worker restart) yields null so live
+ * segments render instead of last run's rows.
+ */
+export function selectFreshTtsEntries(manifestDoc, sessionGeneration) {
+  const entries = manifestDoc?.entries;
+  if (!Array.isArray(entries)) {
+    return null;
+  }
+  if (sessionGeneration === null || sessionGeneration === undefined) {
+    return entries;
+  }
+  if (
+    typeof sessionGeneration === 'string' &&
+    typeof manifestDoc.generation_id === 'string' &&
+    manifestDoc.generation_id !== '' &&
+    manifestDoc.generation_id === sessionGeneration
+  ) {
+    return entries;
+  }
+  return null;
+}
+
+/**
  * Build one row per segment/entry: `{ key, title, timestamp, text,
  * state, error, scope, name }`. States: `ready` (listed file, playable),
  * `generating`, `waiting`, `failed`, `skipped`, `unavailable` (success

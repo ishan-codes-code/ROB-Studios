@@ -84,6 +84,65 @@ test('stage_completed records done and skipped honestly', () => {
   assert.equal(state.stages.frame_extraction.detail.frames, 3);
 });
 
+test('tts generation tracks the current run manifest and resets on start', () => {
+  let state = createInitialRunState();
+  assert.equal(state.ttsGeneration, null);
+  state = applyWorkerMessage(state, { type: 'started', message: 'go' });
+  assert.equal(state.ttsGeneration, null);
+  state = applyWorkerMessage(state, {
+    type: 'stage_completed',
+    stage: 'tts',
+    completed: 6,
+    total: 6,
+    detail: { status: 'success', segments: 1, generation_id: 'gen-run-2' },
+  });
+  assert.equal(state.ttsGeneration, 'gen-run-2');
+  // Other stages leave the generation alone.
+  state = applyWorkerMessage(state, {
+    type: 'stage_completed',
+    stage: 'script',
+    completed: 5,
+    total: 6,
+    detail: { status: 'success' },
+  });
+  assert.equal(state.ttsGeneration, 'gen-run-2');
+  // Malformed generations never corrupt the tracker.
+  state = applyWorkerMessage(state, {
+    type: 'stage_completed',
+    stage: 'tts',
+    completed: 6,
+    total: 6,
+    detail: { status: 'success', generation_id: 42 },
+  });
+  assert.equal(state.ttsGeneration, 'gen-run-2');
+  // A new run resets before its own generation arrives.
+  state = applyWorkerMessage(state, { type: 'started', message: 'again' });
+  assert.equal(state.ttsGeneration, null);
+});
+
+test('duplicate tts_segment deliveries fold into one segment without duplicating', () => {
+  let state = applyWorkerMessage(createInitialRunState(), { type: 'started', message: 'go' });
+  state = applyWorkerMessage(state, {
+    type: 'script_segment',
+    data: {
+      utterance_id: 'u-0001',
+      timestamp_seconds: 3,
+      text: 'The zone starts closing in.',
+      source_claim_ids: ['clm-1'],
+      priority: 1,
+      status: 'worded',
+    },
+  });
+  const tts = {
+    type: 'tts_segment',
+    data: { utterance_id: 'u-0001', timestamp_seconds: 3, status: 'success', error: null },
+  };
+  state = applyWorkerMessage(state, tts);
+  state = applyWorkerMessage(state, tts);
+  assert.equal(state.script.segments.length, 1);
+  assert.equal(state.script.segments[0].ttsStatus, 'success');
+});
+
 test('stopped stores partial results without settling the run', () => {
   const data = {
     status: 'stopped',

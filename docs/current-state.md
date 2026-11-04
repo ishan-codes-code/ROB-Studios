@@ -1,5 +1,43 @@
 # Current state
 
+## Commentary pipeline refinements (uncommitted)
+
+Game-aware commentary, session openings, and reliable audio-tray
+delivery. Null `promptPackId` now maps from the project game
+(bgmi→bgmi, cod→cod, free-fire→free-fire) instead of always
+defaulting to Free Fire, main-side and Python-side with explicit
+selection preserved. One project-aware opening introduction is
+worded per session at audio timestamp 0 from structured game
+metadata (new additive `game.metadata` run snapshot; LLM wording
+with a deterministic verbatim-field fallback, once-per-session id
+suppression, validated by the standard script gates). Pack
+wording extended with canonical-only terms (heals/boosts,
+character skills, lethals/tacticals, Winner Winner Chicken Dinner
+as a confirmed-victory-only phrase, stronger stream-presentation
+exclusions); no cross-game leakage (tested). Audio-tray
+reliability: the tray refetches on `stage_completed` (closes the
+streaming `u-*.wav`→`segment-*.wav` rename gap and populates
+sequential runs at TTS stage end), tracks the run's TTS
+`generation_id` (new additive `stage_completed` tts detail) so a
+stale manifest never shadows live segments, clears the view on
+project switch, and commits only the latest listing. Continuity:
+script prompts carry evidence-derived intensity
+(low/medium/high/critical), and NORMAL gameplay utterances now
+pre-empt queued LOW general commentary (HIGH still pre-empts all;
+in-flight audio never recalled). Schemas, gates, validators, and
+the NDJSON event set untouched; evidence/factuality behavior
+unchanged. Known limits: in-flight (unfinalized) utterances stay
+invisible across a mid-run reload until the manifest lands;
+sequential runs show rows at TTS stage end, not per segment;
+"Blue Wall" was not adopted (no glossary entry; Gloo Wall stays
+canonical per packs/tests).
+
+Verification (targeted only): Python opening/pack/script/
+streaming-subset/worker-TTS suites pass; Electron
+audio-rows/worker-view/workspace-sessions/project-config/
+prompt-packs suites pass. Manually unverified: live run quality
+and voice (no paid calls made).
+
 ## Prompt-pack rebuild + match-context integration (uncommitted)
 
 All three factory packs rewritten in place (same 14 field keys,

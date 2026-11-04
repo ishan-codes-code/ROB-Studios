@@ -121,14 +121,29 @@ export function composeGameContext(game) {
 
 /**
  * Non-secret worker preferences from project-owned game metadata.
- * Same shape the engine has always consumed (`{game, prompt}`), so no
- * Python change is required. Personality/tone mirror the retired
- * built-in preset; language follows the project.
+ * `game.metadata` carries the normalized structured fields (additive:
+ * older readers use `id`/`context` only) so the engine can word a
+ * project-aware opening introduction from real values instead of
+ * parsing the composed context string. Personality/tone mirror the
+ * retired built-in preset; language follows the project.
  */
 export function buildWorkerPreferences(game) {
   const normalized = normalizeGameMetadata(game ?? {});
   return {
-    game: { id: normalized.id, context: composeGameContext(normalized) },
+    game: {
+      id: normalized.id,
+      context: composeGameContext(normalized),
+      metadata: {
+        matchType: normalized.matchType,
+        mode: normalized.mode,
+        map: normalized.map,
+        category: normalized.category,
+        teams: [...normalized.teams],
+        tournament: normalized.tournament,
+        stage: normalized.stage,
+        additionalContext: normalized.additionalContext,
+      },
+    },
     prompt: {
       personality: DEFAULT_COMMENTARY_PERSONALITY,
       tone: DEFAULT_COMMENTARY_TONE,

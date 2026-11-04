@@ -386,6 +386,34 @@ def read_json_summary(path: Path) -> dict | None:
         return None
 
 
+def tts_stage_detail(tts_doc: dict, tts_status: str) -> dict:
+    """Build the observed `stage_completed` detail for the tts stage.
+
+    Counts come from the finalized manifest the stage wrote; the
+    manifest's `generation_id` rides along (when present) so the
+    renderer can tell the current run's manifest from a stale one.
+    """
+    tts_entries = tts_doc.get("entries", [])
+    if not isinstance(tts_entries, list):
+        tts_entries = []
+    detail = {
+        "status": tts_status,
+        "segments": len(tts_entries),
+        "succeeded": sum(
+            1 for e in tts_entries
+            if isinstance(e, dict) and e.get("status") == "success"
+        ),
+        "failed": sum(
+            1 for e in tts_entries
+            if isinstance(e, dict) and e.get("status") == "error"
+        ),
+    }
+    generation_id = tts_doc.get("generation_id")
+    if isinstance(generation_id, str) and generation_id:
+        detail["generation_id"] = generation_id
+    return detail
+
+
 class StageTracker:
     """Emit stage-level progress for one run (sequential or streaming)."""
 
@@ -719,24 +747,7 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
         tts_status = str(tts_doc.get("status", "unknown"))
         if code != 0 and tts_status == "unknown":
             tts_status = "error"
-        tts_entries = tts_doc.get("entries", [])
-        if not isinstance(tts_entries, list):
-            tts_entries = []
-        complete(
-            "tts",
-            {
-                "status": tts_status,
-                "segments": len(tts_entries),
-                "succeeded": sum(
-                    1 for e in tts_entries
-                    if isinstance(e, dict) and e.get("status") == "success"
-                ),
-                "failed": sum(
-                    1 for e in tts_entries
-                    if isinstance(e, dict) and e.get("status") == "error"
-                ),
-            },
-        )
+        complete("tts", tts_stage_detail(tts_doc, tts_status))
 
     data = {
         "video": str(video),
@@ -1010,24 +1021,7 @@ def run_streaming_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
     )
     if want_tts:
         tts_doc = read_json_summary(tts_path) or {}
-        tts_entries = tts_doc.get("entries", [])
-        if not isinstance(tts_entries, list):
-            tts_entries = []
-        tracker.complete(
-            "tts",
-            {
-                "status": tts_status,
-                "segments": len(tts_entries),
-                "succeeded": sum(
-                    1 for e in tts_entries
-                    if isinstance(e, dict) and e.get("status") == "success"
-                ),
-                "failed": sum(
-                    1 for e in tts_entries
-                    if isinstance(e, dict) and e.get("status") == "error"
-                ),
-            },
-        )
+        tracker.complete("tts", tts_stage_detail(tts_doc, tts_status))
     tail_code, events, lines = tail_stages(best_effort=False)
     if tail_code != 0:
         return 1, {}

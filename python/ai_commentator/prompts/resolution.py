@@ -18,19 +18,40 @@ from .packs import DEFAULT_PACK_ID, PACK_FIELDS, PACK_IDS, get_factory_pack
 PACK_ID_ENV_VAR = "AI_COMMENTATOR_PACK_ID"
 SETTINGS_ENV_VAR = "AI_COMMENTATOR_SETTINGS_JSON"
 
+#: Default prompt pack per project game id, used only when neither the
+#: settings snapshot nor the standalone env var selects a pack. Unknown
+#: games fall back to the application default.
+GAME_DEFAULT_PACK_IDS = {
+    "free-fire": DEFAULT_PACK_ID,
+    "cod": "cod",
+    "bgmi": "bgmi",
+}
+
+
+def default_pack_id_for_game(game_id):
+    """Return the default pack for a game id (or the app default)."""
+    if isinstance(game_id, str):
+        mapped = GAME_DEFAULT_PACK_IDS.get(game_id.strip())
+        if mapped in PACK_IDS:
+            return mapped
+    return DEFAULT_PACK_ID
+
 
 def prompt_pack_selection():
     """Return ``(pack_id, custom)`` from the environment.
 
-    ``pack_id`` falls back to the Free Fire default; ``custom`` is the
-    ``{field: text}`` overlay (possibly empty). Malformed settings never
-    raise: they resolve to the default pack with no customization.
+    Precedence: settings ``promptPack.packId`` first, then the standalone
+    pack-id env var, then the project ``game.id`` default, then the Free
+    Fire default. ``custom`` is the ``{field: text}`` overlay (possibly
+    empty). Malformed settings never raise: they resolve to the default
+    pack with no customization.
     """
-    pack_id = DEFAULT_PACK_ID
+    pack_id = None
     custom = {}
     raw_id = os.environ.get(PACK_ID_ENV_VAR, "")
     if isinstance(raw_id, str) and raw_id.strip():
         pack_id = raw_id.strip()
+    game_id = None
     try:
         settings = json.loads(os.environ.get(SETTINGS_ENV_VAR, "{}"))
         selection = settings.get("promptPack", {})
@@ -39,8 +60,13 @@ def prompt_pack_selection():
                 pack_id = selection["packId"].strip()
             if isinstance(selection.get("custom"), dict):
                 custom = selection["custom"]
+        game = settings.get("game", {})
+        if isinstance(game, dict):
+            game_id = game.get("id")
     except (ValueError, TypeError, AttributeError):
         pass
+    if pack_id is None:
+        pack_id = default_pack_id_for_game(game_id)
     return pack_id, custom
 
 

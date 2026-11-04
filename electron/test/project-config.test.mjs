@@ -395,6 +395,50 @@ test('run resolution composes worker context from owned game metadata', async (t
   assert.equal(resolved.preferences.prompt.personality, 'Esports commentator');
 });
 
+test('run resolution snapshots structured game metadata for the opening', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, {
+    name: 'P',
+    sourcePath: seedVideo(t),
+    game: {
+      id: 'bgmi', matchType: 'Battle Royale', mode: 'Squad', map: 'Erangel',
+      category: 'Tournament', teams: ['Team A', 'Team B'],
+      tournament: 'City Finals', stage: 'Semifinal', language: 'Hindi',
+      additionalContext: 'Night match.',
+    },
+  });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.deepEqual(resolved.preferences.game.metadata, {
+    matchType: 'Battle Royale',
+    mode: 'Squad',
+    map: 'Erangel',
+    category: 'Tournament',
+    teams: ['Team A', 'Team B'],
+    tournament: 'City Finals',
+    stage: 'Semifinal',
+    additionalContext: 'Night match.',
+  });
+  // Missing optional fields snapshot as null/empty, never invented.
+  const bare = createProject(dir, { name: 'Q', sourcePath: seedVideo(t) });
+  updateProject(dir, bare.id, { configuration: { credentialId: credential.id } });
+  const fallback = resolveProjectRunConfig(dir, storage(), bare.id);
+  assert.deepEqual(fallback.preferences.game.metadata, {
+    matchType: null,
+    mode: null,
+    map: null,
+    category: null,
+    teams: [],
+    tournament: null,
+    stage: null,
+    additionalContext: '',
+  });
+});
+
 test('run resolution never substitutes another key and flags unverified', async (t) => {
   const dir = tempDir(t);
   const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
@@ -442,6 +486,27 @@ test('run resolution snapshots the prompt pack with customs', async (t) => {
   updateProject(dir, fresh.id, { configuration: { credentialId: credential.id } });
   const fallback = resolveProjectRunConfig(dir, storage(), fresh.id);
   assert.deepEqual(fallback.preferences.promptPack, { packId: 'free-fire', custom: {} });
+});
+
+test('run resolution maps the project game to its pack when unselected', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  for (const [gameId, packId] of [['bgmi', 'bgmi'], ['cod', 'cod'], ['free-fire', 'free-fire']]) {
+    const project = createProject(dir, { name: `P-${gameId}`, sourcePath: seedVideo(t) });
+    updateProject(dir, project.id, { configuration: { credentialId: credential.id, game: { id: gameId } } });
+    const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+    assert.deepEqual(resolved.preferences.promptPack, { packId, custom: {} });
+  }
+  // An explicit pack still wins over the game default.
+  const project = createProject(dir, { name: 'P-explicit', sourcePath: seedVideo(t) });
+  updateProject(dir, project.id, {
+    configuration: { credentialId: credential.id, game: { id: 'bgmi' }, promptPackId: 'cod' },
+  });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.deepEqual(resolved.preferences.promptPack, { packId: 'cod', custom: {} });
 });
 
 test('run resolution snapshots the custom endpoint from the record', async (t) => {

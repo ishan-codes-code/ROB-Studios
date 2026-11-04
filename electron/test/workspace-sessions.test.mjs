@@ -90,6 +90,9 @@ test('completed projects restore stages, samples, and segments', () => {
   assert.equal(run.script.segments[1].ttsStatus, 'error');
   assert.equal(run.script.segments[1].ttsError, 'voice failed');
   assert.deepEqual(run.workerLogs, []);
+  // Hydrated views accept the persisted manifest until a run reports
+  // its own generation.
+  assert.equal(run.ttsGeneration, null);
 });
 
 test('failed runs restore the persisted error without invention', () => {

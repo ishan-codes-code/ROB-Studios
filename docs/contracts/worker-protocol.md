@@ -81,7 +81,9 @@ Message types:
   fabricated frame percentages.
 - `stage_completed` — `stage` plus a small `detail` object with real,
   observed values only (observation/event/line counts from files the
-  stage actually wrote).
+  stage actually wrote). The `tts` detail additionally carries the
+  finalized manifest's `generation_id` so the renderer can tell the
+  current run's manifest from a stale one.
 - `adaptive_sample` — progress message, one per validated, persisted
   adaptive iteration (never terminal). `data` carries the scheduled
   source-video `timestamp` (finite, ≥ 0), the validated `speed` enum

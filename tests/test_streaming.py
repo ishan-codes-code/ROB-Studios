@@ -195,6 +195,44 @@ class QueueTests(unittest.TestCase):
             engine.utterance_priority(echo + dev), engine.PRIORITY_HIGH
         )
 
+    def test_utterance_intensity_matches_evidence_weight(self):
+        scene = [{"type": "scene", "evidence": ["Green containers."]}]
+        dev = [{"type": "development", "evidence": ["New kill feed entry."]}]
+        echo = [{"type": "event_echo", "evidence": ["Kill feed shows a fresh entry."]}]
+        deciding = [{
+            "type": "event_echo",
+            "evidence": ["Winner takes the match, champion decided."],
+        }]
+        self.assertEqual(engine.utterance_intensity(scene), "low")
+        self.assertEqual(engine.utterance_intensity(dev), "medium")
+        self.assertEqual(engine.utterance_intensity(echo), "high")
+        self.assertEqual(engine.utterance_intensity(deciding), "critical")
+        self.assertEqual(engine.utterance_intensity(echo + dev), "high")
+        self.assertEqual(
+            set(engine.INTENSITY_LEVELS), {"low", "medium", "high", "critical"}
+        )
+
+    def test_script_prompt_carries_intensity_clause(self):
+        for level in engine.INTENSITY_LEVELS:
+            prompt = engine.build_script_prompt([], [], intensity=level)
+            self.assertIn(f"Deliver at {level} intensity", prompt)
+        self.assertNotIn(
+            "Deliver at", engine.build_script_prompt([], [], intensity="loud")
+        )
+        self.assertNotIn("Deliver at", engine.build_script_prompt([], []))
+
+    def test_normal_supersede_drops_only_low(self):
+        q = engine.PrioritySegmentQueue(maxsize=8)
+        q.put(engine.PRIORITY_LOW, {"utterance_id": "u-0001"})
+        q.put(engine.PRIORITY_NORMAL, {"utterance_id": "u-0002"})
+        q.put(engine.PRIORITY_HIGH, {"utterance_id": "u-0003"})
+        dropped = q.supersede(engine.PRIORITY_NORMAL)
+        self.assertEqual(
+            {d["utterance_id"] for d in dropped}, {"u-0001"}
+        )
+        self.assertEqual(len(q), 2)
+        q.close()
+
 
 class WindowTests(unittest.TestCase):
     def test_window_words_fresh_claims_once(self):
@@ -253,6 +291,34 @@ class OrchestratorTests(unittest.TestCase):
         )
         params.update(kwargs)
         return engine.StreamingPipeline(**params)
+
+    def test_gameplay_preempts_queued_general_commentary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pipeline = self.make_pipeline(
+                tmp, FakeTextClient(), FakeTtsClient()
+            )
+            history = []
+            low = {
+                "timestamp": 3,
+                "text": "Calm observation.",
+                "source_claim_ids": ["clm-a"],
+                "priority": engine.PRIORITY_LOW,
+            }
+            normal = {
+                "timestamp": 6,
+                "text": "A fight breaks out.",
+                "source_claim_ids": ["clm-b"],
+                "priority": engine.PRIORITY_NORMAL,
+            }
+            self.assertTrue(pipeline._register_utterance(low, history))
+            self.assertTrue(pipeline._register_utterance(normal, history))
+            utterances, _, _ = pipeline._ledger.snapshot()
+            by_id = {u["utterance_id"]: u for u in utterances}
+            self.assertEqual(by_id["u-0001"]["script_status"], "superseded")
+            self.assertEqual(by_id["u-0002"]["script_status"], "worded")
+            self.assertEqual(
+                pipeline._seg_queue.get()["utterance_id"], "u-0002"
+            )
 
     def test_end_to_end_script_and_tts_with_final_layout(self):
         with tempfile.TemporaryDirectory() as tmp:

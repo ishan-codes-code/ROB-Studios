@@ -64,6 +64,7 @@ export function resolveProjectRunConfig(userDataPath, safeStorage, projectId, pa
   try {
     preferences.promptPack = buildPackSnapshot(
       userDataPath, packsFactory, config.promptPackId ?? null,
+      config.game?.id ?? null,
     );
   } catch {
     throw new Error(

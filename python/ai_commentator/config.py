@@ -48,6 +48,61 @@ def user_prompt_preferences():
         return {"personality": "", "tone": "", "language": "", "instructions": "", "game_context": ""}
 
 
+def project_opening_metadata():
+    """Return bounded structured match metadata for the opening line.
+
+    Reads the ``game`` object Electron snapshots into
+    ``AI_COMMENTATOR_SETTINGS_JSON``: the game id, the structured
+    ``metadata`` fields, and the prompt language. Every value is bounded
+    and every shape is checked, so malformed or foreign settings yield
+    empty values (meaning "no project configuration: skip the opening")
+    instead of raising. Never invents missing fields.
+    """
+    empty = {
+        "game_id": "",
+        "match_type": "",
+        "mode": "",
+        "map": "",
+        "category": "",
+        "teams": [],
+        "tournament": "",
+        "stage": "",
+        "additional_context": "",
+        "language": "",
+    }
+    try:
+        value = json.loads(os.environ.get("AI_COMMENTATOR_SETTINGS_JSON", "{}"))
+        game = value.get("game", {})
+        prompt = value.get("prompt", {})
+        if not isinstance(game, dict) or not isinstance(prompt, dict):
+            return empty
+        meta = game.get("metadata", {})
+        if not isinstance(meta, dict):
+            meta = {}
+        safe = lambda v, n: v.strip()[:n] if isinstance(v, str) else ""
+        teams = meta.get("teams", [])
+        clean_teams = []
+        if isinstance(teams, list):
+            for entry in teams[:8]:
+                text = safe(entry, 80)
+                if text:
+                    clean_teams.append(text)
+        return {
+            "game_id": safe(game.get("id", ""), 64),
+            "match_type": safe(meta.get("matchType", ""), 80),
+            "mode": safe(meta.get("mode", ""), 80),
+            "map": safe(meta.get("map", ""), 80),
+            "category": safe(meta.get("category", ""), 80),
+            "teams": clean_teams,
+            "tournament": safe(meta.get("tournament", ""), 80),
+            "stage": safe(meta.get("stage", ""), 80),
+            "additional_context": safe(meta.get("additionalContext", ""), 2000),
+            "language": safe(prompt.get("language", ""), 80),
+        }
+    except (ValueError, TypeError, AttributeError):
+        return dict(empty)
+
+
 def provider_runtime_config():
     """Resolve ``(provider, model, api_key)`` for the active run.
 

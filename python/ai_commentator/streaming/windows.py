@@ -16,7 +16,7 @@ from ..commentary.writer import (
     prioritize_writer_claims,
     request_writer_text,
 )
-from ..config import SCRIPT_MAX_CLAIMS
+from ..config import SCRIPT_MAX_CLAIMS, SCRIPT_OUTCOME_STEMS
 from ..errors import ObservationError, WriterAPIError
 from ..events.detection import detect_events
 from ..script.generation import (
@@ -41,6 +41,33 @@ def utterance_priority(cited_claims: list) -> int:
     if "development" in types:
         return PRIORITY_NORMAL
     return PRIORITY_LOW
+
+
+#: Delivery intensities for the script prompt, derived from evidence.
+INTENSITY_LEVELS = ("low", "medium", "high", "critical")
+
+
+def utterance_intensity(cited_claims: list) -> str:
+    """Delivery intensity for one utterance, from cited evidence only.
+
+    Scene-only lines stay calm, developments rise, event echoes run
+    hot, and echoes whose evidence already names a match outcome
+    (victory, defeat, champion, ...) peak: a small moment never shouts
+    like a decisive one.
+    """
+    types = {claim.get("type") for claim in cited_claims}
+    if "event_echo" in types:
+        evidence = " ".join(
+            part
+            for claim in cited_claims
+            for part in claim.get("evidence", [])
+        ).lower()
+        if any(stem in evidence for stem in SCRIPT_OUTCOME_STEMS):
+            return "critical"
+        return "high"
+    if "development" in types:
+        return "medium"
+    return "low"
 
 
 def run_script_window(
@@ -110,9 +137,13 @@ def run_script_window(
     prompt_claims = list(model_claims)
     prompt_by_id = {claim["claim_id"]: claim for claim in prompt_claims}
     try:
-        raw = request_writer_text(
-            client, build_script_prompt(prompt_claims, history_texts, pack), api_key=api_key
+        prompt = build_script_prompt(
+            prompt_claims,
+            history_texts,
+            pack,
+            intensity=utterance_intensity(prompt_claims),
         )
+        raw = request_writer_text(client, prompt, api_key=api_key)
         parsed = parse_script_segments(raw, prompt_by_id)
     except (WriterAPIError, ObservationError) as exc:
         omitted.append(

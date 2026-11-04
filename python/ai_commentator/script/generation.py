@@ -56,13 +56,28 @@ def script_segment_id(index: int) -> str:
     return f"segment-{index + 1:03d}"
 
 
-def build_script_prompt(claims: list, history_texts: list, pack=None) -> str:
+#: Delivery-intensity clauses for the script prompt (see windows).
+INTENSITY_CLAUSES = {
+    "low": "Deliver at low intensity: calm broadcast observation. ",
+    "medium": "Deliver at medium intensity: a developing situation with rising energy. ",
+    "high": "Deliver at high intensity: an important engagement with strong energy. ",
+    "critical": (
+        "Deliver at critical intensity: a decisive moment with peak "
+        "excitement, still controlled and speakable. "
+    ),
+}
+
+
+def build_script_prompt(claims: list, history_texts: list, pack=None,
+                        intensity: str | None = None) -> str:
     """Build the bounded prompt for the final-script model call.
 
     The model sees only evidence-gated claims plus recent spoken lines.
     It never sees raw frames, raw observations, or full match history,
     and it must return JSON mapping source claim ids to spoken segments.
     Wording comes from the game prompt pack; the JSON shape stays here.
+    ``intensity`` (low/medium/high/critical) tunes delivery energy to
+    the evidence; unknown values are ignored.
     """
     from ..prompts import coerce_pack, effective_game_context
 
@@ -74,6 +89,7 @@ def build_script_prompt(claims: list, history_texts: list, pack=None) -> str:
         (match_context + " " if match_context else ""),
         fields["script_priorities"] + " ",
         fields["script_rules"] + " ",
+        INTENSITY_CLAUSES.get(intensity or "", ""),
         "Respond with ONLY a single JSON object, no markdown fences, no ",
         "commentary, matching this shape: ",
         '{"segments": [{"source_claim_ids": [<one or more ids below>], ',

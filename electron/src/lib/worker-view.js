@@ -117,6 +117,11 @@ export function createInitialRunState() {
     // allows a new run after the previous run has settled, so a late
     // exit from an old run can never corrupt a new session.
     settled: true,
+    // Generation id of this run's finalized TTS manifest (from the
+    // `tts` stage_completed detail; null until reported). Lets the
+    // audio view tell the current run's manifest from a stale one.
+    // Reset by 'started' with everything else above.
+    ttsGeneration: null,
   };
 }
 
@@ -162,6 +167,13 @@ export function applyWorkerMessage(state, message) {
         return state;
       }
       const skipped = message.detail?.skipped === true;
+      const generation =
+        stage === 'tts' &&
+        message.detail &&
+        typeof message.detail.generation_id === 'string' &&
+        message.detail.generation_id !== ''
+          ? message.detail.generation_id
+          : null;
       return {
         ...state,
         stages: {
@@ -172,6 +184,7 @@ export function applyWorkerMessage(state, message) {
           },
         },
         currentStage: null,
+        ttsGeneration: generation ?? state.ttsGeneration ?? null,
       };
     }
     case 'adaptive_sample': {

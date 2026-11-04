@@ -63,7 +63,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
   // Single audio-discovery boundary for the editor: the commentary
   // timeline and the inspector script panel join the same files and
   // manifest entries, so both agree on every segment's state.
-  const audio = useProjectAudio(project?.id ?? null, run.script, run.status);
+  const audio = useProjectAudio(project?.id ?? null, run.script, run.status, run.stages, run.ttsGeneration);
   // One run toast per project: `loading` while accepted, replaced by
   // the terminal outcome. Cancelled/stopped runs dismiss it silently —
   // both follow explicit user actions whose inline pending and terminal

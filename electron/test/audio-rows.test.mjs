@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildAudioRows, manifestAudioFileName } from '../src/lib/audio-rows.js';
+import { buildAudioRows, manifestAudioFileName, selectFreshTtsEntries } from '../src/lib/audio-rows.js';
 
 function liveSegment(overrides = {}) {
   return {
@@ -116,4 +116,45 @@ test('unknown statuses stay visible instead of crashing the join', () => {
   assert.equal(built.rows[0].state, 'unknown');
   assert.equal(built.rows[0].rawStatus, 'queued');
   assert.equal(built.ready, 0);
+});
+
+test('manifest entries win over live segments without duplicating rows', () => {
+  const entries = [
+    {
+      segment_id: 'segment-001',
+      timestamp_seconds: 3,
+      text: 'Final wording.',
+      audio_file: 'segments/segment-001.wav',
+      status: 'success',
+      error: null,
+    },
+  ];
+  const built = buildAudioRows({
+    entries,
+    segments: [liveSegment({ utteranceId: 'u-0001', ttsStatus: 'success' })],
+    files: [
+      { name: 'segment-001.wav', scope: 'audio/segments', sizeBytes: 128 },
+      { name: 'u-0001.wav', scope: 'audio/segments', sizeBytes: 64 },
+    ],
+  });
+  assert.equal(built.total, 1);
+  assert.equal(built.rows[0].key, 'segment-001');
+  assert.equal(built.rows[0].state, 'ready');
+});
+
+test('selectFreshTtsEntries gates stale manifests by generation', () => {
+  const entries = [{ segment_id: 'segment-001', status: 'success' }];
+  const doc = { generation_id: 'gen-run-2', entries };
+  // No run started this session: hydration accepts what is persisted.
+  assert.equal(selectFreshTtsEntries(doc, null), entries);
+  assert.equal(selectFreshTtsEntries(doc, undefined), entries);
+  // Current run's manifest: fresh.
+  assert.equal(selectFreshTtsEntries(doc, 'gen-run-2'), entries);
+  // Previous run's manifest: stale, live view instead.
+  assert.equal(selectFreshTtsEntries(doc, 'gen-run-3'), null);
+  assert.equal(selectFreshTtsEntries({ entries }, 'gen-run-3'), null);
+  // Malformed manifests never render.
+  assert.equal(selectFreshTtsEntries(null, null), null);
+  assert.equal(selectFreshTtsEntries({}, null), null);
+  assert.equal(selectFreshTtsEntries({ entries: 'nope' }, null), null);
 });

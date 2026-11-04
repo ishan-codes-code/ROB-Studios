@@ -787,8 +787,41 @@ class TtsStageTests(unittest.TestCase):
             self.assertEqual(len(completed), 1)
             self.assertEqual(
                 completed[0]["detail"],
-                {"status": "success", "segments": 1, "succeeded": 1, "failed": 0},
+                {
+                    "status": "success",
+                    "segments": 1,
+                    "succeeded": 1,
+                    "failed": 0,
+                    "generation_id": "ab" * 32,
+                },
             )
+
+    def test_tts_stage_detail_carries_generation(self):
+        doc = {
+            "generation_id": "ab" * 32,
+            "entries": [
+                {"segment_id": "segment-001", "status": "success"},
+                {"segment_id": "segment-002", "status": "error"},
+            ],
+        }
+        self.assertEqual(
+            worker.tts_stage_detail(doc, "partial"),
+            {
+                "status": "partial",
+                "segments": 2,
+                "succeeded": 1,
+                "failed": 1,
+                "generation_id": "ab" * 32,
+            },
+        )
+        # Missing or malformed manifests omit the generation, never crash.
+        self.assertEqual(
+            worker.tts_stage_detail({}, "error"),
+            {"status": "error", "segments": 0, "succeeded": 0, "failed": 0},
+        )
+        self.assertEqual(
+            worker.tts_stage_detail({"entries": "nope"}, "error")["segments"], 0
+        )
 
     def test_resolve_tts_config_defaults(self):
         import types
