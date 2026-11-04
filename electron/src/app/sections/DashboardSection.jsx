@@ -1,17 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { AutoHeight } from "@animate-ui/react/primitives/effects/auto-height";
+import { toast } from "sonner";
 import {
+  ChevronDown,
   Clapperboard,
   FolderOpen,
   Plus,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
+import { cn } from "cn";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
+import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import GlassCard from "@/primitives/GlassCard.jsx";
-import WorkerStatus from "@/components/WorkerStatus.jsx";
+import LiveCommentaryHero from "./LiveCommentaryHero.jsx";
 import {
   extensionOf,
   fileNameOf,
@@ -70,17 +76,37 @@ function ProjectRow({ project, onOpen, onDelete, deleting, onArmDelete, armed })
   );
 }
 
+function ProjectListSkeleton() {
+  return (
+    <GlassCard className="p-0" role="status" aria-label="Loading projects">
+      <span className="sr-only">Loading projects…</span>
+      <ul aria-hidden className="flex flex-col divide-y divide-border">
+        {[0, 1, 2].map((index) => (
+          <li key={index} className="flex items-center gap-3 px-4 py-3">
+            <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <Skeleton className="h-4 w-1/3 motion-reduce:animate-none" />
+              <Skeleton className="h-3 w-2/3 motion-reduce:animate-none" />
+            </span>
+            <Skeleton className="h-5 w-14 rounded-full motion-reduce:animate-none" />
+          </li>
+        ))}
+      </ul>
+    </GlassCard>
+  );
+}
+
 /**
- * Project-first dashboard. Lists locally stored projects from Electron
- * userData (via audited IPC — the renderer never touches the
- * filesystem). Creating a project picks a video with the native dialog,
- * names it, copies it into an isolated project directory, and opens the
- * workspace. No fake projects, no statistics.
+ * Product-first dashboard. The Live AI Commentary hero states where the
+ * product is headed; the recorded-gameplay library below keeps the
+ * existing project workflow (native picker → name → isolated copy →
+ * open workspace) with identical IPC semantics. Worker status is not
+ * rendered here — the global application header already shows it.
  */
 export default function DashboardSection({ onOpenProject }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [libraryOpen, setLibraryOpen] = useState(true);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [pendingPath, setPendingPath] = useState(null);
   const [name, setName] = useState("");
@@ -88,6 +114,10 @@ export default function DashboardSection({ onOpenProject }) {
   const [flowError, setFlowError] = useState(null);
   const [armedDelete, setArmedDelete] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  // Same-tick re-entrancy guards: state alone cannot stop two clicks
+  // in one frame from opening two dialogs or creating twice.
+  const submitBusyRef = useRef(false);
+  const deleteBusyRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (typeof window.api?.listProjects !== "function") {
@@ -120,10 +150,23 @@ export default function DashboardSection({ onOpenProject }) {
     };
   }, [refresh]);
 
+  async function handleRetry() {
+    setLoading(true);
+    setError(null);
+    try {
+      setProjects(await refresh());
+    } catch (err) {
+      setError(err?.message ?? "Could not load projects.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleAdd() {
-    if (dialogBusy || creating) {
+    if (submitBusyRef.current || dialogBusy || creating) {
       return;
     }
+    submitBusyRef.current = true;
     setDialogBusy(true);
     setFlowError(null);
     try {
@@ -145,14 +188,16 @@ export default function DashboardSection({ onOpenProject }) {
     } catch (err) {
       setFlowError(err?.message ?? "Could not select a video.");
     } finally {
+      submitBusyRef.current = false;
       setDialogBusy(false);
     }
   }
 
   async function handleCreate() {
-    if (creating || !pendingPath) {
+    if (submitBusyRef.current || creating || !pendingPath) {
       return;
     }
+    submitBusyRef.current = true;
     setCreating(true);
     setFlowError(null);
     try {
@@ -166,15 +211,25 @@ export default function DashboardSection({ onOpenProject }) {
       setPendingPath(null);
       setName("");
       setProjects(await refresh());
+      toast.success("Project created", {
+        id: "project-created",
+        description: res.project.name,
+      });
       onOpenProject(res.project.id);
     } catch (err) {
       setFlowError(err?.message ?? "Could not create the project.");
     } finally {
+      submitBusyRef.current = false;
       setCreating(false);
     }
   }
 
   async function handleDelete(id) {
+    if (deleteBusyRef.current || deletingId !== null) {
+      return;
+    }
+    deleteBusyRef.current = true;
+    const target = projects.find((project) => project.id === id);
     setDeletingId(id);
     setArmedDelete(null);
     try {
@@ -186,157 +241,228 @@ export default function DashboardSection({ onOpenProject }) {
         throw new Error(res?.error ?? "Could not delete the project.");
       }
       setProjects(await refresh());
+      toast.success("Project deleted", {
+        id: "project-deleted",
+        description: target?.name ?? undefined,
+      });
     } catch (err) {
       setFlowError(err?.message ?? "Could not delete the project.");
     } finally {
+      deleteBusyRef.current = false;
       setDeletingId(null);
     }
   }
 
+  const loaded = !loading && !error;
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[13px] text-muted-foreground">
-          {loading
-            ? "Loading projects…"
-            : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+          Dashboard
+        </h2>
+        <p className="text-xs text-subtle">
+          Recorded projects today · live commentary next
         </p>
-        <Button
-          type="button"
-          variant="default"
-          disabled={dialogBusy || creating || pendingPath !== null}
-          onClick={handleAdd}
-        >
-          {dialogBusy ? (
-            <>
-              <Spinner data-icon="inline-start" />
-              Opening…
-            </>
-          ) : (
-            <>
-              <Plus data-icon="inline-start" />
-              Add Project
-            </>
-          )}
-        </Button>
       </div>
 
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={pendingPath ? "naming" : "list"}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+      <LiveCommentaryHero />
+
+      <section
+        aria-labelledby="recorded-library-heading"
+        className="flex min-w-0 flex-col gap-3"
+      >
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={libraryOpen ? "Collapse project library" : "Expand project library"}
+            aria-expanded={libraryOpen}
+            aria-controls="project-library-body"
+            onClick={() => setLibraryOpen((open) => !open)}
+          >
+            <ChevronDown
+              aria-hidden
+              className={cn(
+                "transition-transform duration-150 motion-reduce:transition-none",
+                !libraryOpen && "-rotate-90",
+              )}
+            />
+          </Button>
+          <h2
+            id="recorded-library-heading"
+            className="truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground"
+          >
+            Recorded gameplay
+          </h2>
+          {loaded ? (
+            <span className="shrink-0 font-mono text-xs tabular-nums text-subtle">
+              {projects.length} {projects.length === 1 ? "project" : "projects"}
+            </span>
+          ) : null}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              disabled={dialogBusy || creating || pendingPath !== null}
+              onClick={handleAdd}
+            >
+              {dialogBusy ? (
+                <>
+                  <Spinner data-icon="inline-start" />
+                  Opening…
+                </>
+              ) : (
+                <>
+                  <Plus data-icon="inline-start" />
+                  Add Video
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <AutoHeight
+          deps={[libraryOpen, pendingPath !== null, projects.length, loading, error]}
           transition={{ duration: MOTION.standard, ease: EASING.entrance }}
+          className="min-w-0"
         >
-          {pendingPath ? (
-            <GlassCard className="flex flex-col gap-3 p-5">
-              <div className="flex flex-col gap-0.5">
-                <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-                  Name your project
-                </h2>
-                <p className="truncate font-mono text-xs text-subtle">
-                  {pendingPath} · .{extensionOf(pendingPath)}
-                </p>
-              </div>
-              <label
-                htmlFor="project-name"
-                className="text-xs font-medium text-muted-foreground"
+          <AnimatePresence mode="wait" initial={false}>
+            {!libraryOpen ? null : (
+              <motion.div
+                key={pendingPath ? "naming" : "library"}
+                id="project-library-body"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: MOTION.standard, ease: EASING.entrance }}
               >
-                Project name
-              </label>
-              <input
-                id="project-name"
-                type="text"
-                value={name}
-                maxLength={100}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Friday finals"
-                className="rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="default"
-                  disabled={creating || name.trim() === ""}
-                  onClick={handleCreate}
-                >
-                  {creating ? (
-                    <>
-                      <Spinner data-icon="inline-start" />
-                      Importing…
-                    </>
-                  ) : (
-                    <>
-                      <FolderOpen data-icon="inline-start" />
-                      Create project
-                    </>
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={creating}
-                  onClick={() => {
-                    setPendingPath(null);
-                    setName("");
-                    setFlowError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                The video is copied into an isolated project folder. The
-                original file is left untouched.
-              </p>
-            </GlassCard>
-          ) : loading ? (
-            <GlassCard className="flex items-center gap-2 p-5 text-[13px] text-muted-foreground">
-              <Spinner />
-              Loading projects…
-            </GlassCard>
-          ) : error ? (
-            <Alert variant="destructive">
-              <AlertTitle>Could not load projects</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : projects.length === 0 ? (
-            <GlassCard className="flex flex-col items-center gap-3 p-6 text-center">
-              <span className="flex size-10 items-center justify-center rounded-lg bg-accent text-muted-foreground">
-                <Clapperboard className="size-5" aria-hidden />
-              </span>
-              <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
-                No projects yet
-              </h2>
-              <p className="max-w-sm text-[13px] text-muted-foreground">
-                Create a project from a recorded match video. Each project
-                keeps its own source copy and processing output.
-              </p>
-              <Button type="button" variant="default" onClick={handleAdd}>
-                <Plus data-icon="inline-start" />
-                Add Project
-              </Button>
-            </GlassCard>
-          ) : (
-            <GlassCard className="p-0">
-              <ul className="flex flex-col divide-y divide-border">
-                {projects.map((project) => (
-                  <ProjectRow
-                    key={project.id}
-                    project={project}
-                    onOpen={onOpenProject}
-                    onDelete={handleDelete}
-                    deleting={deletingId === project.id}
-                    armed={armedDelete === project.id}
-                    onArmDelete={setArmedDelete}
-                  />
-                ))}
-              </ul>
-            </GlassCard>
-          )}
-        </motion.div>
-      </AnimatePresence>
+                {pendingPath ? (
+                  <GlassCard className="flex flex-col gap-3 p-5">
+                    <div className="flex flex-col gap-0.5">
+                      <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+                        Name your project
+                      </h3>
+                      <p className="truncate font-mono text-xs text-subtle">
+                        {pendingPath} · .{extensionOf(pendingPath)}
+                      </p>
+                    </div>
+                    <label
+                      htmlFor="project-name"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      Project name
+                    </label>
+                    <input
+                      id="project-name"
+                      type="text"
+                      value={name}
+                      maxLength={100}
+                      onChange={(event) => setName(event.target.value)}
+                      placeholder="Friday finals"
+                      className="rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="default"
+                        disabled={creating || name.trim() === ""}
+                        onClick={handleCreate}
+                      >
+                        {creating ? (
+                          <>
+                            <Spinner data-icon="inline-start" />
+                            Importing…
+                          </>
+                        ) : (
+                          <>
+                            <FolderOpen data-icon="inline-start" />
+                            Create project
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={creating}
+                        onClick={() => {
+                          setPendingPath(null);
+                          setName("");
+                          setFlowError(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      The video is copied into an isolated project folder. The
+                      original file is left untouched.
+                    </p>
+                  </GlassCard>
+                ) : loading ? (
+                  <ProjectListSkeleton />
+                ) : error ? (
+                  <div className="flex flex-col items-start gap-3">
+                    <Alert variant="destructive">
+                      <AlertTitle>Could not load projects</AlertTitle>
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRetry}
+                    >
+                      <RotateCcw data-icon="inline-start" />
+                      Retry
+                    </Button>
+                  </div>
+                ) : projects.length === 0 ? (
+                  <GlassCard className="flex flex-col items-center gap-3 p-6 text-center">
+                    <span className="flex size-10 items-center justify-center rounded-lg bg-accent text-muted-foreground">
+                      <Clapperboard className="size-5" aria-hidden />
+                    </span>
+                    <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
+                      No projects yet
+                    </h3>
+                    <p className="max-w-sm text-[13px] text-muted-foreground">
+                      Create a project from a recorded match video. Each project
+                      keeps its own source copy and processing output.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="default"
+                      disabled={dialogBusy}
+                      onClick={handleAdd}
+                    >
+                      <Plus data-icon="inline-start" />
+                      Add Video
+                    </Button>
+                  </GlassCard>
+                ) : (
+                  <GlassCard className="p-0">
+                    <ul className="flex flex-col divide-y divide-border">
+                      {projects.map((project) => (
+                        <ProjectRow
+                          key={project.id}
+                          project={project}
+                          onOpen={onOpenProject}
+                          onDelete={handleDelete}
+                          deleting={deletingId === project.id}
+                          armed={armedDelete === project.id}
+                          onArmDelete={setArmedDelete}
+                        />
+                      ))}
+                    </ul>
+                  </GlassCard>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </AutoHeight>
+      </section>
 
       {flowError ? (
         <Alert variant="destructive">
@@ -344,8 +470,6 @@ export default function DashboardSection({ onOpenProject }) {
           <AlertDescription>{flowError}</AlertDescription>
         </Alert>
       ) : null}
-
-      <WorkerStatus />
     </div>
   );
 }

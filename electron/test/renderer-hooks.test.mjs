@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const COMPONENTS = [
   '../src/app/App.jsx',
+  '../src/app/sections/DashboardSection.jsx',
+  '../src/app/sections/LiveCommentaryHero.jsx',
   '../src/app/sections/WorkspaceSection.jsx',
   '../src/app/sections/OnboardingWizard.jsx',
   '../src/app/sections/ApiKeysSection.jsx',

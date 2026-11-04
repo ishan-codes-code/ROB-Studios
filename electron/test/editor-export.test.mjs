@@ -5,11 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // The toolbar owns Export: exactly one component renders the action,
-// exactly one hook subscribes to export events, and exactly two modules
-// (export controller + workspace run lifecycle) send toast
-// notifications. These static guards keep that ownership from silently
-// splitting again. There is no JSX harness in this repo, so the checks
-// read source text.
+// exactly one hook subscribes to export events, and exactly three
+// modules (export controller + workspace run lifecycle + dashboard
+// project lifecycle) send toast notifications. These static guards
+// keep that ownership from silently splitting again. There is no JSX
+// harness in this repo, so the checks read source text.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(here, '../src');
 
@@ -72,13 +72,17 @@ test('the toolbar renders the single Export action with full state coverage', ()
   assert.match(source, /readyCount === 0/);
 });
 
-test('toast notifications have exactly two owners', () => {
+test('toast notifications have exactly three owners', () => {
   const owners = rendererFilesWith(/from ["']sonner["']/).filter(
     (file) => !path.relative(SRC, file).startsWith('components/ui/'),
   );
   assert.deepEqual(
     owners.map((file) => path.relative(SRC, file)).sort(),
-    ['app/sections/WorkspaceSection.jsx', 'hooks/useVideoExport.js'],
+    [
+      'app/sections/DashboardSection.jsx',
+      'app/sections/WorkspaceSection.jsx',
+      'hooks/useVideoExport.js',
+    ],
   );
 });
 

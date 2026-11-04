@@ -27,8 +27,10 @@ see [../architecture.md](../architecture.md) and
   `hooks/useVideoExport.js` is the single owner of export state, export
   events, and export toasts.
 - `electron/src/primitives/` — `GlassPanel`, `GlassCard`, `StatusIndicator`.
-- `electron/src/app/sections/DashboardSection.jsx` — project creation,
-  listing, opening, and deletion through the audited `window.api` bridge.
+- `electron/src/app/sections/DashboardSection.jsx` — Live AI Commentary
+  hero plus the collapsible recorded-gameplay library (project creation,
+  listing, opening, and deletion through the audited `window.api` bridge;
+  collapse animates with the editor's `AutoHeight` pattern).
 - `electron/src/app/sections/WorkspaceSection.jsx` — project loading,
   project-bound processing and its single worker subscription; it composes
   the workspace regions.
@@ -37,9 +39,11 @@ see [../architecture.md](../architecture.md) and
   metadata reaches this renderer section.
 - `electron/src/components/RunPanel.jsx` — presentational run states
   driven by `lib/worker-view.js`.
-- `electron/src/components/WorkerStatus.jsx` — dashboard worker status;
-  `AppHeader` also reads live status through `useWorkerStatus`. Worker
-  state comes only from real events, never mock state.
+- `electron/src/components/WorkerStatus.jsx` — worker status card,
+  currently unrendered (removed from the dashboard in the
+  live-commentary redesign); `AppHeader` reads live status through
+  `useWorkerStatus`. Worker state comes only from real events, never
+  mock state.
 - `electron/src/index.css` — Tailwind v4 entry, `@theme` monochrome studio
   tokens.
 - `electron/src/components/ui/*` — shadcn primitives (button, card, badge,

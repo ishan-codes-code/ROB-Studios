@@ -1,5 +1,40 @@
 # Current state
 
+## Dashboard redesign — live AI commentary first (uncommitted)
+
+Dashboard rebuilt around the product vision: a compact heading row, a
+dominant static Live AI Commentary hero (`LiveCommentaryHero`: Coming
+soon badge, "Every moment. Every play. Live." headline, suggested
+description, three capabilities with Radio/Brain/Mic icons, one subtle
+static token-derived radial wash, no actions or fake metrics), then
+the recorded-gameplay library. The library collapses through the
+editor's existing Animate UI `AutoHeight` primitive (same import path,
+`deps`, and `MOTION.standard`/`EASING.entrance` transition as
+`ProcessingInspector`) — note: no "auto-hide" component exists in the
+repo or in `@animate-ui/react` 2.4.2, so `AutoHeight` height-disclosure
+is the reused pattern. The header row (chevron toggle with
+`aria-expanded`/`aria-controls`, heading, mono project count, Plus
+"Add Video") stays visible when collapsed; Add Video also appears in
+the empty state. Project IPC semantics are unchanged (native picker,
+naming, isolated copy, open on success, silent cancel, inline
+recoverable errors, two-step delete); same-tick re-entrancy refs were
+added to add/create/delete. Loading shows a structural skeleton, list
+errors gained a working Retry, and project create/delete successes
+report through stable-id Sonner toasts (failures stay inline-only, so
+no notification duplicates). The dashboard `WorkerStatus` card is
+removed; the `AppHeader` pill is the sole worker indicator and
+`WorkerStatus.jsx` is currently unrendered. No Python, IPC,
+store-schema, Editor, or dependency changes.
+
+Verification: Electron suite 393 tests pass, 0 fail (offline,
+`node:test`, incl. new `dashboard.test.mjs` static guards, two new
+hook-guard entries, and the toast-ownership guard extended to three
+owners); renderer production build succeeds with hero copy and the
+radial wash confirmed in the bundle. Manually unverified: all visual
+states in a running shell (zero/multiple projects, hero, collapse,
+toasts, narrow widths, reduced motion) — no display is available in
+this environment.
+
 ## Processing workspace redesign + unlimited requests (uncommitted)
 
 Processing tab rebuilt around real lifecycle state; the vision-request
