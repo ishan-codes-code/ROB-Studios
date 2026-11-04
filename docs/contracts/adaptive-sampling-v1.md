@@ -73,7 +73,10 @@ count, a timestamp mismatch, or an invalid observation fails the whole
 run (`response-invalid`) with prior iterations kept. Every frame still
 persists its own `frame_<timestamp>.json`, records its own manifest
 iteration, and reports its own `adaptive_sample`; the manifest counts
-one request per batch. NORMAL and LOW always use the single-frame
+one request per batch. A malformed or truncated batch response falls back to single-frame
+analysis when the remaining request budget permits (bounded, exact
+request accounting); otherwise the run fails as before. NORMAL and
+LOW always use the single-frame
 wrapper. No contract version bump: persisted observation, manifest,
 and downstream schemas are unchanged — only the transient model
 request/response shape gains this variant.

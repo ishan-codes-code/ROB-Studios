@@ -11,6 +11,7 @@ diagnostic, while a malformed response or an invalid observation is
 rejected outright (no observation is written).
 """
 
+import json
 import math
 
 from ..config import (
@@ -184,6 +185,29 @@ def parse_adaptive_response(text, expected_timestamp):
     return validated, speed, reason, diagnostics
 
 
+def _batch_failure_excerpt(text, window=120, limit=240):
+    """Short window around a JSON failure for diagnostics.
+
+    Model output only: requests (images, keys) never flow through
+    here, so truncating and flattening whitespace is sufficient
+    redaction. Never raises.
+    """
+    try:
+        body = text if isinstance(text, str) else ""
+        position = len(body)
+        try:
+            json.loads(body)
+        except ValueError as exc:
+            position = getattr(exc, "pos", position)
+        start = max(0, position - window)
+        excerpt = body[start:start + limit].replace("\n", " ").strip()
+        if not excerpt:
+            return "empty response"
+        return f"char {position}: ...{excerpt}..."
+    except Exception:
+        return "unavailable"
+
+
 def parse_adaptive_batch_response(text, expected_timestamps):
     """Parse one multi-frame adaptive response into per-frame results.
 
@@ -196,7 +220,12 @@ def parse_adaptive_batch_response(text, expected_timestamps):
     ``(validated, speed, reason, diagnostics)`` tuples aligned with
     ``expected_timestamps``.
     """
-    wrapper = parse_observation(text)
+    try:
+        wrapper = parse_observation(text)
+    except ObservationError as exc:
+        raise ObservationError(
+            f"{exc} Response excerpt: {_batch_failure_excerpt(text)}"
+        ) from exc
     if not isinstance(wrapper, dict):
         raise ObservationError(
             "Adaptive batch response must be a JSON object."

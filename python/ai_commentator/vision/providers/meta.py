@@ -28,6 +28,7 @@ import json
 import urllib.error
 import urllib.request
 
+from ...config import ADAPTIVE_BATCH_MAX_TOKENS
 from ...errors import ObservationError, VisionAPIError
 from .base import (
     VisionProviderAdapter,
@@ -259,7 +260,10 @@ class MetaAdapter(VisionProviderAdapter):
         """Request one multi-frame adaptive document for HIGH-speed sampling.
 
         ``timestamps`` and ``image_data_urls`` are parallel chronological
-        lists; images are attached in order after the batch prompt.
+        lists; images are attached in order after the batch prompt. The
+        request carries an explicit output budget for the batched JSON;
+        budget exhaustion surfaces through the standard incomplete
+        check in extract_output_text.
         """
         from .. import client as client_module
 
@@ -277,6 +281,7 @@ class MetaAdapter(VisionProviderAdapter):
             "input": [{"type": "message", "role": "user",
                        "content": []}],
             "stream": False,
+            "max_output_tokens": ADAPTIVE_BATCH_MAX_TOKENS,
         }
         payload["input"][0]["content"] = content
         try:

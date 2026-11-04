@@ -105,6 +105,25 @@ def extract_response_text(response) -> str:
     return text
 
 
+def raise_on_length_finish(response, provider_id):
+    """Raise when a chat completion stopped for output tokens, not content.
+
+    A length-truncated JSON document would otherwise surface as a
+    confusing parse error; detecting it here keeps the diagnosis exact
+    and lets the adaptive loop fall back to smaller single-frame
+    requests. Responses without choice metadata pass through.
+    """
+    choices = getattr(response, "choices", None) or []
+    finish = getattr(choices[0], "finish_reason", None) if choices else None
+    if finish == "length":
+        raise VisionAPIError(
+            f"{provider_id} stopped the response for output tokens before "
+            "finishing the JSON document.",
+            code="output_exhausted",
+            provider=provider_id,
+        )
+
+
 def _is_provider_adapter(client) -> bool:
     return hasattr(client, "request_observation_text") and hasattr(client, "request_adaptive_text")
 
@@ -344,7 +363,9 @@ def build_adaptive_batch_prompt(timestamps, previous=None, pack=None):
         + f"These {len(stamps)} frames are consecutive instants in the video, "
         + f"in chronological order: {frame_list}. "
         + "Compare the frames to understand movement and event progression, "
-        + "but describe each frame's own visible content. "
+        + "but describe each frame's own visible content. Keep every "
+        + "description, evidence, uncertainty, and reason to one concise "
+        + "sentence with all quotes and newlines JSON-escaped. "
         + fields["vision_coverage_adaptive"] + " "
         + game_block
         + context_block

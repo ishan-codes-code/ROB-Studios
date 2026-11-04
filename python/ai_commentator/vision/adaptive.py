@@ -374,14 +374,55 @@ def run_adaptive_vision(
                 if token.is_stopping():
                     print("Adaptive run stopping before vision request.")
                     return finish("stopped", TERMINATION_STOP_REQUESTED)
+                # A malformed or truncated batch response falls back to
+                # single-frame analysis (smaller outputs usually parse),
+                # bounded by the remaining request budget. Fallback frames
+                # count their own paid requests exactly; provider errors
+                # other than output exhaustion never trigger fallback.
+                requests_pre_counted = False
                 try:
                     if use_batch:
-                        frame_results = analyze_adaptive_batch(
-                            vision_client,
-                            batch_frames,
-                            batch_timestamps,
-                            previous,
-                        )
+                        try:
+                            frame_results = analyze_adaptive_batch(
+                                vision_client,
+                                batch_frames,
+                                batch_timestamps,
+                                previous,
+                            )
+                        except (ObservationError, VisionAPIError) as batch_exc:
+                            if (
+                                isinstance(batch_exc, VisionAPIError)
+                                and batch_exc.code != "output_exhausted"
+                            ):
+                                raise
+                            if limit is not None and (
+                                manifest["requests"] + 1 + len(batch_timestamps)
+                                > limit
+                            ):
+                                raise
+                            print(
+                                "Adaptive batch response unusable "
+                                f"({batch_exc}); retrying "
+                                f"{len(batch_timestamps)} frames singly.",
+                                file=sys.stderr,
+                            )
+                            manifest["requests"] += 1
+                            manifest["failed_requests"] += 1
+                            frame_results = []
+                            for fallback_frame, fallback_ts in zip(
+                                batch_frames, batch_timestamps
+                            ):
+                                single = analyze_adaptive_frame(
+                                    vision_client,
+                                    fallback_frame,
+                                    fallback_ts,
+                                    previous,
+                                    api_key=api_key,
+                                )
+                                manifest["requests"] += 1
+                                requests_pre_counted = True
+                                frame_results.append(single)
+                                previous = single[0]
                     else:
                         frame_results = [
                             analyze_adaptive_frame(
@@ -445,7 +486,7 @@ def run_adaptive_vision(
                         speed,
                         reason,
                         sampling_diagnostics,
-                        count_request=(position == 0),
+                        count_request=(position == 0 and not requests_pre_counted),
                     )
                     previous = validated
                     last_speed = speed

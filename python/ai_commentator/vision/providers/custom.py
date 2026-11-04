@@ -28,6 +28,7 @@ import urllib.parse
 
 from openai import APIError, OpenAI
 
+from ...config import ADAPTIVE_BATCH_MAX_TOKENS
 from ...errors import ObservationError, VisionAPIError
 from .base import (
     VisionProviderAdapter,
@@ -228,7 +229,10 @@ class CustomAdapter(VisionProviderAdapter):
         """Request one multi-frame adaptive document for HIGH-speed sampling.
 
         ``timestamps`` and ``image_data_urls`` are parallel chronological
-        lists; images are attached in order after the batch prompt.
+        lists; images are attached in order after the batch prompt. The
+        request carries an explicit output budget for the batched JSON,
+        and a length-truncated completion raises instead of returning
+        unparsable text.
         """
         prompts = self._prompts()
         content = [
@@ -249,6 +253,7 @@ class CustomAdapter(VisionProviderAdapter):
                         "content": content,
                     }
                 ],
+                max_tokens=ADAPTIVE_BATCH_MAX_TOKENS,
                 timeout=self.timeout,
             )
             print(f"Custom API response: HTTP {raw_response.status_code}")
@@ -264,6 +269,7 @@ class CustomAdapter(VisionProviderAdapter):
                 code=classify_exception(exc),
                 provider=PROVIDER_ID,
             ) from None
+        prompts.raise_on_length_finish(response, PROVIDER_ID)
         return prompts.extract_response_text(response)
 
     def request_adaptive_text(self, timestamp, image_data_url: str,

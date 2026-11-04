@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from ai_commentator.errors import ObservationError, VisionAPIError
 from main import (  # noqa: E402
     analyze_adaptive_batch,
     build_adaptive_batch_prompt,
@@ -91,6 +92,8 @@ class BatchPromptTests(unittest.TestCase):
         self.assertIn("frame 2 at 0.667 seconds", prompt)
         self.assertIn("frame 3 at 0.833 seconds", prompt)
         self.assertIn('"frames"', prompt)
+        self.assertIn("JSON-escaped", prompt)
+        self.assertIn("one concise sentence", prompt)
         self.assertIn("observation-v1", prompt)
         self.assertLess(
             prompt.index("frame 1"), prompt.index("frame 2")
@@ -229,7 +232,74 @@ class BatchLoopTests(unittest.TestCase):
         self.assertEqual(result["requests"], 3)
         self.assertEqual(result["observations"], 3)
 
-    def test_batch_count_mismatch_terminates_with_partial_progress(self):
+    def test_malformed_batch_json_falls_back_and_completes(self):
+        # The reported production shape: an unescaped quote inside a
+        # description breaks JSON parsing deep into the response.
+        bad = (
+            '{"frames": [{"observation": {"schema_version": "observation-v1", '
+            '"timestamp": 0.5, "observations": [{"category": "action", '
+            '"description": "a "quoted" word", "confidence": "high", '
+            '"evidence": "seen"}], "uncertainties": []}, '
+            '"sampling": {"next_sampling_speed": "HIGH", "reason": "x"}}]}'
+        )
+        # Sanity: the fixture really is malformed the reported way.
+        with self.assertRaises(Exception) as raised:
+            parse_adaptive_batch_response(bad, [0.5, 0.667, 0.834])
+        self.assertIn("Response excerpt:", str(raised.exception))
+        client = FakeBatchAdapter(
+            single_speeds=("HIGH", "NORMAL", "NORMAL", "NORMAL",
+                           "NORMAL", "NORMAL")
+        )
+
+        def bad_batch(timestamps, image_data_urls, previous=None):
+            client.batch_calls.append(list(timestamps))
+            return bad
+
+        client.request_adaptive_batch_text = bad_batch
+        result, manifest, obs_dir = self.run_loop(client, max_frames=10)
+        self.assertEqual(result["status"], "completed")
+        # One failed batch request plus per-frame single retries.
+        self.assertEqual(result["requests"], 7)
+        self.assertEqual(result["failed_requests"], 1)
+        self.assertEqual(result["observations"], 6)
+        self.assertEqual(len(client.single_calls), 6)
+        self.assertTrue((obs_dir / "frame_00000.json").is_file())
+        self.assertTrue((obs_dir / "frame_00000.5.json").is_file())
+
+    def test_batch_output_exhausted_falls_back(self):
+        client = FakeBatchAdapter(
+            single_speeds=("HIGH", "NORMAL", "NORMAL", "NORMAL",
+                           "NORMAL", "NORMAL")
+        )
+
+        def exhausted_batch(timestamps, image_data_urls, previous=None):
+            client.batch_calls.append(list(timestamps))
+            raise VisionAPIError("cut off", code="output_exhausted",
+                                 provider="baseten")
+
+        client.request_adaptive_batch_text = exhausted_batch
+        result, _manifest, _ = self.run_loop(client, max_frames=10)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["requests"], 7)
+        self.assertEqual(result["failed_requests"], 1)
+
+    def test_batch_provider_error_does_not_fall_back(self):
+        client = FakeBatchAdapter(single_speeds=("HIGH",))
+
+        def error_batch(timestamps, image_data_urls, previous=None):
+            client.batch_calls.append(list(timestamps))
+            raise VisionAPIError("boom", code="server_error",
+                                 provider="baseten")
+
+        client.request_adaptive_batch_text = error_batch
+        result, _manifest, _ = self.run_loop(client, max_frames=10)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["termination"], "request-failed")
+        self.assertEqual(len(client.single_calls), 1)
+        self.assertEqual(result["requests"], 2)
+        self.assertEqual(result["failed_requests"], 1)
+
+    def test_batch_fallback_denied_by_tight_budget(self):
         client = FakeBatchAdapter(single_speeds=("HIGH",))
 
         def short_batch(timestamps, image_data_urls, previous=None):
@@ -237,16 +307,40 @@ class BatchLoopTests(unittest.TestCase):
             return batch_text([(timestamps[0], "HIGH")])
 
         client.request_adaptive_batch_text = short_batch
-        result, manifest, obs_dir = self.run_loop(client, max_frames=10)
+        result, _manifest, obs_dir = self.run_loop(client, max_frames=2)
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["termination"], "response-invalid")
         self.assertIn("expected 3", result["error"]["message"])
-        # The failed batch recorded one failed request; the first frame
-        # survived.
         self.assertEqual(result["requests"], 2)
         self.assertEqual(result["failed_requests"], 1)
         self.assertEqual(result["requested_timestamps"], [0])
         self.assertTrue((obs_dir / "frame_00000.json").is_file())
+
+    def test_fallback_single_failure_counts_exactly(self):
+        client = FakeBatchAdapter(single_speeds=("HIGH",))
+        original_single = client.request_adaptive_text
+        calls = []
+
+        def short_batch(timestamps, image_data_urls, previous=None):
+            client.batch_calls.append(list(timestamps))
+            return batch_text([(timestamps[0], "HIGH")])
+
+        def flaky_single(timestamp, image_data_url, previous=None):
+            calls.append(timestamp)
+            if len(calls) == 3:
+                raise ObservationError("bad single frame")
+            return original_single(timestamp, image_data_url, previous)
+
+        client.request_adaptive_batch_text = short_batch
+        client.request_adaptive_text = flaky_single
+        result, _manifest, _ = self.run_loop(client, max_frames=10)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["termination"], "response-invalid")
+        # Paid: first frame + failed batch + one fallback frame + the
+        # failing fallback frame. Nothing persisted from the bad batch.
+        self.assertEqual(result["requests"], 4)
+        self.assertEqual(result["failed_requests"], 2)
+        self.assertEqual(result["requested_timestamps"], [0])
 
     def test_batch_respects_max_frames_bound(self):
         client = FakeBatchAdapter(single_speeds=("HIGH",))

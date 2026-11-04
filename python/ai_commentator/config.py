@@ -225,5 +225,10 @@ ADAPTIVE_CONTEXT_MAX_CHARS = 2000
 # gameplay progression instead of isolated instants. Bounded and fixed:
 # NORMAL/LOW always analyze one frame per request.
 ADAPTIVE_HIGH_BATCH_FRAMES = 3
+# Output budget for one multi-frame batch request: sized for
+# ADAPTIVE_HIGH_BATCH_FRAMES observation-v1 documents plus their
+# sampling decisions. Without an explicit budget the provider default
+# can truncate a long batch response mid-JSON.
+ADAPTIVE_BATCH_MAX_TOKENS = 4096
 
 
