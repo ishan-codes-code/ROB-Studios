@@ -6,10 +6,12 @@ exactly as Electron snapshots it.
 """
 
 import json
+import os
 import re
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
@@ -17,6 +19,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import main as engine
 from test_prompt_packs import pack_env
+
+
+@contextmanager
+def run_env(run_id=None):
+    """Set AI_COMMENTATOR_RUN_ID for one test; always restore."""
+    old = os.environ.get("AI_COMMENTATOR_RUN_ID")
+    try:
+        if run_id is None:
+            os.environ.pop("AI_COMMENTATOR_RUN_ID", None)
+        else:
+            os.environ["AI_COMMENTATOR_RUN_ID"] = run_id
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("AI_COMMENTATOR_RUN_ID", None)
+        else:
+            os.environ["AI_COMMENTATOR_RUN_ID"] = old
+
 
 FULL_METADATA = {
     "game_id": "bgmi",
@@ -429,6 +449,241 @@ class StreamingOpeningTests(unittest.TestCase):
         self.assertEqual(worded[0]["timestamp_seconds"], 0)
         self.assertEqual(result["script_status"], "success")
         self.assertEqual(doc["segments"][0]["timestamp_seconds"], 0)
+
+
+RUN_ID_A = "a" * 32
+RUN_ID_B = "b" * 32
+
+OPENING_LINE = "Welcome to Erangel for the City Finals semifinal."
+
+
+def model_opening_handler(prompt, index):
+    return opening_segment_json(claim_id_in_prompt(prompt), OPENING_LINE)
+
+
+class OpeningRunIdTests(unittest.TestCase):
+    def test_run_id_scopes_claim_id(self):
+        claim = engine.build_opening_claim(FULL_METADATA, "BGMI")
+        base = engine.claim_id_of(claim)
+        with run_env():
+            self.assertEqual(engine.current_opening_run_id(), "")
+            self.assertEqual(engine.opening_claim_id(claim), base)
+        with run_env(RUN_ID_A):
+            self.assertEqual(engine.current_opening_run_id(), RUN_ID_A)
+            self.assertEqual(
+                engine.opening_claim_id(claim), base + "-" + RUN_ID_A[:12]
+            )
+
+    def test_two_runs_same_metadata_word_two_openings(self):
+        client = RequestTextClient(model_opening_handler)
+        with pack_env(settings=FULL_SETTINGS):
+            with run_env(RUN_ID_A):
+                first, omitted_a, claim_a = engine.run_opening(
+                    client, "bgmi", set(), []
+                )
+            with run_env(RUN_ID_B):
+                second, omitted_b, claim_b = engine.run_opening(
+                    client, "bgmi", {claim_a["claim_id"]}, []
+                )
+        self.assertIsNone(omitted_a)
+        self.assertIsNone(omitted_b)
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertIn("Erangel", first["text"])
+        self.assertIn("Erangel", second["text"])
+        self.assertNotEqual(claim_a["claim_id"], claim_b["claim_id"])
+        self.assertEqual(
+            second["source_claim_ids"], [claim_b["claim_id"]]
+        )
+        self.assertEqual(len(client.calls), 2)
+
+    def test_same_run_id_suppresses_repeat_without_new_call(self):
+        client = RequestTextClient(model_opening_handler)
+        with pack_env(settings=FULL_SETTINGS):
+            with run_env(RUN_ID_A):
+                first, _, claim_a = engine.run_opening(
+                    client, "bgmi", set(), []
+                )
+            with run_env(RUN_ID_A):
+                second, omitted, claim_b = engine.run_opening(
+                    client, "bgmi", {claim_a["claim_id"]}, []
+                )
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertIsNone(claim_b)
+        self.assertIsNotNone(omitted)
+        self.assertEqual(omitted["rule"], "already-emitted")
+        self.assertEqual(omitted["subject"], claim_a["claim_id"])
+        self.assertEqual(len(client.calls), 1)
+
+
+class OpeningOnlyScriptTests(unittest.TestCase):
+    def run_opening_only(self, tmp):
+        from test_script import (
+            FakeScriptClient,
+            run_script_capture,
+            script_kwargs,
+            script_response,
+            silence_tree,
+        )
+
+        obs_dir, st, ev, _ = silence_tree(tmp)
+        out = Path(tmp) / "script.json"
+
+        def handle(kwargs, index):
+            content = kwargs["messages"][0]["content"]
+            claim_id = claim_id_in_prompt(content)
+            return script_response(
+                opening_segment_json(claim_id, OPENING_LINE)
+            )
+
+        client = FakeScriptClient(handle)
+        with pack_env(settings=FULL_SETTINGS):
+            with run_env(RUN_ID_A):
+                code, _, _ = run_script_capture(
+                    **script_kwargs(obs_dir, st, ev, out), client=client
+                )
+        return code, out, client
+
+    def test_zero_gameplay_claims_with_metadata_is_opening_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out, client = self.run_opening_only(tmp)
+            doc = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        self.assertEqual(doc["status"], "success")
+        self.assertIsNone(doc["error"])
+        self.assertEqual(len(doc["segments"]), 1)
+        segment = doc["segments"][0]
+        self.assertEqual(segment["segment_id"], "segment-001")
+        self.assertEqual(segment["timestamp_seconds"], 0)
+        self.assertIn("Erangel", segment["text"])
+        self.assertEqual(len(client.calls), 1)
+        engine.validate_script(doc)
+
+    def test_opening_only_script_feeds_tts_success(self):
+        import contextlib
+        import io
+
+        from test_tts import FakeTTSClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out, _ = self.run_opening_only(tmp)
+            self.assertEqual(code, 0)
+            doc = json.loads(out.read_text(encoding="utf-8"))
+            engine.validate_script(doc)
+            audio_dir = Path(tmp) / "audio"
+            fake = FakeTTSClient()
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                with contextlib.redirect_stderr(stderr):
+                    tts_code = engine.run_generate_tts(
+                        script_path=out,
+                        audio_dir=audio_dir,
+                        api_key="test-tts-key-not-a-secret",
+                        client=fake,
+                    )
+            self.assertEqual(tts_code, 0)
+            manifest = engine.validate_tts_manifest(
+                json.loads(
+                    (audio_dir / "tts.json").read_text(encoding="utf-8")
+                )
+            )
+            self.assertEqual(len(fake.calls), 1)
+            self.assertEqual(manifest["status"], "success")
+            self.assertEqual(len(manifest["entries"]), 1)
+            entry = manifest["entries"][0]
+            self.assertEqual(entry["segment_id"], "segment-001")
+            self.assertEqual(entry["timestamp_seconds"], 0)
+            self.assertEqual(entry["status"], "success")
+            self.assertIsNone(entry["error"])
+            self.assertTrue(
+                (audio_dir / entry["audio_file"]).is_file()
+            )
+
+    def test_zero_claims_without_metadata_stays_silent(self):
+        from test_script import (
+            FakeScriptClient,
+            run_script_capture,
+            script_json,
+            script_kwargs,
+            script_response,
+            silence_tree,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, _ = silence_tree(tmp)
+            out = Path(tmp) / "script.json"
+            client = FakeScriptClient(
+                lambda kwargs, index: script_response(script_json([]))
+            )
+            with pack_env():
+                with run_env(RUN_ID_A):
+                    code, _, _ = run_script_capture(
+                        **script_kwargs(obs_dir, st, ev, out),
+                        client=client,
+                    )
+            doc = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        self.assertEqual(doc["status"], "silence")
+        self.assertEqual(doc["segments"], [])
+        self.assertEqual(client.calls, [])
+
+
+class OpeningLanguageTests(unittest.TestCase):
+    def test_hindi_language_clause_in_prompt(self):
+        settings = json.dumps({
+            "game": {
+                "id": "bgmi",
+                "metadata": {
+                    "map": "Erangel",
+                    "tournament": "City Finals",
+                },
+            },
+            "prompt": {"language": "Hindi"},
+            "promptPack": {"packId": "bgmi", "custom": {}},
+        })
+        with pack_env(settings=settings):
+            meta = engine.project_opening_metadata()
+            self.assertEqual(meta["language"], "Hindi")
+            self.assertTrue(engine.opening_available(meta))
+            claim = engine.build_opening_claim(meta, "BGMI")
+            claim_id = engine.claim_id_of(claim)
+            prompt = engine.build_opening_prompt(
+                claim, claim_id, meta, [], "bgmi"
+            )
+        self.assertIn("Write the line in Hindi.", prompt)
+
+    def test_missing_language_adds_no_clause(self):
+        meta = dict(FULL_METADATA, language="")
+        claim = engine.build_opening_claim(meta, "BGMI")
+        claim_id = engine.claim_id_of(claim)
+        with pack_env(settings=FULL_SETTINGS):
+            prompt = engine.build_opening_prompt(
+                claim, claim_id, meta, [], "bgmi"
+            )
+        self.assertNotIn("Write the line in", prompt)
+
+
+class OpeningPackLabelTests(unittest.TestCase):
+    def test_packs_word_own_game_labels(self):
+        doc = json.loads(FULL_SETTINGS)
+        doc["game"]["metadata"].pop("tournament", None)
+        doc["game"]["metadata"].pop("stage", None)
+        settings = json.dumps(doc)
+        expected = (("cod", "Call of Duty"), ("bgmi", "BGMI"))
+        for pack_id, label in expected:
+            other = expected[1][1] if pack_id == "cod" else expected[0][1]
+            with self.subTest(pack=pack_id):
+                with pack_env(settings=settings):
+                    with run_env():
+                        utterance, omitted, claim = engine.run_opening(
+                            None, pack_id, set(), []
+                        )
+                self.assertIsNone(omitted)
+                self.assertIsNotNone(utterance)
+                self.assertIn(label, utterance["text"])
+                self.assertNotIn(other, utterance["text"])
+                self.assertIn(label, " ".join(claim["evidence"]))
 
 
 if __name__ == "__main__":

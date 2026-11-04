@@ -1,5 +1,35 @@
 # Current state
 
+## ROB reliability + rebrand milestone (uncommitted)
+
+Audio lifecycle: run state carries a monotonic `runSeq` and the TTS
+manifest freshness gate now takes a run-started flag — a new run
+immediately invalidates the previous manifest and shows live
+`u-*.wav` segments until its own generation lands; idle/hydrated
+views keep showing the latest persisted audio; project switches
+clear the view; latest listing wins. Opening lifecycle: the opening
+claim id is scoped to a per-process `AI_COMMENTATOR_RUN_ID`, so a
+new run always gets its own introduction even with identical
+metadata, while same-run retries still suppress duplicates; the
+sequential path now writes an opening-only success document (valid
+for TTS) instead of silence when gameplay claims are empty but
+project metadata exists. Terminology: Blue Wall is the canonical
+Free Fire cover term across vision/script/writer prompts (Gloo
+Wall kept once as the item alias in game context); no leakage
+into BGMI/COD (tested). Rebrand: user-facing copy is ROB /
+Real-time Observer & Broadcaster / ROB Studio; NO ROB logo asset
+exists in the repo (swept; only a dashboard photo and third-party
+assets found), so no mark was invented — logo design plus icon
+wiring is still open. Note: unrelated worktree deletions of three
+nav sections found during this milestone were reverted as
+out-of-scope. Prior "Blue Wall not adopted" note below is
+superseded by this milestone.
+
+Verification (targeted only): Python opening/pack/script/
+streaming-subset/worker-TTS suites pass; Electron audio/tray/
+session/brand/titlebar/dashboard/onboarding suites pass. No paid
+calls made; no live E2E run yet.
+
 ## Commentary pipeline refinements (uncommitted)
 
 Game-aware commentary, session openings, and reliable audio-tray
@@ -30,7 +60,8 @@ unchanged. Known limits: in-flight (unfinalized) utterances stay
 invisible across a mid-run reload until the manifest lands;
 sequential runs show rows at TTS stage end, not per segment;
 "Blue Wall" was not adopted (no glossary entry; Gloo Wall stays
-canonical per packs/tests).
+canonical per packs/tests). [Superseded by the ROB milestone
+above: Blue Wall is now canonical.]
 
 Verification (targeted only): Python opening/pack/script/
 streaming-subset/worker-TTS suites pass; Electron

@@ -15,7 +15,7 @@ function isWindowsChrome() {
 export default function TitleBar({ context }) {
   return (
     <header
-      aria-label="Commentary Studio window title bar"
+      aria-label="ROB Studio window title bar"
       className="flex h-9 shrink-0 select-none items-center gap-2.5 border-b border-border bg-surface pl-3"
       style={{ WebkitAppRegion: "drag" }}
     >
@@ -23,7 +23,7 @@ export default function TitleBar({ context }) {
         <AudioLines className="size-3" aria-hidden />
       </span>
       <span className="shrink-0 text-[12px] font-semibold tracking-[-0.01em] text-foreground">
-        Commentary Studio
+        ROB Studio
       </span>
       {context ? (
         <span className="hidden min-w-0 truncate text-[11px] text-subtle sm:inline">

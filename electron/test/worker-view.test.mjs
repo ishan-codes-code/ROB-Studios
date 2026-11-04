@@ -120,6 +120,29 @@ test('tts generation tracks the current run manifest and resets on start', () =>
   assert.equal(state.ttsGeneration, null);
 });
 
+test('runSeq starts at 0 and increments on every started', () => {
+  assert.equal(createInitialRunState().runSeq, 0);
+  let state = applyWorkerMessage(createInitialRunState(), { type: 'started', message: 'go' });
+  assert.equal(state.runSeq, 1);
+  // Other messages leave the counter alone.
+  state = applyWorkerMessage(state, {
+    type: 'progress',
+    stage: 'script',
+    completed: 4,
+    total: 6,
+  });
+  assert.equal(state.runSeq, 1);
+  state = applyWorkerMessage(state, { type: 'result', data: {} });
+  assert.equal(state.runSeq, 1);
+  // A second run increments again; the counter never resets.
+  state = applyWorkerMessage(state, { type: 'started', message: 'again' });
+  assert.equal(state.runSeq, 2);
+  // Legacy states without the counter start counting from 0.
+  const legacy = { ...createInitialRunState() };
+  delete legacy.runSeq;
+  assert.equal(applyWorkerMessage(legacy, { type: 'started' }).runSeq, 1);
+});
+
 test('duplicate tts_segment deliveries fold into one segment without duplicating', () => {
   let state = applyWorkerMessage(createInitialRunState(), { type: 'started', message: 'go' });
   state = applyWorkerMessage(state, {

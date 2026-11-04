@@ -255,7 +255,7 @@ class PromptPackProbeTests(unittest.TestCase):
 class GameVocabularyTests(unittest.TestCase):
     def test_required_terms_present(self):
         required = {
-            "free-fire": ["Gloo Wall", "Booyah", "knocked down", "Clash Squad",
+            "free-fire": ["Blue Wall", "Booyah", "knocked down", "Clash Squad",
                           "Med kit", "active or passive skill", "revive"],
             "bgmi": ["blue zone", "knock", "finish", "airdrop", "flare gun",
                      "Winner Winner Chicken Dinner", "med kit", "molotov",
@@ -277,10 +277,10 @@ class GameVocabularyTests(unittest.TestCase):
                           "dog tag", "hardpoint", "domination", "flush",
                           "flare", "airdrop", "chicken dinner", "lethal",
                           "tactical"],
-            "bgmi": ["gloo", "booyah", "kill secure", "scorestreak",
+            "bgmi": ["gloo", "blue wall", "booyah", "kill secure", "scorestreak",
                      "killstreak", "operator", "dog tag", "hardpoint",
                      "domination", "clash squad", "lethal", "tactical"],
-            "cod": ["gloo", "booyah", "kill secure", "blue zone", "red zone",
+            "cod": ["gloo", "blue wall", "booyah", "kill secure", "blue zone", "red zone",
                     "flush", "flare", "airdrop", "clash squad",
                     "chicken dinner", "med kit"],
         }
@@ -301,7 +301,7 @@ class GameVocabularyTests(unittest.TestCase):
 
     def test_terminology_reaches_every_prompt_stage(self):
         markers = {
-            "free-fire": ("Gloo Wall", "Gloo Wall", "Gloo Wall", "Gloo Wall"),
+            "free-fire": ("Blue Wall", "Blue Wall", "Blue Wall", "Blue Wall"),
             "bgmi": ("blue zone", "blue-zone", "blue zone", "blue zone"),
             "cod": ("operator", "operator", "operator", "operator"),
         }
@@ -316,11 +316,11 @@ class GameVocabularyTests(unittest.TestCase):
                     writer, engine.build_writer_prompt([sample_claim()], [])
                 )
 
-    def test_gloo_wall_never_called_shield(self):
+    def test_blue_wall_never_called_shield(self):
         fields = engine.get_factory_pack("free-fire")["fields"]
         for key in ("vision_coverage", "vision_coverage_adaptive", "game_context",
                     "script_rules", "writer_rules"):
-            self.assertIn("Gloo Wall", fields[key], key)
+            self.assertIn("Blue Wall", fields[key], key)
         joined = " ".join(fields.values())
         # "shield" appears only inside never-call-it-a-shield prohibitions.
         import re
@@ -331,6 +331,18 @@ class GameVocabularyTests(unittest.TestCase):
             window = joined[max(0, start - 40):start]
             self.assertIn("never", window.lower(),
                           "shield must only appear in a prohibition")
+
+    def test_weapon_naming_guard_present(self):
+        guards = {
+            "free-fire": "name a weapon only when",
+            "bgmi": "name a weapon only when",
+            "cod": "name one only when",
+        }
+        for pack_id, guard in guards.items():
+            joined = " ".join(
+                engine.get_factory_pack(pack_id)["fields"].values()
+            )
+            self.assertIn(guard, joined, f"{pack_id} should carry a weapon-naming guard")
 
 
 class PresentationExclusionTests(unittest.TestCase):

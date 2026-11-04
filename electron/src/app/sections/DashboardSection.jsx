@@ -450,7 +450,7 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
           Welcome back
         </h2>
         <p className="mt-0.5 text-[13px] text-muted-foreground">
-          Your AI commentary and game analysis workspace.
+          ROB, your evidence-aware live commentary companion.
         </p>
       </div>
 

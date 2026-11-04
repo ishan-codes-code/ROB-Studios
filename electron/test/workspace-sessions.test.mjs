@@ -93,6 +93,7 @@ test('completed projects restore stages, samples, and segments', () => {
   // Hydrated views accept the persisted manifest until a run reports
   // its own generation.
   assert.equal(run.ttsGeneration, null);
+  assert.equal(run.runSeq, 0);
 });
 
 test('failed runs restore the persisted error without invention', () => {

@@ -48,16 +48,32 @@ function asText(value) {
 
 /**
  * Select the manifest entries to render, or null for the live view.
- * A manifest is fresh when this session started no TTS run yet
- * (`sessionGeneration` nullish — hydration and pre-run views accept
- * whatever is persisted) or when its `generation_id` matches the
- * generation the worker reported for the current run. A stale
- * manifest (previous run, worker restart) yields null so live
- * segments render instead of last run's rows.
+ * Once a run started this session (`runStarted`), a manifest is
+ * fresh only when its `generation_id` is a non-empty string equal
+ * to `sessionGeneration` — a nullish session generation (TTS
+ * completion not yet reported) rejects every manifest, so a
+ * previous run's rows never shadow the new run's live segments.
+ * Before any run started, hydration and pre-run views accept
+ * whatever is persisted (`sessionGeneration` nullish), or a
+ * matching generation once reported. A stale manifest (previous
+ * run, worker restart) yields null so live segments render instead
+ * of last run's rows.
  */
-export function selectFreshTtsEntries(manifestDoc, sessionGeneration) {
+export function selectFreshTtsEntries(manifestDoc, sessionGeneration, runStarted = false) {
   const entries = manifestDoc?.entries;
   if (!Array.isArray(entries)) {
+    return null;
+  }
+  if (runStarted === true) {
+    if (
+      typeof sessionGeneration === 'string' &&
+      sessionGeneration !== '' &&
+      typeof manifestDoc.generation_id === 'string' &&
+      manifestDoc.generation_id !== '' &&
+      manifestDoc.generation_id === sessionGeneration
+    ) {
+      return entries;
+    }
     return null;
   }
   if (sessionGeneration === null || sessionGeneration === undefined) {

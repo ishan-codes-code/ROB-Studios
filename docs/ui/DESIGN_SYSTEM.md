@@ -1,6 +1,6 @@
 # Obsidian Studio — Design System
 
-Product visual identity for the AI Commentator desktop application
+Product visual identity for the ROB Studio desktop application
 (Electron renderer). This document states the design philosophy and rules.
 Exact token values live in [DESIGN_TOKENS.md](DESIGN_TOKENS.md);
 component usage rules in [COMPONENT_GUIDELINES.md](COMPONENT_GUIDELINES.md);

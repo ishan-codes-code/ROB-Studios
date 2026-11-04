@@ -437,9 +437,10 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
       return (
         <div className="flex flex-col gap-4">
           <p className="text-[13px] leading-relaxed text-muted-foreground">
-            Commentary Studio turns match recordings into AI broadcast commentary. Setup takes
-            about two minutes: connect a vision provider, verify it can see images, then
-            create your first project. Voice narration stays optional.
+            ROB — the Real-time Observer & Broadcaster — turns match recordings into
+            evidence-grounded broadcast commentary. Setup takes about two minutes: connect
+            a vision provider, verify it can see images, then create your first project.
+            Voice narration stays optional.
           </p>
           <ul className="flex flex-col gap-2.5">
             {[
@@ -801,7 +802,7 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
             <AudioLines className="size-4" aria-hidden />
           </span>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">Commentary Studio</p>
+            <p className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">ROB Studio</p>
             <p className="text-[11px] text-muted-foreground">Guided setup · progress saves automatically</p>
           </div>
         </div>

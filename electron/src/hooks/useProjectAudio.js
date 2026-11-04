@@ -14,10 +14,13 @@ import { selectFreshTtsEntries } from '../lib/audio-rows.js';
  * listing loads so segments never leak across projects, and a
  * persisted manifest renders only when it belongs to this session's
  * run (see `selectFreshTtsEntries`) so a previous run's rows never
- * shadow live segments. Only the latest listing request commits, so
- * rapid segments cannot resolve out of order.
+ * shadow live segments. `runSeq` marks whether a run started this
+ * session: once it is positive, a nullish generation rejects every
+ * manifest until the new run reports its own. Only the latest
+ * listing request commits, so rapid segments cannot resolve out of
+ * order.
  */
-export default function useProjectAudio(projectId, script, runStatus, stages, ttsGeneration) {
+export default function useProjectAudio(projectId, script, runStatus, stages, ttsGeneration, runSeq) {
   const [audioFiles, setAudioFiles] = useState([]);
   const [ttsEntries, setTtsEntries] = useState(null);
   const [manifestInvalid, setManifestInvalid] = useState(false);
@@ -60,7 +63,7 @@ export default function useProjectAudio(projectId, script, runStatus, stages, tt
               if (doc?.ok === true && Array.isArray(doc.data?.entries)) {
                 // A stale manifest (previous run) simply selects the
                 // live view; it is not an error worth flagging.
-                entries = selectFreshTtsEntries(doc.data, ttsGeneration);
+                entries = selectFreshTtsEntries(doc.data, ttsGeneration, runSeq > 0);
               } else {
                 invalid = true;
               }
@@ -84,7 +87,7 @@ export default function useProjectAudio(projectId, script, runStatus, stages, tt
     return () => {
       alive = false;
     };
-  }, [projectId, script, runStatus, stages, ttsGeneration]);
+  }, [projectId, script, runStatus, stages, ttsGeneration, runSeq]);
 
   // Stable identity: consumers memo their joins on this object, and the
   // workspace re-renders on every worker message.

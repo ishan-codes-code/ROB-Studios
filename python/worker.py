@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import traceback
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1057,6 +1058,10 @@ def run_streaming_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Per-process run id (non-secret): scopes the session opening's
+    # claim id so previous-run history never suppresses a new run's
+    # introduction. Never printed; stdout stays NDJSON-clean.
+    os.environ.setdefault("AI_COMMENTATOR_RUN_ID", uuid.uuid4().hex)
     args = build_parser().parse_args(argv)
     problem = validate_video(Path(args.video))
     if not getattr(args, "adaptive", False):

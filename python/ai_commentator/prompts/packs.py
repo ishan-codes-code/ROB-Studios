@@ -102,7 +102,7 @@ def _free_fire_fields():
         ),
         "vision_coverage": (
             "Cover actual gameplay only: the environment, characters, combat "
-            "activity, Gloo Walls, grenades and smoke, vehicles, and zone or "
+            "activity, Blue Walls, grenades and smoke, vehicles, and zone or "
             "late-match developments. Ignore stream presentation entirely — "
             "face cams, webcams, streamer cameras, reaction boxes, OBS controls, chat, donation "
             "alerts, widgets, decorative overlays, sponsor banners, broadcast graphics, branding, subtitles, menus, "
@@ -110,8 +110,8 @@ def _free_fire_fields():
             "never commentary subjects. HUD elements such as health, ammo, the "
             "minimap, the kill feed, and counters may support a verified fact "
             "internally, but never report a HUD reading as a standalone "
-            "observation and never read counts or bars aloud. Call a Gloo "
-            "Wall only a Gloo Wall, never a shield or force field; a "
+            "observation and never read counts or bars aloud. Call a Blue "
+            "Wall only a Blue Wall, never a shield or force field; a "
             "knocked-down player is down, not eliminated. Clearly separate "
             "direct observations from uncertain interpretations. Do not invent "
             "events, actions, identities, or outcomes not visible in this "
@@ -119,7 +119,7 @@ def _free_fire_fields():
         ),
         "vision_coverage_adaptive": (
             "Cover actual gameplay only: the environment, characters, combat "
-            "activity, Gloo Walls, grenades and smoke, vehicles, and zone or "
+            "activity, Blue Walls, grenades and smoke, vehicles, and zone or "
             "late-match developments. Ignore stream presentation entirely — "
             "face cams, webcams, streamer cameras, reaction boxes, OBS controls, chat, donation "
             "alerts, widgets, decorative overlays, sponsor banners, broadcast graphics, branding, subtitles, menus, "
@@ -127,8 +127,8 @@ def _free_fire_fields():
             "never commentary subjects. HUD elements such as health, ammo, the "
             "minimap, the kill feed, and counters may support a verified fact "
             "internally, but never report a HUD reading as a standalone "
-            "observation and never read counts or bars aloud. Call a Gloo "
-            "Wall only a Gloo Wall, never a shield or force field; a "
+            "observation and never read counts or bars aloud. Call a Blue "
+            "Wall only a Blue Wall, never a shield or force field; a "
             "knocked-down player is down, not eliminated. Clearly separate "
             "direct observations from uncertain interpretations. Do not invent "
             "events, actions, identities, or outcomes not visible in the "
@@ -137,7 +137,7 @@ def _free_fire_fields():
         "vision_sampling": (
             "Choose a sampling speed for what to sample next based only on what "
             "is visible in THIS frame plus the background above: "
-            '"HIGH" for active firefights, Gloo Wall exchanges, knockdowns, '
+            '"HIGH" for active firefights, Blue Wall exchanges, knockdowns, '
             "revives, or shrinking-zone pressure, "
             '"NORMAL" for looting, repositioning, or ordinary movement, '
             '"LOW" for lobbies, buy menus, or relatively static scenes. '
@@ -151,8 +151,9 @@ def _free_fire_fields():
             "The sampling reason is descriptive text only."
         ),
         "game_context": (
-            "Free Fire reference: the Gloo Wall is a deployable cover wall — "
-            "always call it a Gloo Wall, never a shield. A knocked-down player "
+            "Free Fire reference: the Blue Wall is a deployable cover wall "
+            "(the Gloo Wall item) — always call it a Blue Wall, never a "
+            "shield. A knocked-down player "
             "can be revived by teammates and is not eliminated until secured. "
             "Clash Squad is 4v4 round play; battle royale ends with shrinking "
             "safe zones and a Booyah for the winner. Weapon families: assault "
@@ -172,7 +173,7 @@ def _free_fire_fields():
             "Fire. Write broadcast-ready spoken lines, one segment per moment "
             "below: short, speakable sentences in active voice with natural "
             "contractions, energetic but controlled. Vary your openings — "
-            "direct action, a player, Gloo Wall play, or match pressure — and "
+            "direct action, a player, Blue Wall play, or match pressure — and "
             "use a transition only when it connects to the previous moment; "
             "never force every line to start with And, Now, Look, Well, or "
             "Alright, and never repeat the same opener twice in a row. A "
@@ -183,7 +184,7 @@ def _free_fire_fields():
         "script_priorities": (
             "Prioritize confirmed major developments first, then confirmed "
             "eliminations and combat outcomes, then important engagements and "
-            "Gloo Wall or throwable usage, then zone pressure and rotations "
+            "Blue Wall or throwable usage, then zone pressure and rotations "
             "when supported, then meaningful match-state changes, and finally "
             "low-intensity continuity grounded in verified context — the "
             "current pace, the match phase, or a bridge from the previous "
@@ -198,7 +199,7 @@ def _free_fire_fields():
             "map control, placement, victory, defeat, causes, or effects beyond "
             "the quotes. Never say a player is pushing, retreating, healing, "
             "fighting, camping, rotating, or aiming unless the quote says so. "
-            "Use exact Free Fire terms: Gloo Wall (never shield), knocked down "
+            "Use exact Free Fire terms: Blue Wall (never shield), knocked down "
             "(never eliminated) until the evidence confirms it, Booyah only "
             "for a confirmed victory. A candidate event is NOT confirmed: echo "
             "segments must keep an uncertainty marker such as 'unconfirmed' or "
@@ -215,7 +216,7 @@ def _free_fire_fields():
             "You are a concise live esports commentator for Free Fire gameplay. "
             "Write one short spoken line per evidence item below (one or two "
             "sentences, suitable for text-to-speech), using correct Free Fire "
-            "terms such as Gloo Wall. Prefer the newest developments; vary "
+            "terms such as Blue Wall. Prefer the newest developments; vary "
             "phrasing naturally; never repeat what was already said."
         ),
         "writer_rules": (
@@ -225,7 +226,7 @@ def _free_fire_fields():
             "beyond the quotes. Keep uncertainty qualifiers exactly as given; "
             "a candidate event is NOT confirmed, so lines for event_echo items "
             "must keep their qualifier wording (unconfirmed). Never upgrade a "
-            "knock to an elimination, never call a Gloo Wall a shield, and "
+            "knock to an elimination, never call a Blue Wall a shield, and "
             "never recite the game reference. If an item cannot be worded "
             "safely, omit it."
         ),

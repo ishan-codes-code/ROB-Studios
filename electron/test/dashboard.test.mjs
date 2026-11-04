@@ -57,7 +57,7 @@ test('dashboard has no worker-status card while the header keeps its own', () =>
 
 test('dashboard opens with a workspace greeting', () => {
   assert.match(dashboard, /Welcome back/);
-  assert.match(dashboard, /Your AI commentary and game analysis workspace\./);
+  assert.match(dashboard, /ROB, your evidence-aware live commentary companion\./);
 });
 
 test('statistics come from persisted data through shared selectors', () => {

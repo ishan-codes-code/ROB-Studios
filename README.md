@@ -1,9 +1,9 @@
-# AI Commentator
+# ROB Studio
 
-A native desktop application that analyses recorded Free Fire gameplay
+ROB (Real-time Observer & Broadcaster) is a native desktop application that analyses recorded Free Fire gameplay
 footage with a Baseten-hosted vision model and writes evidence-grounded
 esports commentary. Details live in `docs/`; start with
-`docs/current-state.md`.
+`docs/current-state.md`. Observe the game. Understand the match. Broadcast the moment.
 
 ## Architecture
 

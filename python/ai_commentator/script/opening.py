@@ -17,6 +17,7 @@ entirely, preserving the historical no-metadata behavior.
 
 from __future__ import annotations
 
+import os
 import sys
 
 from ..commentary.writer import claim_id_of, request_writer_text
@@ -34,6 +35,33 @@ OPENING_TIMESTAMP = 0
 #: Cap for the deterministic fallback so long configured values can
 #: never push it past the script text limits; trailing sentences drop.
 OPENING_TEMPLATE_MAX_CHARS = 500
+
+
+def current_opening_run_id() -> str:
+    """Return the per-process opening run id ("" when unset).
+
+    The worker sets ``AI_COMMENTATOR_RUN_ID`` once per process so the
+    opening claim id stays unique across runs with unchanged project
+    metadata; previous-run script history then never suppresses a new
+    run's introduction. Runs without the variable keep the historical
+    deterministic claim id.
+    """
+    value = os.environ.get("AI_COMMENTATOR_RUN_ID", "")
+    return value if isinstance(value, str) else ""
+
+
+def opening_claim_id(claim: dict) -> str:
+    """Return the once-per-run id for an opening claim.
+
+    With a run id, the stable metadata-derived id gains a "-" plus the
+    run id's first 12 characters; without one, the plain stable id is
+    returned unchanged.
+    """
+    base = claim_id_of(claim)
+    run_id = current_opening_run_id()
+    if run_id:
+        return f"{base}-{run_id[:12]}"
+    return base
 
 
 def opening_available(metadata: dict | None = None) -> bool:
@@ -90,7 +118,7 @@ def build_opening_claim(metadata: dict, game_label: str) -> dict:
 
     Evidence phrases quote only configured values (plus the pack's game
     label); missing fields leave no phrase behind. The claim id derived
-    from this dict via :func:`claim_id_of` is the once-per-session key.
+    from this dict via :func:`opening_claim_id` is the once-per-run key.
     """
     meta = sanitized_metadata(metadata)
     label = game_label.strip() if isinstance(game_label, str) else ""
@@ -245,7 +273,7 @@ def run_opening(
         return None, None, None
     label = coerce_pack(pack)["fields"].get("game_label", "") or ""
     claim = build_opening_claim(meta, label)
-    claim_id = claim_id_of(claim)
+    claim_id = opening_claim_id(claim)
     if claim_id in prior_claim_ids:
         return (
             None,

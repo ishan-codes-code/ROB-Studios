@@ -122,6 +122,12 @@ export function createInitialRunState() {
     // audio view tell the current run's manifest from a stale one.
     // Reset by 'started' with everything else above.
     ttsGeneration: null,
+    // Count of runs started in this session (0 until the first
+    // 'started'). Unlike ttsGeneration — which only arrives at TTS
+    // completion — this flips the moment a new run begins, so the
+    // audio view can reject a previous run's manifest while the new
+    // run is still generating. Hydration yields 0 via this factory.
+    runSeq: 0,
   };
 }
 
@@ -143,6 +149,7 @@ export function applyWorkerMessage(state, message) {
       const fresh = createInitialRunState();
       fresh.status = 'processing';
       fresh.settled = false;
+      fresh.runSeq = (state.runSeq ?? 0) + 1;
       fresh.detail = message.message ?? 'Processing video…';
       return fresh;
     }

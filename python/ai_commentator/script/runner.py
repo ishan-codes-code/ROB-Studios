@@ -36,7 +36,7 @@ from .generation import (
     script_text_valid,
     validate_script,
 )
-from .opening import run_opening
+from .opening import opening_available, run_opening
 
 
 def _resolve_live_credentials():
@@ -284,6 +284,66 @@ def run_generate_script(
         return 0
 
     if not fresh_claims:
+        opening_utterance = None
+        if opening_available():
+            # Zero gameplay claims but a project to introduce: word the
+            # opening on its own instead of staying silent. The injected
+            # client wins; otherwise a live client is opened when a key
+            # exists, else the keyless template path (no paid call).
+            if client is not None:
+                opening_utterance = _word_opening(
+                    client, prior_claims, history_texts, claims_by_id,
+                    omitted,
+                )
+            else:
+                try:
+                    provider, model, api_key = _resolve_live_credentials()
+                except RuntimeError:
+                    opening_utterance = _word_opening(
+                        None, prior_claims, history_texts, claims_by_id,
+                        omitted,
+                    )
+                else:
+                    live_cm = _live_text_client(provider, model, api_key)
+                    with live_cm as live_client:
+                        opening_utterance = _word_opening(
+                            live_client, prior_claims, history_texts,
+                            claims_by_id, omitted, api_key=api_key,
+                        )
+        if opening_utterance is not None:
+            segments = [
+                {
+                    "segment_id": script_segment_id(0),
+                    "timestamp_seconds": opening_utterance["timestamp"],
+                    "text": opening_utterance["text"],
+                    "source_claim_ids": sorted(
+                        opening_utterance["source_claim_ids"]
+                    ),
+                }
+            ]
+            document = {
+                "schema_version": SCRIPT_SCHEMA_VERSION,
+                "status": "success",
+                "generated_from": generated_from,
+                "segments": segments,
+                "omitted": omitted,
+                "error": None,
+            }
+            code = write_document(document)
+            if code == 0:
+                print(
+                    f"Script finished: {len(files)} discovered, "
+                    f"{len(accepted)} accepted, 1 segment(s), "
+                    f"{len(omitted)} omitted."
+                )
+                for segment in segments:
+                    print(
+                        f"  segment: [{segment['timestamp_seconds']}s] "
+                        f"{segment['text'][:100]}"
+                    )
+                print(f"Script snapshot: {out_path}")
+                print("Script status: success (opening only).")
+            return code
         document = {
             "schema_version": SCRIPT_SCHEMA_VERSION,
             "status": "silence",

@@ -33,9 +33,9 @@ const windowMain = fs.readFileSync(
 
 test('title bar carries the studio mark with semantic tokens only', () => {
   assert.match(titlebar, /<AudioLines className="size-3" aria-hidden \/>/);
-  assert.match(titlebar, /Commentary Studio/);
+  assert.match(titlebar, /ROB Studio/);
   assert.match(titlebar, /\{context \? \(/);
-  assert.match(titlebar, /aria-label="Commentary Studio window title bar"/);
+  assert.match(titlebar, /aria-label="ROB Studio window title bar"/);
   assert.match(titlebar, /bg-surface/);
   assert.match(titlebar, /border-b border-border/);
   assert.match(titlebar, /text-subtle/);
