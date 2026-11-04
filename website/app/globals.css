@@ -196,9 +196,7 @@ body {
   padding-inline: max(1.5rem, env(safe-area-inset-left)) max(1.5rem, env(safe-area-inset-right));
 }
 
-.scene-surface {
-  will-change: transform, opacity;
-}
+/* No permanent will-change: GSAP promotes layers only while tweening. */
 
 .panel-stack[data-stacking="enabled"] > [data-sticky="true"] {
   position: sticky;
@@ -551,9 +549,9 @@ body {
   gap: clamp(3rem, 10vw, 10rem);
 }
 
+/* Not sticky: this panel can itself be sticky, and nested sticky
+   positioning inside a stuck panel produces unpredictable offsets. */
 .future-intro {
-  position: sticky;
-  top: 5rem;
   align-self: start;
 }
 

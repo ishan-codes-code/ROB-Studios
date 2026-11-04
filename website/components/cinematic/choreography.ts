@@ -17,10 +17,6 @@ type SceneConditions = {
 
 const ENTER = "play none none reverse";
 const EASE = "power3.out";
-// A scene completes its recession after this fraction of one viewport has
-// entered the following panel. Increase for a slower handoff (for example,
-// 0.5) or decrease for a sharper jump.
-const SCENE_HANDOFF_SCROLL_THRESHOLD = 0.34;
 
 let pluginRegistered = false;
 
@@ -108,23 +104,33 @@ export function setupCinematicScenes(root: HTMLElement): () => void {
 
         scenes.slice(0, -1).forEach((outgoingScene, index) => {
           const incomingPanel = panels[index + 1];
-          if (!outgoingScene || !incomingPanel) return;
+          const outgoingPanel = panels[index];
+          if (!outgoingScene || !incomingPanel || !outgoingPanel) return;
+          // Only animate a handoff that physically happens: both panels
+          // must be sticky-eligible (same flags StackedPanels measured).
+          // Otherwise the incoming panel flows normally and the outgoing
+          // scene must stay fully visible until it scrolls away naturally.
+          if (
+            outgoingPanel.dataset.sticky !== "true" ||
+            incomingPanel.dataset.sticky !== "true"
+          )
+            return;
 
           const isHero = index === 0;
           gsap.to(outgoingScene, {
-            scale: isHero ? 0.95 : 0.96,
-            y: isHero ? -18 : -12,
-            opacity: isHero ? 0.55 : 0.65,
-            filter: "brightness(0.72)",
+            scale: isHero ? 0.96 : 0.97,
+            y: isHero ? -14 : -10,
+            opacity: isHero ? 0.65 : 0.75,
             ease: "none",
             transformOrigin: "center center",
             scrollTrigger: {
               trigger: incomingPanel,
+              // Recession tracks the incoming panel's real travel: it
+              // starts when its top enters at the viewport bottom and
+              // completes exactly when it reaches its sticky position
+              // at the top and fully covers the outgoing scene.
               start: "top bottom",
-              end: () =>
-                `+=${Math.round(
-                  window.innerHeight * SCENE_HANDOFF_SCROLL_THRESHOLD,
-                )}`,
+              end: "top top",
               scrub: true,
               invalidateOnRefresh: true,
               refreshPriority: index,
@@ -158,18 +164,8 @@ export function setupCinematicScenes(root: HTMLElement): () => void {
               toggleActions: ENTER,
             },
           });
-          if (isDesktop) {
-            gsap.to(introSignal, {
-              y: -30,
-              ease: "none",
-              scrollTrigger: {
-                trigger: introSection,
-                start: "top bottom",
-                end: "bottom top",
-                scrub: 0.6,
-              },
-            });
-          }
+          // No scrub parallax here: it would fight the reveal tween above
+          // for the same `y` transform on this element.
         }
       }
 

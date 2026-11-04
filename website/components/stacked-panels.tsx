@@ -14,12 +14,19 @@ import { setupCinematicScenes } from "./cinematic/choreography";
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-// Keep long or accessibility-zoomed panels in ordinary document flow.
+// Single eligibility model: a panel is sticky-eligible only when stacking is
+// globally allowed (wide viewport, motion allowed) AND its layout height
+// fits the viewport. `data-sticky` on each panel is the source of truth;
+// `data-stacking` on the root is enabled only when at least one panel is
+// eligible, and the GSAP handoffs read the same per-panel flags.
 export default function StackedPanels({ children }: { children: ReactNode }) {
   const panelsRef = useRef<HTMLDivElement>(null);
   const [stackingEnabled, setStackingEnabled] = useState(false);
+  // Signature of per-panel eligibility, e.g. "110100". GSAP setup re-runs
+  // when it changes so triggers always agree with the physical layout.
+  const [eligibilityKey, setEligibilityKey] = useState("");
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const panelsRoot = panelsRef.current;
     if (!panelsRoot) return;
 
@@ -30,49 +37,68 @@ export default function StackedPanels({ children }: { children: ReactNode }) {
       "(prefers-reduced-motion: reduce)"
     );
 
+    let raf = 0;
     const measure = () => {
-      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      const shouldStack = window.innerWidth > 800 && !reducedMotion.matches;
+      const viewportHeight =
+        window.visualViewport?.height ?? window.innerHeight;
+      const allowed = window.innerWidth > 800 && !reducedMotion.matches;
 
-      panels.forEach((panel) => {
-        const fits =
-          shouldStack &&
-          panel.getBoundingClientRect().height <= viewportHeight + 1;
-        panel.dataset.sticky = fits ? "true" : "false";
-      });
+      let anyEligible = false;
+      const key = panels
+        .map((panel) => {
+          // offsetHeight is layout height, unaffected by GSAP transforms
+          // on inner surfaces (getBoundingClientRect would include them).
+          const fits = allowed && panel.offsetHeight <= viewportHeight + 1;
+          panel.dataset.sticky = fits ? "true" : "false";
+          if (fits) anyEligible = true;
+          return fits ? "1" : "0";
+        })
+        .join("");
 
       setStackingEnabled((current) =>
-        current === shouldStack ? current : shouldStack
+        current === anyEligible ? current : anyEligible
       );
+      setEligibilityKey((current) => (current === key ? current : key));
+    };
+    // Throttle observer/resize bursts to one measure per frame; writing
+    // data attributes does not change panel size, so no observer loop.
+    const scheduleMeasure = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        measure();
+      });
     };
 
     const observer =
       typeof ResizeObserver === "undefined"
         ? null
-        : new ResizeObserver(measure);
+        : new ResizeObserver(scheduleMeasure);
 
     panels.forEach((panel) => observer?.observe(panel));
-    window.addEventListener("resize", measure);
-    window.visualViewport?.addEventListener("resize", measure);
-    reducedMotion.addEventListener("change", measure);
+    window.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("resize", scheduleMeasure);
+    reducedMotion.addEventListener("change", scheduleMeasure);
     measure();
 
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       observer?.disconnect();
-      window.removeEventListener("resize", measure);
-      window.visualViewport?.removeEventListener("resize", measure);
-      reducedMotion.removeEventListener("change", measure);
+      window.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
+      reducedMotion.removeEventListener("change", scheduleMeasure);
     };
   }, []);
 
   // Visual storytelling inside the panels. Physical stacking stays owned by
   // the measurement above and by CSS sticky; this effect only animates inner
-  // content and decorative elements, never panel positioning.
+  // content and decorative elements, never panel positioning. It re-runs
+  // when eligibility changes so handoffs exist only for eligible pairs.
   useIsomorphicLayoutEffect(() => {
     const panelsRoot = panelsRef.current;
     if (!panelsRoot) return;
     return setupCinematicScenes(panelsRoot);
-  }, []);
+  }, [eligibilityKey]);
 
   return (
     <div

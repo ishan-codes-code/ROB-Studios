@@ -37,11 +37,11 @@ export default function GameplayShowcase({ mediaSrc }: { mediaSrc?: string }) {
             <div className="showcase-scanline" aria-hidden="true" />
           </div>
           <div className="showcase-controls">
-            <button type="button" onClick={() => setPlaying((v) => !v)} aria-pressed={playing} aria-label={playing ? "Pause placeholder playback" : "Play placeholder playback"} className="showcase-play">
+            <button type="button" onClick={() => setPlaying((v) => !v)} aria-pressed={playing} aria-describedby="showcase-play-note" aria-label={playing ? "Stop placeholder animation" : "Animate placeholder scanline"} className="showcase-play">
               {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
             </button>
             <div className="showcase-track" aria-hidden="true"><span style={{ width: playing ? "58%" : "42%" }} /></div>
-            <span className="font-mono text-[10px] text-zinc-500">{playing ? "PREVIEW PLAYING · VISUAL ONLY" : "PREVIEW PAUSED"}</span>
+            <span id="showcase-play-note" className="font-mono text-[10px] text-zinc-500">{playing ? "PLACEHOLDER ANIMATION ON · NO VIDEO EXISTS YET" : "PLACEHOLDER ANIMATION OFF · NO VIDEO EXISTS YET"}</span>
           </div>
         </div>
         <p className="mt-6 max-w-2xl text-sm leading-7 text-zinc-400 showcase-caption">Late-game ridge pressure: two opponents advancing on high ground while the player holds low cover. This is the raw material — frames the engine samples, reads, and turns into context.</p>
