@@ -1,11 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createMainWindow } from '../src/main/window.js';
 
-function makeWindowFactory() {
-  const calls = { options: null, maximized: 0, loaded: null };
+function makeWindowFactory({ destroyed = false } = {}) {
+  const calls = {
+    options: null,
+    order: [],
+    loaded: null,
+    handlers: {},
+    fullscreenCalls: 0,
+  };
   const window = {
-    maximize() { calls.maximized += 1; },
+    maximize() { calls.order.push('maximize'); },
+    show() { calls.order.push('show'); },
+    setFullScreen() { calls.fullscreenCalls += 1; },
+    isDestroyed() { return destroyed; },
+    once(event, handler) { calls.handlers[event] = handler; },
     loadURL(url) { calls.loaded = ['url', url]; },
     loadFile(file) { calls.loaded = ['file', file]; },
   };
@@ -18,16 +31,48 @@ function makeWindowFactory() {
   return { calls, BrowserWindow };
 }
 
-test('creates a secure window at the original 900 by 650 size', () => {
+test('window starts hidden at the fallback size with secure webPreferences', () => {
   const { calls, BrowserWindow } = makeWindowFactory();
   const window = createMainWindow({ BrowserWindow, preloadPath: '/preload.js', rendererPath: '/index.html' });
 
   assert.ok(window);
   assert.equal(calls.options.width, 900);
   assert.equal(calls.options.height, 650);
+  assert.equal(calls.options.show, false);
+  assert.equal(calls.options.webPreferences.preload, '/preload.js');
   assert.equal(calls.options.webPreferences.nodeIntegration, false);
   assert.equal(calls.options.webPreferences.contextIsolation, true);
-  assert.equal(calls.maximized, 0);
+  assert.deepEqual(calls.order, [], 'nothing is shown or maximized before ready-to-show');
+});
+
+test('window requests no fullscreen or kiosk behavior', () => {
+  const { calls, BrowserWindow } = makeWindowFactory();
+  createMainWindow({ BrowserWindow, preloadPath: '/preload.js', rendererPath: '/index.html' });
+
+  assert.ok(!calls.options.fullscreen, 'no exclusive fullscreen option');
+  assert.ok(!calls.options.kiosk, 'no kiosk option');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const source = fs.readFileSync(path.join(here, '../src/main/window.js'), 'utf8');
+  assert.doesNotMatch(source, /setFullScreen/);
+  assert.doesNotMatch(source, /\bkiosk\b/i);
+});
+
+test('ready-to-show maximizes before showing', () => {
+  const { calls, BrowserWindow } = makeWindowFactory();
+  createMainWindow({ BrowserWindow, preloadPath: '/preload.js', rendererPath: '/index.html' });
+
+  assert.equal(typeof calls.handlers['ready-to-show'], 'function');
+  calls.handlers['ready-to-show']();
+  assert.deepEqual(calls.order, ['maximize', 'show']);
+  assert.equal(calls.fullscreenCalls, 0);
+});
+
+test('a destroyed window is left alone at ready-to-show', () => {
+  const { calls, BrowserWindow } = makeWindowFactory({ destroyed: true });
+  createMainWindow({ BrowserWindow, preloadPath: '/preload.js', rendererPath: '/index.html' });
+
+  calls.handlers['ready-to-show']();
+  assert.deepEqual(calls.order, []);
 });
 
 test('preserves the selected renderer loading path', () => {

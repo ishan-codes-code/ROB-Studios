@@ -16,7 +16,7 @@ import { cn } from "cn";
 import { Separator } from "@/components/ui/separator.jsx";
 
 const WORKSPACE_ITEMS = [
-  { id: "dashboard", label: "Dashboard", icon: Clapperboard },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "matches", label: "AI Analysis", icon: ScanSearch },
   { id: "commentary", label: "Commentary", icon: MessagesSquare },
   { id: "audio", label: "Audio", icon: AudioWaveform },

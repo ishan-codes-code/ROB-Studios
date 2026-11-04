@@ -14,6 +14,14 @@ import { cn } from "cn";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.jsx";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import GlassCard from "@/primitives/GlassCard.jsx";
@@ -39,9 +47,14 @@ function bridgeError() {
   return new Error("Worker bridge unavailable (running outside Electron?).");
 }
 
-function ProjectRow({ project, onOpen, onDelete, deleting, onArmDelete, armed }) {
+function ProjectRow({ project, onOpen, onRequestDelete, deleting, deleteDisabled }) {
   return (
-    <li className="flex items-center gap-3 px-4 py-3">
+    <motion.li
+      initial={false}
+      exit={{ opacity: 0, x: 12 }}
+      transition={{ duration: MOTION.fast, ease: EASING.entrance }}
+      className="flex items-center gap-3 px-4 py-3"
+    >
       <button
         type="button"
         onClick={() => onOpen(project.id)}
@@ -65,14 +78,14 @@ function ProjectRow({ project, onOpen, onDelete, deleting, onArmDelete, armed })
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label={armed ? `Confirm delete ${project.name}` : `Delete ${project.name}`}
-        disabled={deleting}
-        onClick={() => (armed ? onDelete(project.id) : onArmDelete(project.id))}
-        className={armed ? "text-destructive hover:text-destructive" : undefined}
+        aria-label={`Delete ${project.name}`}
+        title={`Delete ${project.name}`}
+        disabled={deleting || deleteDisabled}
+        onClick={() => onRequestDelete(project)}
       >
         {deleting ? <Spinner /> : <Trash2 />}
       </Button>
-    </li>
+    </motion.li>
   );
 }
 
@@ -99,8 +112,10 @@ function ProjectListSkeleton() {
  * Product-first dashboard. The Live AI Commentary hero states where the
  * product is headed; the recorded-gameplay library below keeps the
  * existing project workflow (native picker → name → isolated copy →
- * open workspace) with identical IPC semantics. Worker status is not
- * rendered here — the global application header already shows it.
+ * open workspace) with identical IPC semantics. Deletion is a deliberate
+ * typed-name confirmation through the same `deleteProject` IPC call.
+ * Worker status is not rendered here — the global application header
+ * already shows it.
  */
 export default function DashboardSection({ onOpenProject }) {
   const [projects, setProjects] = useState([]);
@@ -112,12 +127,18 @@ export default function DashboardSection({ onOpenProject }) {
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [flowError, setFlowError] = useState(null);
-  const [armedDelete, setArmedDelete] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [typedName, setTypedName] = useState("");
   const [deletingId, setDeletingId] = useState(null);
   // Same-tick re-entrancy guards: state alone cannot stop two clicks
   // in one frame from opening two dialogs or creating twice.
   const submitBusyRef = useRef(false);
   const deleteBusyRef = useRef(false);
+
+  const deleteBusy = deletingId !== null;
+  const nameMatches =
+    deleteTarget !== null &&
+    typedName.trim().toLocaleLowerCase() === deleteTarget.name.trim().toLocaleLowerCase();
 
   const refresh = useCallback(async () => {
     if (typeof window.api?.listProjects !== "function") {
@@ -224,29 +245,59 @@ export default function DashboardSection({ onOpenProject }) {
     }
   }
 
-  async function handleDelete(id) {
+  function handleRequestDelete(project) {
     if (deleteBusyRef.current || deletingId !== null) {
       return;
     }
+    setDeleteTarget(project);
+    setTypedName("");
+  }
+
+  function handleCloseDeleteDialog() {
+    if (deleteBusyRef.current || deletingId !== null) {
+      return;
+    }
+    setDeleteTarget(null);
+    setTypedName("");
+  }
+
+  async function handleConfirmDelete(event) {
+    event.preventDefault();
+    if (deleteBusyRef.current || deletingId !== null) {
+      return;
+    }
+    if (deleteTarget === null || !nameMatches) {
+      return;
+    }
     deleteBusyRef.current = true;
-    const target = projects.find((project) => project.id === id);
-    setDeletingId(id);
-    setArmedDelete(null);
+    setDeletingId(deleteTarget.id);
     try {
       if (typeof window.api?.deleteProject !== "function") {
         throw bridgeError();
       }
-      const res = await window.api.deleteProject(id);
+      const res = await window.api.deleteProject(deleteTarget.id);
       if (!res || res.ok !== true) {
         throw new Error(res?.error ?? "Could not delete the project.");
       }
-      setProjects(await refresh());
+      // Deletion succeeded: drop the row immediately so the exit
+      // transition plays, then reconcile with the backend list. A
+      // refresh failure here must never read as a deletion failure.
+      setProjects((prev) => prev.filter((project) => project.id !== deleteTarget.id));
+      const deletedName = deleteTarget.name;
+      setDeleteTarget(null);
+      setTypedName("");
       toast.success("Project deleted", {
         id: "project-deleted",
-        description: target?.name ?? undefined,
+        description: deletedName,
       });
+      refresh().then(setProjects, () => {});
     } catch (err) {
-      setFlowError(err?.message ?? "Could not delete the project.");
+      // The dialog stays open with its typed confirmation intact so the
+      // user can retry or cancel; the toast carries the failure.
+      toast.error("Could not delete project", {
+        id: "project-delete-error",
+        description: err?.message ?? "Could not delete the project.",
+      });
     } finally {
       deleteBusyRef.current = false;
       setDeletingId(null);
@@ -444,17 +495,18 @@ export default function DashboardSection({ onOpenProject }) {
                 ) : (
                   <GlassCard className="p-0">
                     <ul className="flex flex-col divide-y divide-border">
-                      {projects.map((project) => (
-                        <ProjectRow
-                          key={project.id}
-                          project={project}
-                          onOpen={onOpenProject}
-                          onDelete={handleDelete}
-                          deleting={deletingId === project.id}
-                          armed={armedDelete === project.id}
-                          onArmDelete={setArmedDelete}
-                        />
-                      ))}
+                      <AnimatePresence initial={false}>
+                        {projects.map((project) => (
+                          <ProjectRow
+                            key={project.id}
+                            project={project}
+                            onOpen={onOpenProject}
+                            onRequestDelete={handleRequestDelete}
+                            deleting={deletingId === project.id}
+                            deleteDisabled={deleteBusy}
+                          />
+                        ))}
+                      </AnimatePresence>
                     </ul>
                   </GlassCard>
                 )}
@@ -470,6 +522,67 @@ export default function DashboardSection({ onOpenProject }) {
           <AlertDescription>{flowError}</AlertDescription>
         </Alert>
       ) : null}
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => {
+        if (!open) handleCloseDeleteDialog();
+      }}>
+        <DialogContent showCloseButton={!deleteBusy} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] tracking-tight">Delete project?</DialogTitle>
+            <DialogDescription className="text-[13px] leading-relaxed">
+              This will permanently delete this project and its associated data. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleConfirmDelete} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <label
+                htmlFor="delete-confirm-name"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Type &ldquo;{deleteTarget?.name}&rdquo; to confirm
+              </label>
+              <input
+                id="delete-confirm-name"
+                type="text"
+                value={typedName}
+                maxLength={100}
+                autoComplete="off"
+                autoFocus
+                disabled={deleteBusy}
+                onChange={(event) => setTypedName(event.target.value)}
+                placeholder="Enter project name"
+                className="rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              />
+            </div>
+            <DialogFooter className="gap-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={deleteBusy}
+                onClick={handleCloseDeleteDialog}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="destructive"
+                size="sm"
+                disabled={!nameMatches || deleteBusy}
+              >
+                {deleteBusy ? (
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    Deleting…
+                  </>
+                ) : (
+                  "Delete project"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

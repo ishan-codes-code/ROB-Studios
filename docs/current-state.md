@@ -1,5 +1,40 @@
 # Current state
 
+## Project deletion UX, maximized startup & nav icons (uncommitted)
+
+Deletion is now a deliberate typed-name confirmation: clicking a
+project's delete icon opens a compact `Dialog` (shared primitives,
+`Delete project?` title, exact caution copy) asking for the complete
+project name — case-insensitive, trimmed — with the destructive action
+disabled until it matches and a `Spinner` + `Deleting…` pending state.
+One `deleteProject` IPC call per confirmation (ref + state
+single-flight guards); success drops the row immediately
+(`AnimatePresence` exit, opacity + 12px slide on
+`MOTION.fast`/`EASING.entrance`, exiting row only, no cascade) with a
+stable-id `Project deleted` toast, then reconciles via `listProjects`
+without ever reporting a refresh failure as a deletion failure.
+Failures keep the dialog open with typed input intact for retry/cancel
+and report through a `Could not delete project` toast; deletion no
+longer touches the global `flowError` alert. No `Input` primitive
+exists in `components/ui/`, so the confirmation field reuses the
+native token-styled input pattern with a proper associated label. The
+shell now launches maximized: `createMainWindow` starts hidden
+(`show: false`, same 900×650 fallback size and secure webPreferences)
+and maximizes + shows on `ready-to-show` (destroyed-window safe, no
+fullscreen/kiosk). Sidebar Dashboard moved from `Clapperboard` to the
+already-imported `LayoutDashboard`; Editor keeps `Clapperboard`. No
+IPC, schema, Python, worker-protocol, token, or dependency changes.
+
+Verification: relevant Electron suites 60 tests pass, 0 fail (offline,
+`node:test`: rewritten `window.test.mjs` lifecycle tests, new
+`navigation.test.mjs` icon guards, extended `dashboard.test.mjs`
+dialog/matching/toast/exit guards, plus the untouched
+`renderer-hooks` and `settings-sections` suites); renderer production
+build succeeds with the new dialog copy confirmed in the bundle and no
+`armedDelete` remnants. Manually unverified: dialog feel, toast
+timing, row-exit motion, maximized first paint, and the reduced-motion
+walkthrough in a running shell.
+
 ## Dashboard redesign — live AI commentary first (uncommitted)
 
 Dashboard rebuilt around the product vision: a compact heading row, a

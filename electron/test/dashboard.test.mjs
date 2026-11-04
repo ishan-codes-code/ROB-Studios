@@ -99,10 +99,10 @@ test('loading uses skeletons and errors offer retry', () => {
   assert.match(dashboard, /async function handleRetry\(\)/);
 });
 
-test('project toasts are stable single-slot success notifications', () => {
+test('project toasts are stable single-slot notifications', () => {
   assert.match(dashboard, /toast\.success\("Project created", \{\s*id: "project-created"/);
   assert.match(dashboard, /toast\.success\("Project deleted", \{\s*id: "project-deleted"/);
-  assert.doesNotMatch(dashboard, /toast\.error/);
+  assert.match(dashboard, /toast\.error\("Could not delete project"/);
   assert.doesNotMatch(dashboard, /toast\.loading/);
 });
 
@@ -112,4 +112,59 @@ test('dashboard transitions stay opacity-only on shared motion tokens', () => {
   assert.match(dashboard, /animate=\{\{ opacity: 1 \}\}/);
   assert.match(dashboard, /exit=\{\{ opacity: 0 \}\}/);
   assert.doesNotMatch(dashboard, /initial=\{\{[^}]*height/);
+});
+
+test('deletion opens a typed-name dialog instead of the two-click arm', () => {
+  assert.match(dashboard, /<DialogTitle[^>]*>Delete project\?<\/DialogTitle>/);
+  assert.match(dashboard, /This will permanently delete this project and its associated data\. This action cannot be undone\./);
+  assert.match(dashboard, /placeholder="Enter project name"/);
+  assert.match(dashboard, /to confirm/);
+  assert.match(dashboard, /Deleting…/);
+  assert.doesNotMatch(dashboard, /armedDelete/);
+  assert.doesNotMatch(dashboard, /onArmDelete/);
+  assert.doesNotMatch(dashboard, /Confirm delete /);
+});
+
+test('deletion dialog composes the shared Dialog primitives', () => {
+  assert.match(dashboard, /import \{\s*Dialog,\s*DialogContent,\s*DialogDescription,\s*DialogFooter,\s*DialogHeader,\s*DialogTitle,\s*\} from "@\/components\/ui\/dialog\.jsx";/);
+  assert.match(dashboard, /<Dialog open=\{/);
+  assert.match(dashboard, /<DialogContent/);
+  assert.match(dashboard, /<DialogHeader/);
+  assert.match(dashboard, /<DialogDescription/);
+  assert.match(dashboard, /<DialogFooter/);
+  assert.match(dashboard, /variant="destructive"/);
+  assert.match(dashboard, /showCloseButton=\{/);
+});
+
+test('typed-name matching requires the complete name, case-insensitive', () => {
+  assert.match(dashboard, /typedName\.trim\(\)\.toLocaleLowerCase\(\) === deleteTarget\.name\.trim\(\)\.toLocaleLowerCase\(\)/);
+  assert.match(dashboard, /htmlFor="delete-confirm-name"/);
+  assert.match(dashboard, /id="delete-confirm-name"/);
+  assert.match(dashboard, /setTypedName\(""\)/);
+});
+
+test('deletion stays single-flight through the existing IPC call', () => {
+  assert.match(dashboard, /window\.api\.deleteProject\(deleteTarget\.id\)/);
+  assert.match(dashboard, /deleteBusyRef\.current = true/);
+  assert.match(dashboard, /disabled=\{[^}]*!nameMatches[^}]*\}/);
+});
+
+test('successful deletion removes locally before reconciling with the backend', () => {
+  assert.match(dashboard, /setProjects\(\(prev\) => prev\.filter\(\(project\) => project\.id !== deleteTarget\.id\)\)/);
+  assert.match(dashboard, /refresh\(\)\.then\(setProjects,\s*\(\) => \{\}\)/);
+});
+
+test('deleted rows exit with a restrained shared-token transition', () => {
+  assert.match(dashboard, /exit=\{\{ opacity: 0, x: 12 \}\}/);
+  assert.match(dashboard, /transition=\{\{ duration: MOTION\.fast, ease: EASING\.entrance \}\}/);
+  assert.doesNotMatch(dashboard, /exit=\{\{[^}]*blur/);
+  assert.doesNotMatch(dashboard, /exit=\{\{[^}]*box-shadow/);
+  assert.doesNotMatch(dashboard, /stagger/);
+});
+
+test('the delete action stays separate from opening the project', () => {
+  assert.match(dashboard, /aria-label=\{`Delete \$\{project\.name\}`\}/);
+  assert.match(dashboard, /title=\{`Delete \$\{project\.name\}`\}/);
+  assert.match(dashboard, /onClick=\{\(\) => onRequestDelete\(project\)\}/);
+  assert.doesNotMatch(dashboard, /onDelete=\{handleDelete\}/);
 });
