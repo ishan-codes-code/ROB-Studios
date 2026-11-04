@@ -54,6 +54,9 @@ Defined contracts:
   configuration with precedence, validated Studio IPC, preview
   synthesis with temp artifacts, and the vault-to-worker TTS
   credential handoff.
+- [voice-configs-v1.md](voice-configs-v1.md) — the reusable voice
+  configuration library: entry schema, validated library IPC,
+  copy-on-apply project assignment, and credential references.
 
 - [provider-vault-v1.md](provider-vault-v1.md) — named, encrypted,
   multi-credential provider storage owned by the Electron main

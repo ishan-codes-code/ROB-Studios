@@ -19,7 +19,7 @@ see [../architecture.md](../architecture.md) and
   inspector with an accessible splitter); `EditorCenter` owns the toolbar
   (primary Export action, run status, Diagnostics dialog), the always
   visible preview, and the bottom commentary timeline; `ProcessingInspector`
-  owns Processing/Script/Configure/Project tabs; `ScriptPanel` renders the
+  owns Processing/Script/Voice/Configure/Project tabs (`VoicePanel` edits the project voice layer, previews through `tts-preview`, and applies/saves reusable presets from `voice-configs.json` — no scope selector); `ScriptPanel` renders the
   readable script list with compact audio previews. `WorkspaceSection` runs
   one `useProjectAudio` discovery whose result the timeline and script panel
   share, so both agree on every segment's audio state. `EditorCenter`

@@ -28,6 +28,7 @@ import urllib.parse
 
 from openai import APIError, OpenAI
 
+from ...api_activity import ApiRequestTracker, fail_from_error, usage_of
 from ...config import ADAPTIVE_BATCH_MAX_TOKENS
 from ...errors import ObservationError, VisionAPIError
 from .base import (
@@ -194,6 +195,9 @@ class CustomAdapter(VisionProviderAdapter):
 
     def request_observation_text(self, timestamp, image_data_url: str) -> str:
         prompts = self._prompts()
+        tracker = ApiRequestTracker(PROVIDER_ID, "vision", model=self.model,
+                                    frame_count=1)
+        tracker.start()
         try:
             raw_response = self._client.chat.completions.with_raw_response.create(
                 model=self.model,
@@ -212,16 +216,23 @@ class CustomAdapter(VisionProviderAdapter):
             print(f"Custom API response: HTTP {raw_response.status_code}")
             response = raw_response.parse()
         except APIError as exc:
-            raise self._wrap_error(exc) from None
+            wrapped = self._wrap_error(exc)
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
         except ObservationError:
             raise
         except Exception as exc:
-            raise VisionAPIError(
+            wrapped = VisionAPIError(
                 f"Custom API request error: "
                 f"{redact_secret(str(exc), self.api_key)}",
                 code=classify_exception(exc),
                 provider=PROVIDER_ID,
-            ) from None
+            )
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
+        in_tokens, out_tokens = usage_of(response)
+        tracker.succeed(http_status=getattr(raw_response, "status_code", None),
+                        input_tokens=in_tokens, output_tokens=out_tokens)
         return prompts.extract_response_text(response)
 
     def request_adaptive_batch_text(self, timestamps, image_data_urls,
@@ -244,6 +255,10 @@ class CustomAdapter(VisionProviderAdapter):
             content.append(
                 {"type": "image_url", "image_url": {"url": image_data_url}}
             )
+        tracker = ApiRequestTracker(PROVIDER_ID, "vision-batch",
+                                    model=self.model,
+                                    frame_count=len(image_data_urls))
+        tracker.start()
         try:
             raw_response = self._client.chat.completions.with_raw_response.create(
                 model=self.model,
@@ -259,22 +274,36 @@ class CustomAdapter(VisionProviderAdapter):
             print(f"Custom API response: HTTP {raw_response.status_code}")
             response = raw_response.parse()
         except APIError as exc:
-            raise self._wrap_error(exc) from None
+            wrapped = self._wrap_error(exc)
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
         except ObservationError:
             raise
         except Exception as exc:
-            raise VisionAPIError(
+            wrapped = VisionAPIError(
                 f"Custom API request error: "
                 f"{redact_secret(str(exc), self.api_key)}",
                 code=classify_exception(exc),
                 provider=PROVIDER_ID,
-            ) from None
-        prompts.raise_on_length_finish(response, PROVIDER_ID)
+            )
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
+        try:
+            prompts.raise_on_length_finish(response, PROVIDER_ID)
+        except VisionAPIError as exc:
+            fail_from_error(tracker, exc)
+            raise
+        in_tokens, out_tokens = usage_of(response)
+        tracker.succeed(http_status=getattr(raw_response, "status_code", None),
+                        input_tokens=in_tokens, output_tokens=out_tokens)
         return prompts.extract_response_text(response)
 
     def request_adaptive_text(self, timestamp, image_data_url: str,
                               previous=None) -> str:
         prompts = self._prompts()
+        tracker = ApiRequestTracker(PROVIDER_ID, "vision-adaptive",
+                                    model=self.model, frame_count=1)
+        tracker.start()
         try:
             raw_response = self._client.chat.completions.with_raw_response.create(
                 model=self.model,
@@ -295,36 +324,51 @@ class CustomAdapter(VisionProviderAdapter):
             print(f"Custom API response: HTTP {raw_response.status_code}")
             response = raw_response.parse()
         except APIError as exc:
-            raise self._wrap_error(exc) from None
+            wrapped = self._wrap_error(exc)
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
         except ObservationError:
             raise
         except Exception as exc:
-            raise VisionAPIError(
+            wrapped = VisionAPIError(
                 f"Custom API request error: "
                 f"{redact_secret(str(exc), self.api_key)}",
                 code=classify_exception(exc),
                 provider=PROVIDER_ID,
-            ) from None
+            )
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
+        in_tokens, out_tokens = usage_of(response)
+        tracker.succeed(http_status=getattr(raw_response, "status_code", None),
+                        input_tokens=in_tokens, output_tokens=out_tokens)
         return prompts.extract_response_text(response)
 
-    def request_text(self, prompt: str) -> str:
+    def request_text(self, prompt: str, purpose: str = "commentary") -> str:
         """Return raw model text for one text-only prompt (writer/script)."""
         from ...errors import ObservationError, WriterAPIError
 
+        tracker = ApiRequestTracker(PROVIDER_ID, purpose, model=self.model)
+        tracker.start()
         try:
             response = self._client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
             )
         except APIError as exc:
-            raise self._wrap_error(exc, kind="Writer") from None
+            wrapped = self._wrap_error(exc, kind="Writer")
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
         except Exception as exc:
-            raise WriterAPIError(
+            wrapped = WriterAPIError(
                 f"Custom API request error: "
                 f"{redact_secret(str(exc), self.api_key)}",
                 code=classify_exception(exc),
                 provider=PROVIDER_ID,
-            ) from None
+            )
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
+        in_tokens, out_tokens = usage_of(response)
+        tracker.succeed(input_tokens=in_tokens, output_tokens=out_tokens)
         choices = getattr(response, "choices", None) or []
         message = getattr(choices[0], "message", None) if choices else None
         text = getattr(message, "content", None)

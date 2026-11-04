@@ -66,6 +66,7 @@ and the tests together.
 {"type": "adaptive_sample", "data": {"timestamp": 12.5, "speed": "HIGH", "reason": "Fast motion.", "next_timestamp": 13.0, "observations": 3, "requests": 3}}
 {"type": "script_segment", "data": {"utterance_id": "u-0001", "timestamp_seconds": 12.5, "text": "The zone starts closing in.", "source_claim_ids": ["clm-9f3a2b1c4d5e"], "priority": 1, "status": "worded"}}
 {"type": "tts_segment", "data": {"utterance_id": "u-0001", "timestamp_seconds": 12.5, "status": "success", "error": null}}
+{"type": "api_activity", "run_id": "run-1234-5678", "activity": {"id": "req-abc", "event": "started", "provider": "baseten", "purpose": "vision-batch", "model": "meta-models/muse-spark-open", "startedAt": 1700000000000, "frameCount": 3, "metadata": {}}}
 {"type": "stopped", "data": {"status": "stopped", "termination": "stop-requested", "mode": "adaptive", "observations": 2, "requests": 2}}
 {"type": "error", "stage": "state_rebuild", "message": "State rebuild failed; see worker stderr."}
 ```
@@ -106,6 +107,15 @@ Message types:
   outcome (`success`, `error`, or `skipped`). Audio paths are not
   reported here: the finished `tts-v1` manifest is authoritative after
   segment-id renaming.
+- `api_activity` — one outbound AI-provider request event (never terminal
+  for the run). `run_id` identifies the worker process; `activity` is a
+  `started` event (carrying `id`, `provider`, `purpose`, `model`,
+  `startedAt`, `frameCount`, safe `metadata`) or the matching `terminal`
+  event (carrying `status` one of `succeeded`/`failed`/`cancelled`,
+  `completedAt`, `durationMs`, and, when known, `httpStatus`,
+  `inputTokens`/`outputTokens`, `errorCode`/`errorMessage`). One message
+  per event; the main process pairs them by `id` and attaches the
+  project. Never carries secrets or image payloads.
 - `stopped` — terminal message of a gracefully stopped adaptive run
   (`--adaptive` only). `data` mirrors the `result` shape plus `status`
   (`"stopped"`), `termination` (`"stop-requested"`), request counts, and a

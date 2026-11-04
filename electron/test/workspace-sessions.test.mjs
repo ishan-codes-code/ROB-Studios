@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   applySessionMessage,
   disposeSession,
+  hydrateSession,
   routeSessionTarget,
   runStateFromArtifacts,
   updateSessionState,
@@ -154,4 +155,78 @@ test('sessions isolate run state by project id', () => {
 
 test('session hook is exported for the workspace view', () => {
   assert.equal(typeof useWorkspaceSession, 'function');
+});
+
+test('api_activity messages fold into the session history', () => {
+  disposeSession('activity-live');
+  try {
+    applySessionMessage('activity-live', {
+      type: 'api_activity',
+      run_id: 'run-1',
+      projectId: 'activity-live',
+      activity: {
+        id: 'req-1', event: 'started', provider: 'baseten', purpose: 'vision',
+        model: 'm', startedAt: 1000, frameCount: 1, metadata: {},
+      },
+    });
+    applySessionMessage('activity-live', {
+      type: 'api_activity',
+      run_id: 'run-1',
+      projectId: 'activity-live',
+      activity: { id: 'req-1', event: 'terminal', status: 'succeeded', completedAt: 2000, durationMs: 1000 },
+    });
+    let seen = null;
+    updateSessionState('activity-live', (session) => { seen = session; return {}; });
+    assert.equal(seen.apiActivity.length, 1);
+    assert.equal(seen.apiActivity[0].status, 'succeeded');
+    assert.equal(seen.apiActivity[0].durationMs, 1000);
+    // Diagnostics-only traffic never disturbs the run view.
+    assert.equal(seen.run.status, 'idle');
+  } finally {
+    disposeSession('activity-live');
+  }
+});
+
+test('hydration backfills persisted activity without touching live state', async () => {
+  disposeSession('activity-hydrated');
+  try {
+    const calls = [];
+    const api = {
+      listArtifacts: async (projectId) => {
+        calls.push(['listArtifacts', projectId]);
+        return { ok: true, artifacts: {} };
+      },
+      readArtifact: async () => ({ ok: false }),
+      getApiActivity: async (projectId) => {
+        calls.push(['getApiActivity', projectId]);
+        return {
+          ok: true,
+          records: [
+            {
+              id: 'req-old', projectId: 'activity-hydrated', runId: 'run-0',
+              provider: 'meta', purpose: 'commentary', model: 'muse-spark-1.3',
+              status: 'failed', startedAt: 100, completedAt: 200, durationMs: 100,
+              httpStatus: null, inputTokens: null, outputTokens: null,
+              errorCode: 'timeout', errorMessage: 'timed out', frameCount: 0,
+              metadata: {},
+            },
+            { id: '', status: 'bogus' },
+          ],
+        };
+      },
+    };
+    await hydrateSession('activity-hydrated', api);
+    let seen = null;
+    updateSessionState('activity-hydrated', (session) => { seen = session; return {}; });
+    assert.deepEqual(calls, [['listArtifacts', 'activity-hydrated'], ['getApiActivity', 'activity-hydrated']]);
+    assert.equal(seen.hydration, 'ready');
+    assert.equal(seen.apiActivity.length, 1);
+    assert.equal(seen.apiActivity[0].id, 'req-old');
+    assert.equal(seen.apiActivity[0].status, 'failed');
+    // A second hydration resolves without refetching.
+    await hydrateSession('activity-hydrated', api);
+    assert.equal(calls.length, 2);
+  } finally {
+    disposeSession('activity-hydrated');
+  }
 });

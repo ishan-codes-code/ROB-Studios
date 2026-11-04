@@ -45,6 +45,10 @@ contextBridge.exposeInMainWorld('api', {
   getTtsConfig: (projectId) => ipcRenderer.invoke('tts-config-get', projectId ?? null),
   setTtsConfig: (input) => ipcRenderer.invoke('tts-config-set', input),
   previewTts: (input) => ipcRenderer.invoke('tts-preview', input),
+  listVoiceConfigs: () => ipcRenderer.invoke('voice-config-list'),
+  createVoiceConfig: (input) => ipcRenderer.invoke('voice-config-create', input),
+  updateVoiceConfig: (id, patch) => ipcRenderer.invoke('voice-config-update', id, patch),
+  deleteVoiceConfig: (id) => ipcRenderer.invoke('voice-config-delete', id),
   providerSetup: (operation, settings) => ipcRenderer.invoke('provider-setup', operation, settings),
   selectVideo: () => ipcRenderer.invoke('select-video'),
   listProjects: () => ipcRenderer.invoke('list-projects'),
@@ -56,6 +60,7 @@ contextBridge.exposeInMainWorld('api', {
   listArtifacts: (id) => ipcRenderer.invoke('list-artifacts', id),
   readArtifact: (id, kind, name) =>
     ipcRenderer.invoke('read-artifact', id, kind, name),
+  getApiActivity: (id) => ipcRenderer.invoke('get-api-activity', id ?? null),
   onWorkerEvent: (callback) => {
     if (typeof callback !== 'function') {
       throw new TypeError('callback must be a function.');

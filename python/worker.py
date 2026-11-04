@@ -18,29 +18,72 @@ import os
 import signal
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import main as engine  # noqa: E402
+from ai_commentator import api_activity  # noqa: E402
 
 SUPPORTED_VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv", ".webm")
 
 REAL_STDOUT = sys.stdout
 _EMIT_LOCK = threading.Lock()
 
+# Unique per worker process: the main process already tags the project,
+# so run_id only needs to distinguish runs within it.
+RUN_ID = f"run-{os.getpid()}-{int(time.time() * 1000)}"
+
 
 def emit(message: dict) -> None:
     """Write one protocol message as a single JSON line on stdout.
 
     Locked: streaming stages report from worker threads, and NDJSON
-    lines must never interleave.
+    lines must never interleave. Buffered API activity is flushed
+    after every protocol message so diagnostics stream in real time.
     """
     line = json.dumps(message, ensure_ascii=False) + "\n"
     with _EMIT_LOCK:
         REAL_STDOUT.write(line)
         REAL_STDOUT.flush()
+    try:
+        drain_api_activity()
+    except Exception:
+        # Diagnostics must never break the pipeline.
+        pass
+
+
+def drain_api_activity() -> int:
+    """Emit buffered API activity as ``api_activity`` NDJSON messages.
+
+    Returns the number of messages written. Started events and their
+    terminal events are separate protocol messages sharing the request
+    ``id``; the main process pairs them for persistence.
+    """
+    try:
+        events = api_activity.drain_events()
+    except Exception:
+        return 0
+    written = 0
+    for event in events:
+        try:
+            if (not isinstance(event, dict)
+                    or not isinstance(event.get("id"), str)
+                    or event.get("event") not in ("started", "terminal")):
+                raise ValueError("malformed activity event")
+            message = {"type": "api_activity", "run_id": RUN_ID,
+                       "activity": event}
+            line = json.dumps(message, ensure_ascii=False) + "\n"
+        except (TypeError, ValueError) as exc:
+            print(f"API activity report skipped: {exc}", file=sys.stderr)
+            continue
+        with _EMIT_LOCK:
+            REAL_STDOUT.write(line)
+            REAL_STDOUT.flush()
+        written += 1
+    return written
 
 
 def emit_error(stage: str, message: str) -> None:

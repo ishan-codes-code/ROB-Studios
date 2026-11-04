@@ -20,6 +20,7 @@ const MESSAGE_TYPES = new Set([
   'adaptive_sample',
   'script_segment',
   'tts_segment',
+  'api_activity',
   'result',
   'stopped',
   'error',
@@ -227,6 +228,101 @@ function isValidScriptSegment(message) {
   return true;
 }
 
+const API_ACTIVITY_EVENTS = new Set(['started', 'terminal']);
+const API_ACTIVITY_STATUSES = new Set(['succeeded', 'failed', 'cancelled']);
+const MAX_ACTIVITY_ID_CHARS = 120;
+const MAX_ACTIVITY_TEXT_CHARS = 400;
+const MAX_ACTIVITY_METADATA_KEYS = 12;
+
+/**
+ * Strict shape check for `api_activity` events. Started events carry
+ * the request identity (provider, purpose, model, start time);
+ * terminal events carry exactly one outcome. Only bounded,
+ * secret-free fields are accepted — image payloads and credentials
+ * have no place in this schema at all.
+ */
+function isValidApiActivity(message) {
+  if (!message || message.type !== 'api_activity') {
+    return false;
+  }
+  if (typeof message.run_id !== 'string' || message.run_id.trim() === ''
+      || message.run_id.length > MAX_ACTIVITY_ID_CHARS) {
+    return false;
+  }
+  const activity = message.activity;
+  if (!activity || typeof activity !== 'object') {
+    return false;
+  }
+  if (typeof activity.id !== 'string' || activity.id.trim() === ''
+      || activity.id.length > MAX_ACTIVITY_ID_CHARS) {
+    return false;
+  }
+  if (!API_ACTIVITY_EVENTS.has(activity.event)) {
+    return false;
+  }
+  if (activity.event === 'started') {
+    if (typeof activity.provider !== 'string' || activity.provider.trim() === ''
+        || activity.provider.length > 80) {
+      return false;
+    }
+    if (typeof activity.purpose !== 'string' || activity.purpose.trim() === ''
+        || activity.purpose.length > 80) {
+      return false;
+    }
+    if (activity.model !== null && activity.model !== undefined
+        && (typeof activity.model !== 'string' || activity.model.length > 160)) {
+      return false;
+    }
+    if (typeof activity.startedAt !== 'number' || !Number.isFinite(activity.startedAt)) {
+      return false;
+    }
+    if (!isNonNegativeInt(activity.frameCount)) {
+      return false;
+    }
+    if (activity.metadata !== undefined && activity.metadata !== null) {
+      if (typeof activity.metadata !== 'object' || Array.isArray(activity.metadata)) {
+        return false;
+      }
+      const keys = Object.keys(activity.metadata);
+      if (keys.length > MAX_ACTIVITY_METADATA_KEYS) {
+        return false;
+      }
+      for (const key of keys) {
+        if (typeof activity.metadata[key] !== 'string'
+            || activity.metadata[key].length > 200) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  if (!API_ACTIVITY_STATUSES.has(activity.status)) {
+    return false;
+  }
+  if (activity.completedAt !== null && activity.completedAt !== undefined
+      && (typeof activity.completedAt !== 'number' || !Number.isFinite(activity.completedAt))) {
+    return false;
+  }
+  if (activity.durationMs !== null && activity.durationMs !== undefined
+      && !isNonNegativeInt(activity.durationMs)) {
+    return false;
+  }
+  for (const field of ['httpStatus', 'inputTokens', 'outputTokens']) {
+    if (activity[field] !== null && activity[field] !== undefined
+        && !isNonNegativeInt(activity[field])) {
+      return false;
+    }
+  }
+  for (const field of ['errorCode', 'errorMessage']) {
+    if (activity[field] !== null && activity[field] !== undefined
+        && (typeof activity[field] !== 'string'
+            || activity[field].length > MAX_ACTIVITY_TEXT_CHARS)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Strict shape check for `tts_segment` data (streaming runs only). */
 function isValidTtsSegment(message) {
   if (!message || message.type !== 'tts_segment') {
@@ -276,6 +372,9 @@ function describeWorkerMessageIssue(message) {
     return { kind: 'invalid-payload', type: message.type };
   }
   if (message.type === 'tts_segment' && !isValidTtsSegment(message)) {
+    return { kind: 'invalid-payload', type: message.type };
+  }
+  if (message.type === 'api_activity' && !isValidApiActivity(message)) {
     return { kind: 'invalid-payload', type: message.type };
   }
   return null;
@@ -394,6 +493,7 @@ export {
   isValidAdaptiveSample,
   isValidScriptSegment,
   isValidTtsSegment,
+  isValidApiActivity,
   resolvePythonExecutable,
   resolveWorkerScript,
 };

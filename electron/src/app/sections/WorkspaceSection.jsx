@@ -347,6 +347,7 @@ export default function WorkspaceSection({ projectId, inspectorOpen, onProjectLo
     <ProcessingInspector
       project={project}
       run={run}
+      apiActivity={session.apiActivity ?? []}
       runMode={runMode}
       setRunMode={setRunMode}
       visionConfigured={visionConfigured}

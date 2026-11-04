@@ -1,23 +1,23 @@
 import { useState } from "react";
-import { Cpu, FolderOpen, Play, RotateCcw, ScrollText, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Cpu, FolderOpen, Mic, Play, RotateCcw, ScrollText, SlidersHorizontal, Sparkles } from "lucide-react";
 import { AutoHeight } from "@animate-ui/react/primitives/effects/auto-height";
-import { ScrollFade } from "@animate-ui/react/primitives/effects/scroll-fade";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
-import AILoadingState from "@/components/kokonutui/ai-loading.jsx";
 import AITextLoading from "@/components/kokonutui/ai-text-loading.jsx";
+import PipelineStages from "@/components/PipelineStages.jsx";
 import RunPanel from "@/components/RunPanel.jsx";
 import StatusIndicator from "@/primitives/StatusIndicator.jsx";
 import ProjectConfiguration from "./ProjectConfiguration.jsx";
 import ScriptPanel from "./ScriptPanel.jsx";
+import VoicePanel from "./VoicePanel.jsx";
 import { extensionOf, fileNameOf, formatBytes } from "@/lib/format.js";
 import { ADAPTIVE_HARD_MAX_FRAMES, isValidAdaptiveMaxFrames } from "@/lib/run-options.js";
 import { EASING, MOTION } from "@/lib/tokens.js";
-import { skipReasonLabel, stageDetailText, stageLabel } from "@/lib/worker-view.js";
+import { stageLabel } from "@/lib/worker-view.js";
 
 const RUN_STATUS = {
   idle: { key: "idle", label: "Idle" },
@@ -40,124 +40,6 @@ const PROJECT_STATUS = {
 
 function SectionHeading({ children, id }) {
   return <h2 id={id} className="text-[11px] font-medium text-muted-foreground">{children}</h2>;
-}
-
-function SpeedBadge({ speed }) {
-  // Monochrome hierarchy only: emphasis follows sampling density.
-  const variant = speed === "HIGH" ? "default" : speed === "NORMAL" ? "secondary" : "outline";
-  return <Badge variant={variant}>{speed}</Badge>;
-}
-
-/**
- * Derive loading-state steps from observed run state only: finished
- * stages plus the current one. Nothing is invented — planned-but-unseen
- * stages (conditional script/tts) never appear, and failures attach to
- * the stage the worker named (or, when it named none, to the last
- * observed step, with the true stage in the error panel below).
- */
-function loadingSteps(run) {
-  const seen = Object.keys(run.stages);
-  const ordered = [
-    ...seen,
-    ...(run.currentStage && !seen.includes(run.currentStage) ? [run.currentStage] : []),
-  ];
-  const steps = ordered.map((stage) => {
-    const info = run.stages[stage];
-    let status = "pending";
-    let label = stageLabel(stage);
-    if (info?.status === "done") {
-      status = "done";
-    } else if (info?.status === "skipped") {
-      status = "skipped";
-      const reason = skipReasonLabel(info?.detail?.reason);
-      label = reason ? `${label} · ${reason}` : `${label} · Skipped`;
-    } else if (run.status === "failed" && run.error?.stage === stage) {
-      status = "error";
-    } else if (stage === run.currentStage) {
-      status = "running";
-    }
-    const detail = [];
-    if (stage === "adaptive_vision" && run.adaptive) {
-      detail.push(
-        `${run.adaptive.observations ?? 0} observations · ${run.adaptive.requests ?? 0} requests`,
-      );
-    } else {
-      const text = stageDetailText(info?.detail);
-      if (text) {
-        detail.push(text);
-      }
-    }
-    return { id: stage, label, status, detail };
-  });
-  if (run.status === "failed" && steps.length > 0 && !steps.some((step) => step.status === "error" || step.status === "running")) {
-    // The worker died without staging the error (spawn/worker/exit
-    // failures): mark the last observed step so the list reads terminal
-    // instead of idle. The error panel below names the true stage.
-    steps[steps.length - 1] = { ...steps[steps.length - 1], status: "error" };
-  }
-  return steps;
-}
-
-function StageProgress({ run }) {
-  const steps = loadingSteps(run);
-  if (steps.length === 0) {
-    return null;
-  }
-  return (
-    <section aria-label="Processing stages" className="min-w-0">
-      <AILoadingState steps={steps} className="items-start justify-start" />
-    </section>
-  );
-}
-
-function SamplingActivity({ adaptive, runStatus }) {
-  const samples = adaptive?.samples ?? [];
-  const waiting = runStatus === "processing" && samples.length === 0;
-  const terminal = runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled" || runStatus === "stopped";
-  if (samples.length === 0 && !waiting) {
-    if (terminal) {
-      return null;
-    }
-    return (
-      <section aria-label="Sampling activity" className="min-w-0">
-        <SectionHeading>Sampling activity</SectionHeading>
-        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-          Sampling decisions will appear here once processing begins.
-        </p>
-      </section>
-    );
-  }
-  return (
-    <section aria-label="Sampling activity" className="min-w-0">
-      <SectionHeading>Sampling activity</SectionHeading>
-      {samples.length === 0 ? (
-        <p className="mt-1 flex items-center gap-2 text-[12px] text-muted-foreground">
-          <Spinner />
-          Waiting for the first sampling decision…
-        </p>
-      ) : (
-        <div className="mt-1 min-w-0 rounded-sm border border-border bg-background px-2.5 py-2">
-          <p aria-live="polite" className="font-mono text-[10px] tabular-nums text-muted-foreground">
-            {adaptive.observations ?? samples.length} observations · {adaptive.requests ?? samples.length} requests
-          </p>
-          <ScrollFade asChild orientation="vertical" size={28}>
-            <ul className="mt-1.5 flex max-h-44 min-w-0 flex-col gap-1 overflow-y-auto">
-              {samples.map((sample, index) => (
-                <li key={`${sample.timestamp}-${index}`} className="flex min-w-0 items-center gap-2 text-[11px]">
-                  <span className="shrink-0 font-mono tabular-nums text-muted-foreground">{sample.timestamp}s</span>
-                  <SpeedBadge speed={sample.speed} />
-                  <span className="min-w-0 flex-1 truncate text-foreground" title={sample.reason || undefined}>
-                    {sample.next === null || sample.next === undefined ? "run ended" : `next ${sample.next}s`}
-                    {sample.reason ? ` · ${sample.reason}` : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </ScrollFade>
-        </div>
-      )}
-    </section>
-  );
 }
 
 function ReadyState({ adaptiveMaxFrames, ttsRun, visionConfigured, visionChecked, onShowConfigure }) {
@@ -221,7 +103,7 @@ function Diagnostics({ workerLogs }) {
     <details className="group min-w-0">
       <summary className="cursor-pointer list-none rounded-sm text-[11px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <span aria-hidden className="mr-1 inline-block transition-transform duration-150 group-open:rotate-90">▸</span>
-        Worker diagnostics ({workerLogs.length})
+        Advanced · Worker diagnostics ({workerLogs.length})
       </summary>
       <pre className="mt-1.5 max-h-32 min-w-0 overflow-auto rounded-sm border border-border bg-background p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
         {workerLogs.slice(-20).join("\n")}
@@ -230,7 +112,7 @@ function Diagnostics({ workerLogs }) {
   );
 }
 
-function ProcessingContent({ project, run, canStart, starting, cancelling, cancelError, stopping, stopError, runIsAdaptive, adaptiveMaxFrames, ttsRun, visionConfigured, visionChecked, onStart, onCancel, onStop, onShowConfigure }) {
+function ProcessingContent({ project, run, apiActivity, canStart, starting, cancelling, cancelError, stopping, stopError, runIsAdaptive, adaptiveMaxFrames, ttsRun, visionConfigured, visionChecked, onStart, onCancel, onStop, onShowConfigure }) {
   const interrupted = project.processingStatus === "interrupted" && run.status === "idle";
   const stoppingNow = stopping && run.status === "processing";
   const cancellingNow = cancelling && run.status === "processing";
@@ -243,7 +125,7 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
         : interrupted
           ? { key: "interrupted", label: "Interrupted" }
           : RUN_STATUS[run.status] ?? { key: "idle", label: "Idle" };
-  const showStages = run.status === "processing" || run.status === "failed" || run.status === "completed";
+  const showStages = run.status === "processing" || run.status === "failed" || run.status === "completed" || run.status === "stopped" || run.status === "cancelled";
   const startLabel = run.status === "failed" ? "Retry processing" : run.status === "idle" ? "Process video" : "Process again";
   const startIcon = run.status === "failed" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />;
 
@@ -382,7 +264,7 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
       {showStages ? (
         <>
           <Separator />
-          <StageProgress run={run} />
+          <PipelineStages run={run} apiActivity={apiActivity} ttsRun={ttsRun} />
         </>
       ) : null}
 
@@ -394,17 +276,10 @@ function ProcessingContent({ project, run, canStart, starting, cancelling, cance
           cancelError={cancelError}
           showActions={false}
           showStatus={false}
-          showStages={run.status === "stopped" || run.status === "cancelled"}
+          showStages={false}
           className="gap-2"
         />
       </section>
-
-      {runIsAdaptive || run.adaptive || run.status === "idle" ? (
-        <>
-          <Separator />
-          <SamplingActivity adaptive={run.adaptive} runStatus={run.status} />
-        </>
-      ) : null}
 
       <Separator />
       <Diagnostics workerLogs={run.workerLogs} />
@@ -558,6 +433,7 @@ function ProjectContent({ project }) {
 export default function ProcessingInspector({
   project,
   run,
+  apiActivity = [],
   runMode,
   setRunMode,
   visionConfigured,
@@ -594,6 +470,10 @@ export default function ProcessingInspector({
           <ScrollText className="size-3.5 shrink-0" aria-hidden />
           <span className="truncate @max-[320px]:hidden">Script</span>
         </TabsTrigger>
+        <TabsTrigger value="voice" title="Voice" className="h-9 min-w-0 flex-1 gap-1 rounded-sm px-1 text-[11px]">
+          <Mic className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate @max-[320px]:hidden">Voice</span>
+        </TabsTrigger>
         <TabsTrigger value="configuration" title="Configure" className="h-9 min-w-0 flex-1 gap-1 rounded-sm px-1 text-[11px]">
           <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden />
           <span className="truncate @max-[320px]:hidden">Configure</span>
@@ -608,6 +488,7 @@ export default function ProcessingInspector({
         <ProcessingContent
           project={project}
           run={run}
+          apiActivity={apiActivity}
           canStart={canStart}
           starting={starting}
           cancelling={cancelling}
@@ -631,6 +512,9 @@ export default function ProcessingInspector({
         className={`m-0 min-h-0 min-w-0 flex-1 overflow-hidden outline-none ${tab === "script" ? "" : "hidden"}`}
       >
         <ScriptPanel projectId={project.id} script={script} runStatus={runStatus} audio={audio} />
+      </TabsContent>
+      <TabsContent value="voice" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none">
+        <VoicePanel projectId={project.id} onNavigate={onNavigate} />
       </TabsContent>
       <TabsContent value="configuration" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden outline-none">
         <ConfigurationContent

@@ -10,7 +10,7 @@ import { isRunReady, presetsForProfile } from "@/lib/config-display.js";
 const selectClassName =
   "h-8 w-full rounded-sm border border-input bg-background px-2 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
-function GroupHeading({ icon: Icon, title, actionLabel, onAction }) {
+export function GroupHeading({ icon: Icon, title, actionLabel, onAction }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />

@@ -37,7 +37,7 @@ import {
   DEFAULT_COMMENTARY_PRESET_ID,
 } from '../../game-store.mjs';
 import { migrateLegacyVault } from '../../vault-migration.mjs';
-import { listProjects, getProject, updateProject } from '../../project-store.mjs';
+import { listProjects, getProject, updateProject, recordCompletedActivity } from '../../project-store.mjs';
 import {
   listPromptPacks,
   setPromptField,
@@ -123,6 +123,35 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
     return names;
   }
 
+  function purposeForSetupOperation(setupOperation) {
+    if (setupOperation === 'connection') return 'verify-connection';
+    if (setupOperation === 'verify-vision') return 'verify-vision';
+    if (setupOperation === 'verify-tts-auth') return 'verify-tts';
+    if (setupOperation === 'models') return 'list-models';
+    return 'verify-connection';
+  }
+
+  // Settings-level activity (credential checks, model discovery) runs
+  // in a setup child, not the worker, so the outcome is recorded here
+  // once the subprocess settles. Probe errors are already secret-free
+  // by the setup contract; only bounded fields are persisted.
+  function recordSetupActivity({ provider, model, purpose, startedAt, result }) {
+    try {
+      const ok = result?.ok === true;
+      recordCompletedActivity(userDataPath(), null, {
+        provider,
+        model: typeof model === 'string' && model !== '' ? model : null,
+        purpose,
+        status: ok ? 'succeeded' : 'failed',
+        startedAt,
+        completedAt: Date.now(),
+        httpStatus: typeof result?.status === 'number' ? result.status : null,
+        errorCode: ok ? null : (typeof result?.code === 'string' ? result.code : 'unknown'),
+        errorMessage: ok ? null : (typeof result?.error === 'string' ? result.error : null),
+      });
+    } catch { /* diagnostics never break settings flows */ }
+  }
+
   async function runCredentialCheck(id, operation) {
     // Read the credential once: the snapshot pins the exact configuration
     // under test (id, provider, model, endpoint, version) so a mid-flight
@@ -143,6 +172,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
     const setupOperation = operation === 'verify-vision' && snapshot.record.purpose === 'tts'
       ? 'verify-tts-auth'
       : operation;
+    const checkStartedAt = Date.now();
     let result;
     try {
       result = await spawnSetup({
@@ -161,6 +191,13 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
         code: 'setup',
       };
     }
+    recordSetupActivity({
+      provider: snapshot.provider,
+      model: snapshot.model,
+      purpose: purposeForSetupOperation(setupOperation),
+      startedAt: checkStartedAt,
+      result,
+    });
     const tested = {
       id: snapshot.record.id,
       provider: snapshot.provider,
@@ -216,7 +253,15 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
       const candidate = saveSettings(userData(), { ...saved, ...settings, provider: { ...saved.provider, ...(settings?.provider ?? {}), modelVisionVerified: settings?.provider?.baseUrl === saved.provider.baseUrl && settings?.provider?.model === saved.provider.model ? saved.provider.modelVisionVerified : false } });
       const key = readKey();
       if (!key) throw new Error('Save an API key before testing the provider.');
+      const legacyStartedAt = Date.now();
       const result = await spawnSetup({ operation, provider: candidate.provider, key });
+      recordSetupActivity({
+        provider: candidate.provider?.id ?? 'baseten',
+        model: candidate.provider?.model ?? null,
+        purpose: purposeForSetupOperation(operation),
+        startedAt: legacyStartedAt,
+        result,
+      });
       if (operation === 'verify-vision' && result?.ok === true) {
         const verified = { ...candidate, provider: { ...candidate.provider, modelVisionVerified: true } };
         return { ...result, settings: saveSettings(userData(), verified) };
@@ -320,6 +365,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
           return { ok: false, error: 'API key must be a non-empty string under 4096 characters.', code: 'config' };
         }
       }
+      const discoveryStartedAt = Date.now();
       let result;
       try {
         result = await spawnSetup({
@@ -331,6 +377,13 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
       } catch {
         result = { ok: false, error: 'Model discovery process failed. Try again.', code: 'setup' };
       }
+      recordSetupActivity({
+        provider: 'custom',
+        model: null,
+        purpose: 'list-models',
+        startedAt: discoveryStartedAt,
+        result,
+      });
       if (!result || typeof result !== 'object' || result.ok !== true) {
         return {
           ok: false,

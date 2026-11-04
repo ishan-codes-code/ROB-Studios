@@ -295,9 +295,10 @@ def run_generate_script(
             provider, model, api_key = _resolve_live_credentials()
             live_cm = _live_text_client(provider, model, api_key)
             with live_cm as live_client:
-                raw = request_writer_text(live_client, prompt, api_key=api_key)
+                raw = request_writer_text(live_client, prompt, api_key=api_key,
+                                          purpose="script")
         else:
-            raw = request_writer_text(client, prompt)
+            raw = request_writer_text(client, prompt, purpose="script")
         parsed = parse_script_segments(raw, prompt_by_id)
     except (WriterAPIError, ObservationError) as exc:
         message = str(exc)

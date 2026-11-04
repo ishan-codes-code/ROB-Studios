@@ -1,4 +1,4 @@
-import { createProject, deleteProject, getProjectOutputDir, getProject as getStoredProject, isProjectDeletionLocked, listArtifacts, listProjects, openProject, readArtifact, settleProjectRun as settleStoredRun, updateProject } from '../../project-store.mjs';
+import { createProject, deleteProject, dropApiActivityScope, getApiActivity, getProjectOutputDir, getProject as getStoredProject, isProjectDeletionLocked, listArtifacts, listProjects, openProject, readArtifact, settleProjectRun as settleStoredRun, updateProject } from '../../project-store.mjs';
 
 function projectError(err) {
   return { ok: false, error: err?.message ?? 'Project operation failed.' };
@@ -67,7 +67,28 @@ export function registerProjectIpc({ ipcMain, app, workerManager, exportManager 
           return { ok: false, error: 'An export is running for this project. Cancel it before deleting.' };
         }
       }
-      return { ok: true, ...(await deleteProject(app.getPath('userData'), id)) };
+      const result = await deleteProject(app.getPath('userData'), id);
+      // The activity file leaves with the project directory; drop the
+      // cached scope so a recreated id never sees stale records.
+      try { dropApiActivityScope(app.getPath('userData'), id); } catch { /* best effort */ }
+      return { ok: true, ...result };
+    } catch (err) {
+      return projectError(err);
+    }
+  });
+
+  ipcMain.handle('get-api-activity', async (_event, id) => {
+    try {
+      // Null/undefined id reads the settings-level scope (credential
+      // checks, voice previews); a project id reads that project's
+      // run history. Scopes never mix.
+      if (id !== null && id !== undefined && typeof id !== 'string') {
+        return { ok: false, error: 'Invalid project id.' };
+      }
+      return {
+        ok: true,
+        records: getApiActivity(app.getPath('userData'), id ?? null),
+      };
     } catch (err) {
       return projectError(err);
     }

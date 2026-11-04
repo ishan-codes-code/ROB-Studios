@@ -117,3 +117,20 @@ export function fileUrlOf(filePath) {
   }
   return `file:///${encoded.join('/')}`;
 }
+
+/**
+ * Wall-clock display (`HH:MM:SS` local) for diagnostics timestamps.
+ * Returns an em dash for unusable input, never throws.
+ */
+export function formatClockTime(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) {
+    return '—';
+  }
+  try {
+    const date = new Date(ms);
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  } catch {
+    return '—';
+  }
+}

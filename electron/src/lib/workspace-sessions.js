@@ -5,6 +5,7 @@ import {
   applyWorkerMessage,
   createInitialRunState,
 } from "./worker-view.js";
+import { MAX_API_ACTIVITY, applyApiActivityEvent, sanitizeActivityRecord } from "./api-activity-view.js";
 import { RUN_MODES } from "./run-options.js";
 
 /**
@@ -41,6 +42,11 @@ function createSession() {
     // Last terminal status already toasted, so reopening a settled
     // project never replays its completion toast.
     toastNotified: null,
+    // Paired API activity records for this project: live worker events
+    // fold in here, and hydration backfills the persisted history.
+    // Bounded like the main-process retention; records survive across
+    // runs so Diagnostics shows history, not just the latest run.
+    apiActivity: [],
     listeners: new Set(),
     hydrating: false,
     // Cached immutable snapshot: useSyncExternalStore requires
@@ -91,6 +97,9 @@ export function applySessionMessage(projectId, message) {
   const session = getSession(projectId);
   session.touched = true;
   session.run = applyWorkerMessage(session.run, message);
+  if (message && message.type === "api_activity") {
+    session.apiActivity = applyApiActivityEvent(session.apiActivity, message).slice(-MAX_API_ACTIVITY);
+  }
   emit(session);
 }
 
@@ -135,6 +144,7 @@ function snapshotOf(session) {
     ttsRun: session.ttsRun,
     hydration: session.hydration,
     toastNotified: session.toastNotified,
+    apiActivity: session.apiActivity,
   };
 }
 
@@ -325,6 +335,20 @@ export function hydrateSession(projectId, api) {
         listing?.script?.present === true && listing.script.invalid !== true ? readDoc(api, projectId, "script") : null,
         listing?.tts?.present === true && listing.tts.invalid !== true ? readDoc(api, projectId, "tts") : null,
       ]);
+      let activity = null;
+      try {
+        if (typeof api.getApiActivity === "function") {
+          const res = await api.getApiActivity(projectId);
+          if (res?.ok === true && Array.isArray(res.records)) {
+            activity = res.records
+              .map((entry) => sanitizeActivityRecord(entry))
+              .filter((record) => record !== null)
+              .slice(-MAX_API_ACTIVITY);
+          }
+        }
+      } catch {
+        // Activity history is advisory: hydration continues without it.
+      }
       if (!session.touched) {
         session.run = runStateFromArtifacts({
           processingStatus: project?.processingStatus ?? "idle",
@@ -333,6 +357,9 @@ export function hydrateSession(projectId, api) {
           script,
           tts,
         });
+        if (activity !== null) {
+          session.apiActivity = activity;
+        }
         if (TERMINAL_STATUSES.has(session.run.status)) {
           session.toastNotified = session.run.status;
         }

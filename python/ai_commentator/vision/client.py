@@ -18,7 +18,9 @@ from ..config import (
     OBSERVATION_CONFIDENCES,
     VISION_FRAME_PATH,
 )
+from ..api_activity import ApiRequestTracker, usage_of
 from ..errors import ObservationError, VisionAPIError
+from .providers.base import redact_secret
 from ..prompts import coerce_pack, effective_game_context
 from .observations import parse_observation, validate_observation
 from .sampling import (
@@ -141,6 +143,9 @@ def request_observation_text(
     """
     if _is_provider_adapter(client):
         return client.request_observation_text(timestamp, image_data_url)
+    tracker = ApiRequestTracker("baseten", "vision", model=BASETEN_MODEL,
+                                frame_count=1)
+    tracker.start()
     try:
         raw_response = client.chat.completions.with_raw_response.create(
             model=BASETEN_MODEL,
@@ -170,7 +175,17 @@ def request_observation_text(
             detail = f"{detail} Cause: {exc.__cause__}"
         if api_key:
             detail = detail.replace(api_key, "[REDACTED]")
+        tracker.fail(error_code="request_error", message=detail,
+                     http_status=status_code)
         raise VisionAPIError(f"Baseten API {status}: {detail}") from None
+    except Exception as exc:
+        tracker.fail(error_code="request_error",
+                     message=redact_secret(str(exc), api_key)
+                     if api_key else str(exc))
+        raise
+    in_tokens, out_tokens = usage_of(response)
+    tracker.succeed(http_status=getattr(raw_response, "status_code", None),
+                    input_tokens=in_tokens, output_tokens=out_tokens)
     return extract_response_text(response)
 
 
@@ -410,6 +425,9 @@ def request_adaptive_text(
         return client.request_adaptive_text(
             timestamp, image_data_url, previous=previous
         )
+    tracker = ApiRequestTracker("baseten", "vision-adaptive",
+                                model=BASETEN_MODEL, frame_count=1)
+    tracker.start()
     try:
         raw_response = client.chat.completions.with_raw_response.create(
             model=BASETEN_MODEL,
@@ -442,7 +460,17 @@ def request_adaptive_text(
             detail = f"{detail} Cause: {exc.__cause__}"
         if api_key:
             detail = detail.replace(api_key, "[REDACTED]")
+        tracker.fail(error_code="request_error", message=detail,
+                     http_status=status_code)
         raise VisionAPIError(f"Baseten API {status}: {detail}") from None
+    except Exception as exc:
+        tracker.fail(error_code="request_error",
+                     message=redact_secret(str(exc), api_key)
+                     if api_key else str(exc))
+        raise
+    in_tokens, out_tokens = usage_of(response)
+    tracker.succeed(http_status=getattr(raw_response, "status_code", None),
+                    input_tokens=in_tokens, output_tokens=out_tokens)
     return extract_response_text(response)
 
 

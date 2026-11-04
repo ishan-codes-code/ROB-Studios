@@ -13,11 +13,12 @@ import { registerProjectIpc } from './main/ipc/projects.js';
 import { registerProcessingIpc } from './main/ipc/processing.js';
 import { registerSettingsIpc } from './main/ipc/settings.js';
 import { registerTtsIpc } from './main/ipc/tts.js';
+import { registerVoiceConfigIpc } from './main/ipc/voice-configs.js';
 import { createTtsCatalogLoader } from './tts-catalog.mjs';
 import { createPromptPackLoader } from './prompt-packs.mjs';
 import { registerProjectMediaProtocol } from './main/media-protocol.js';
 import { createMainWindow } from './main/window.js';
-import { reconcileInterruptedRuns, resolveProjectMedia, sweepDeletionQuarantine } from './project-store.mjs';
+import { flushApiActivity, recordApiActivityEvent, reconcileInterruptedRuns, resolveProjectMedia, sweepDeletionQuarantine } from './project-store.mjs';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -116,6 +117,20 @@ function createWindow() {
 }
 
 function sendWorkerEvent(message) {
+  if (message && typeof message === 'object' && message.type === 'api_activity') {
+    // Pair and persist before forwarding: Diagnostics and the
+    // pipeline read the same records live and after restart.
+    try {
+      recordApiActivityEvent(
+        app.getPath('userData'),
+        processingState.activeProjectId ?? null,
+        message.run_id ?? null,
+        message.activity ?? null,
+      );
+    } catch {
+      // Persistence never breaks event delivery.
+    }
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     // Tag the run's project so the renderer routes events to the right
     // workspace session (additive: consumers ignore unknown fields).
@@ -170,6 +185,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   // Temporary dev bypass: memory-held credentials vanish at shutdown.
   try { clearDevCredentials(); } catch { /* never block quit */ }
+  try { flushApiActivity(app.getPath('userData'), { force: true }); } catch { /* best effort */ }
   if (workerManager.isBusy()) {
     // Best effort: the process tree is torn down with the session, but an
     // explicit terminate avoids a stray paid API call or file write.
@@ -190,6 +206,7 @@ registerProjectIpc({ ipcMain, app, workerManager, exportManager });
 registerExportIpc({ ipcMain, app, dialog, fs, exportManager, sendExportEvent, getMainWindow: () => mainWindow });
 registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader });
 registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });
+registerVoiceConfigIpc({ ipcMain, app, safeStorage });
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.

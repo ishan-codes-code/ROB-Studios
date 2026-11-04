@@ -10,6 +10,7 @@ is ever added or stripped here.
 
 from __future__ import annotations
 
+from ..api_activity import ApiRequestTracker, fail_from_error
 from .config import DEFAULT_TTS_MODEL, validate_tts_model
 
 
@@ -96,6 +97,11 @@ class GeminiTTSClient:
             raise ValueError("TTS text is required.")
         clean_voice = validate_tts_voice(voice)
         clean_style = validate_tts_voice_direction(style)
+        tracker = ApiRequestTracker(
+            self.PROVIDER_ID, "tts", model=self.model,
+            metadata={"voice": clean_voice, "style": clean_style},
+        )
+        tracker.start()
         try:
             interaction = self._client.interactions.create(
                 model=self.model,
@@ -116,7 +122,10 @@ class GeminiTTSClient:
                 },
             )
         except Exception as exc:
-            raise self._wrap_error(exc) from None
+            wrapped = self._wrap_error(exc)
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
+        tracker.succeed()
         return self._extract_wav(interaction)
 
     def _extract_wav(self, interaction) -> bytes:

@@ -1,5 +1,49 @@
 # Current state
 
+## Unified API diagnostics + live processing pipeline (uncommitted)
+
+Every outbound AI request is now tracked at the call boundary and
+shared by two surfaces. Python captures paired started/terminal
+events (`ai_commentator/api_activity.py`) in the raw Baseten paths,
+all three vision adapters (single, adaptive, HIGH batch), the
+commentary/script writer (purpose-tagged), and per-utterance TTS
+synthesis; `worker.py` drains them as validated `api_activity` NDJSON
+after every protocol message. The main process pairs, persists
+(per-project `api-activity.json`, 200 records; settings-level file,
+100), and forwards them; worker exit/quit force-flush, restarts
+reconcile in-flight requests as interrupted, and deletion drops the
+scope. Settings-level checks (connection, image/TTS verification,
+model discovery, voice previews) record completed entries main-side.
+Malformed activity lines downgrade to log notes and can never fail a
+run; secrets and image payloads are redacted at capture and again at
+persistence. The Diagnostics dialog gains an API Activity tab
+(summary, scope toggle, expandable requests) beside the untouched
+Artifact Browser; the Processing tab replaces the stage loader with a
+live pipeline (observed stages only, expandable counts, sampling
+inside vision, inferred TTS skipped/queued states, streaming-overlap
+aware). Edited files were normalized CRLF→LF (diff-neutral under
+autocrlf); no protocol/IPC contracts changed beyond the additive
+`api_activity` message and `get-api-activity` bridge.
+
+Verification (targeted only): new `test_api_activity.py` (18) plus
+`test_providers`/`test_adaptive*`/`test_commentary_writer`/
+`test_script`/`test_tts`/`test_vision_batch`/`test_streaming`/
+`test_worker`/`test_custom_provider` pass; new Electron
+`api-activity` (13), `api-activity-view` (15), `diagnostics-wiring`
+(5) suites pass with extended `worker-protocol`, `python-worker`,
+`workspace-sessions`, `tts-ipc`, `vault-ipc`, `format` coverage
+(239/239 in the affected set, run with TEMP redirected into the
+workspace: sandbox EPERM blocks `os.tmpdir()` for all suites);
+renderer production build succeeds with the new surfaces in the
+bundle. Manually unverified: live request streaming, dialog/pipeline
+feel, and hydration timing in a running shell.
+
+## Editor Voice tab + reusable voice configurations (uncommitted)
+
+The editor inspector gains a fifth Voice tab (VoicePanel, after Script): project-owned voice editing (TTS credential, catalogue model/voice, delivery style) with draft/save/discard, paid preview through the existing 	ts-preview channel and shared PreviewPlayer, and a reusable preset library (oice-configs.json, oice-config-* IPC) with apply-as-copy, save-new, update, rename, and two-step delete. Library entries carry credential references, never secrets; provider pins from vault metadata; catalogue membership and credential existence stay apply-time gates via the unchanged 	ts-config-set project path, so runs resolve identically. The new tab is inherently project-scoped and carries no scope selector; the standalone Voice Providers page is untouched. See docs/contracts/voice-configs-v1.md.
+
+Verification: 20 new tests pass (store, IPC, panel guards) plus 52 relevant existing (tts-ipc, tts-config, renderer-hooks); renderer production build succeeds with the tab in the bundle. Full-suite editor-export toast-ownership guard fails in this sandbox on Windows path separators (pre-existing, unrelated — no new toast owners). Not manually verified in a running shell: tab feel, preview playback, and apply/save flows.
+
 ## Workspace persistence, HIGH multi-frame & default spoken audio (uncommitted)
 
 Back navigation no longer destroys the editor: run state moved from

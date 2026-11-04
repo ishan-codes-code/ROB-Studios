@@ -7,6 +7,7 @@ import { registerSettingsIpc } from '../src/main/ipc/settings.js';
 import { createCredential as vaultCreate, setCredentialKey, setCredentialModel } from '../src/credentials-store.mjs';
 import { createGameProfile, createCommentaryPreset } from '../src/game-store.mjs';
 import { createProject, updateProject } from '../src/project-store.mjs';
+import { getApiActivity } from '../src/project-store/api-activity.mjs';
 import { loadSettings, saveSettings } from '../src/settings-store.mjs';
 
 const storage = () => ({
@@ -66,6 +67,25 @@ test('vault IPC creates, lists, tests, verifies, and deletes', async (t) => {
 
   const removed = await handlers['credential-remove']({}, id);
   assert.deepEqual(removed, { ok: true, deleted: true, id });
+});
+
+test('credential checks record settings-level activity without secrets', async (t) => {
+  const { dir, handlers } = setup(t, {
+    spawnSetup: async ({ operation }) => (operation === 'verify-vision'
+      ? { ok: true, visionVerified: true }
+      : { ok: true, connected: true }),
+  });
+  const created = await handlers['credential-create']({}, {
+    name: 'Meta Recorded', provider: 'meta', model: 'muse-spark-1.3', key: 'zz-top-secret-9',
+  });
+  const id = created.credential.id;
+  await handlers['credential-test']({}, id);
+  await handlers['credential-verify']({}, id);
+  const records = getApiActivity(dir, null);
+  assert.deepEqual(records.map((record) => record.purpose), ['verify-connection', 'verify-vision']);
+  assert.ok(records.every((record) => record.status === 'succeeded'));
+  assert.ok(records.every((record) => record.provider === 'meta'));
+  assert.equal(JSON.stringify(records).includes('zz-top-secret-9'), false);
 });
 
 test('vault IPC never leaks secrets in outputs or errors', async (t) => {

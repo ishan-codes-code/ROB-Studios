@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { getProjectOutputDir, getProject as getStoredProject, isProjectDeletionLocked, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
+import { flushApiActivity, getProjectOutputDir, getProject as getStoredProject, isProjectDeletionLocked, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
 import { buildWorkerArgv, isVisionConfigured, resolvePythonExecutable, resolveWorkerScript, validateVideoInput } from '../../worker-protocol.mjs';
 import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../run-config.mjs';
 import { TTS_API_KEY_ENV_VAR } from '../../tts-config.mjs';
@@ -233,6 +233,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       onExit: ({ code, signal, cancelled, spawnError }) => {
         const finishedProjectId = state.activeProjectId;
         state.activeProjectId = null;
+        try { flushApiActivity(app.getPath('userData'), { force: true }); } catch { /* best effort */ }
         if (spawnError) {
           sendWorkerEvent({
             type: 'error',
