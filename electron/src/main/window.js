@@ -4,6 +4,11 @@ export const TITLE_BAR_OVERLAY_HEIGHT = 36;
 // instead of sitting blank forever.
 export const WINDOW_LOAD_MAX_ATTEMPTS = 3;
 export const WINDOW_LOAD_RETRY_MS = 500;
+// Renderer crash recovery: a terminated renderer reloads in place up
+// to this many times per window lifetime, then lands on an error
+// page. The lifetime cap (never reset by successful loads) is what
+// stops a deterministically crashing renderer from reload-looping.
+export const WINDOW_CRASH_MAX_RELOADS = 3;
 
 export function loadErrorHtml(detail) {
   const safe = String(detail ?? 'the page could not be loaded.')
@@ -16,7 +21,7 @@ export function loadErrorHtml(detail) {
     + `</div></body></html>`;
 }
 
-export function createMainWindow({ BrowserWindow, preloadPath, devServerUrl, rendererPath, iconPath = null, platform = process.platform, scheduleRetry = (fn, ms) => setTimeout(fn, ms) }) {
+export function createMainWindow({ BrowserWindow, preloadPath, devServerUrl, rendererPath, iconPath = null, platform = process.platform, scheduleRetry = (fn, ms) => setTimeout(fn, ms), onEvent = null }) {
   // Native caption controls stay visible on Windows: the overlay paints
   // the Obsidian surface behind them while the renderer draws the
   // matching title bar beneath. Other platforms keep the native frame.
@@ -59,19 +64,76 @@ export function createMainWindow({ BrowserWindow, preloadPath, devServerUrl, ren
   // A failed main-frame load retries with backoff, then lands on an
   // error page: every outcome is visible, none is a silent blank.
   // Guarded for minimal mocks (unit tests) that lack webContents.
+  // The scheduled retry re-checks destruction: the window may close
+  // while the backoff is pending, and loading into a destroyed
+  // window throws.
   let loadAttempts = 1;
   window.webContents?.on?.('did-fail-load', (_event, _code, desc, _url, isMainFrame) => {
     if (isMainFrame === false || window.isDestroyed?.()) {
       return;
     }
     if (loadAttempts >= WINDOW_LOAD_MAX_ATTEMPTS) {
+      onEvent?.({ type: 'load-failed', detail: String(desc ?? '') });
       window.webContents?.loadURL?.(
         `data:text/html;charset=utf-8,${encodeURIComponent(loadErrorHtml(desc))}`,
       );
       return;
     }
     loadAttempts += 1;
-    scheduleRetry(loadTarget, WINDOW_LOAD_RETRY_MS * loadAttempts);
+    scheduleRetry(() => {
+      if (!window.isDestroyed?.()) {
+        loadTarget();
+      }
+    }, WINDOW_LOAD_RETRY_MS * loadAttempts);
+  });
+
+  // Renderer-process termination (crash, OOM, kill): log the reason
+  // and reload the same window in place — never a second window, and
+  // never touching the Python worker or project state, which live
+  // outside the renderer. `recovering` suppresses duplicate events
+  // for one incident; the lifetime reload cap stops a renderer that
+  // crashes on every boot from looping forever.
+  let crashReloads = 0;
+  let recovering = false;
+  const showCrashPage = (reason, exitCode) => {
+    const detail = `The renderer process ended (${reason ?? 'unknown reason'}`
+      + `${typeof exitCode === 'number' ? `, exit code ${exitCode}` : ''}).`;
+    window.webContents?.loadURL?.(
+      `data:text/html;charset=utf-8,${encodeURIComponent(loadErrorHtml(detail))}`,
+    );
+  };
+  window.webContents?.on?.('render-process-gone', (_event, details) => {
+    if (window.isDestroyed?.() || recovering) {
+      return;
+    }
+    const reason = details?.reason ?? 'unknown';
+    const exitCode = typeof details?.exitCode === 'number' ? details.exitCode : null;
+    if (crashReloads >= WINDOW_CRASH_MAX_RELOADS) {
+      onEvent?.({ type: 'render-process-gone', reason, exitCode, recovered: false });
+      showCrashPage(reason, exitCode);
+      return;
+    }
+    crashReloads += 1;
+    recovering = true;
+    onEvent?.({ type: 'render-process-gone', reason, exitCode, recovered: true, attempt: crashReloads });
+    if (typeof window.webContents?.reload === 'function') {
+      window.webContents.reload();
+    } else {
+      loadTarget();
+    }
+  });
+  window.webContents?.on?.('did-finish-load', () => {
+    recovering = false;
+  });
+
+  // Responsiveness is diagnostics only: a busy renderer (video
+  // processing, large workspace paint) must never be destroyed for
+  // being temporarily slow.
+  window.on?.('unresponsive', () => {
+    onEvent?.({ type: 'renderer-unresponsive' });
+  });
+  window.on?.('responsive', () => {
+    onEvent?.({ type: 'renderer-responsive' });
   });
 
   // Open maximized once the renderer is ready so the user never sees a

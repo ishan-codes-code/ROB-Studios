@@ -18,6 +18,7 @@ import { createTtsCatalogLoader } from './tts-catalog.mjs';
 import { createPromptPackLoader } from './prompt-packs.mjs';
 import { registerProjectMediaProtocol } from './main/media-protocol.js';
 import { createMainWindow } from './main/window.js';
+import { handleChildProcessGone } from './main/process-events.js';
 import { flushApiActivity, recordApiActivityEvent, reconcileInterruptedRuns, resolveProjectMedia, sweepDeletionQuarantine } from './project-store.mjs';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -122,6 +123,17 @@ function windowIconPath() {
   }
 }
 
+// Window/process diagnostics land on stderr (never stdout, never the
+// renderer): crash reasons, exit codes, and load failures operators
+// can correlate with a blank-window report.
+function logWindowEvent(event) {
+  try {
+    console.error(`[ROB window] ${event?.type ?? 'event'}: ${JSON.stringify(event ?? {})}`);
+  } catch {
+    // Diagnostics never break the app.
+  }
+}
+
 function createWindow() {
   mainWindow = createMainWindow({
     BrowserWindow,
@@ -129,6 +141,7 @@ function createWindow() {
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
     rendererPath: path.join(__dirname, '../renderer', `${MAIN_WINDOW_VITE_NAME}/index.html`),
     iconPath: windowIconPath(),
+    onEvent: logWindowEvent,
   });
 }
 
@@ -195,6 +208,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// Non-renderer process termination (GPU, utility, ...): diagnostics
+// only. Recovery for the renderer's own crashes lives in
+// createMainWindow; nothing here disables acceleration or restarts
+// helpers without evidence.
+app.on('child-process-gone', (_event, details) => {
+  handleChildProcessGone(details, { onEvent: logWindowEvent });
 });
 
 // Never leave a worker running after the app exits.

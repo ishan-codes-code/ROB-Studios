@@ -1,5 +1,25 @@
 # Current state
 
+## Blank-window recovery audit (uncommitted)
+
+Renderer failure handling completed around the committed ErrorBoundary and
+load-retry work (kept intact): `render-process-gone` now logs reason + exit
+code and reloads the same window in place (duplicate-suppressed, lifetime
+cap of 3, crash page after exhaustion); `unresponsive`/`responsive` emit
+diagnostics only and never destroy a busy renderer; `app` `child-process-gone`
+(GPU, utility, ...) logs type/reason/exit code via `main/process-events.js`
+with no automatic GPU or helper action; scheduled load retries re-check
+destruction before firing. Recovery never creates a second window and never
+touches the Python worker or project state. Pre-existing failure (verified at
+clean HEAD, unrelated): `editor-export` "toast notifications have exactly four
+owners" — ProjectCreationDialog is a legitimate fifth sonner owner.
+
+Verification: Electron suite 584/585 (only the pre-existing toast failure);
+new `renderer-recovery` behavioral tests (11) pass; window retry/overlay tests
+intact; Vite renderer build passes; forge start boots the real main process.
+Renderer crash/load-failure paths verified via event mocks only — real Electron
+GUI reproduction is impossible in this container (GPU/zygote SIGTRAP).
+
 ## ROB app icon + terminology isolation (uncommitted)
 
 Supplied waveform icon integrated: `electron/src/assets/icons/icon.{png,ico,icns,svg}`
