@@ -1,20 +1,22 @@
 {
   "name": "rob-studio",
-  "productName": "ROB Studio",
+  "productName": "ROB Studios",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "ROB Studios desktop application",
   "main": ".vite/build/main.js",
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
+    "build:worker:win": "cd .. && python -m PyInstaller --noconfirm --clean --distpath python/dist --workpath python/build python/ROBEngine.spec",
+    "make:win": "electron-forge make --platform win32 --arch x64",
     "publish": "electron-forge publish",
     "test": "node --test \"test/*.test.mjs\"",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],
   "author": {
-    "name": "Piko",
+    "name": "ROB Studios",
     "email": "pikocanfly.contact@gmail.com"
   },
   "license": "MIT",

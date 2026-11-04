@@ -68,7 +68,7 @@ test('onboarding introduces ROB with its full descriptor', () => {
 test('build metadata carries the ROB Studio brand', () => {
   const parsed = JSON.parse(manifest);
   assert.equal(parsed.name, 'rob-studio');
-  assert.equal(parsed.productName, 'ROB Studio');
+  assert.equal(parsed.productName, 'ROB Studios');
   assert.doesNotMatch(manifest, /electron-react/);
 });
 

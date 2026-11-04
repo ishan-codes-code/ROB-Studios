@@ -6,9 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createWorkerManager } from './python-worker.mjs';
+import { resolvePythonTool } from './worker-protocol.mjs';
 import { createExportManager } from './export-runner.mjs';
-import { resolvePythonExecutable } from './worker-protocol.mjs';
 import { clearDevCredentials } from './credentials-store.mjs';
+import { PRODUCT_NAME, WINDOWS_APP_USER_MODEL_ID, resolveUserDataPath } from './main/app-identity.mjs';
 import { registerExportIpc } from './main/ipc/export.js';
 import { registerProjectIpc } from './main/ipc/projects.js';
 import { registerProcessingIpc } from './main/ipc/processing.js';
@@ -23,6 +24,12 @@ import { createMainWindow } from './main/window.js';
 import { handleChildProcessGone } from './main/process-events.js';
 import { diagnosticsEnvironment, diagnosticsLogPath, recordDiagnosticsEvent } from './main/diagnostics-log.mjs';
 import { flushApiActivity, recordApiActivityEvent, reconcileInterruptedRuns, resolveProjectMedia, sweepDeletionQuarantine } from './project-store.mjs';
+
+app.setName(PRODUCT_NAME);
+app.setPath('userData', resolveUserDataPath(app.getPath('appData'), fs.existsSync));
+if (process.platform === 'win32') {
+  app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
+}
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -49,9 +56,20 @@ protocol.registerSchemesAsPrivileged([
 // never depends on the process working directory.
 function repoRoot() {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, '..');
+    return null;
   }
   return path.join(__dirname, '..', '..', '..');
+}
+
+function pythonRuntimeContext() {
+  const root = repoRoot();
+  return {
+    repoRoot: root,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    platform: process.platform,
+    cwd: app.isPackaged ? app.getPath('userData') : root,
+  };
 }
 
 const workerManager = createWorkerManager();
@@ -60,9 +78,13 @@ let mainWindow = null;
 const processingState = { activeProjectId: null, appQuitting: false };
 
 function spawnSetup({ operation, provider, model, key }) {
-  const root = repoRoot();
-  const { executable } = resolvePythonExecutable(root);
-  if (!executable) return Promise.resolve({ ok: false, error: 'Python virtual environment is not configured.' });
+  const launch = resolvePythonTool({ tool: 'provider-setup', ...pythonRuntimeContext() });
+  if (!launch.executable) {
+    const error = launch.reason === 'missing-resource'
+      ? `Bundled Python runtime not found at ${launch.missing}. Reinstall ROB Studios.`
+      : 'Python virtual environment is not configured.';
+    return Promise.resolve({ ok: false, error });
+  }
   return new Promise((resolve) => {
   // New vault callers pass an explicit provider id; the legacy
   // settings caller passes the stored provider object (treated as
@@ -72,9 +94,10 @@ function spawnSetup({ operation, provider, model, key }) {
     : (provider?.id ?? 'baseten');
   const baseUrl = typeof provider === 'string' ? '' : (provider?.baseUrl ?? '');
   const modelId = model ?? provider?.model ?? '';
-    const child = spawn(executable, [path.join(root, 'python', 'provider_setup.py'), operation,
+    const child = spawn(launch.executable, [...launch.argsPrefix, operation,
       '--base-url', baseUrl, '--model', modelId, '--provider', providerId], {
       stdio: ['ignore', 'pipe', 'ignore'],
+      cwd: launch.cwd,
       env: { PATH: process.env.PATH ?? '', SYSTEMROOT: process.env.SYSTEMROOT ?? '',
         AI_COMMENTATOR_PROVIDER_API_KEY: key },
     });
@@ -316,15 +339,15 @@ app.on('before-quit', () => {
   }
 });
 
-const ttsCatalogLoader = createTtsCatalogLoader({ repoRoot });
-const packsLoader = createPromptPackLoader({ repoRoot });
+const ttsCatalogLoader = createTtsCatalogLoader({ runtimeContext: pythonRuntimeContext });
+const packsLoader = createPromptPackLoader({ runtimeContext: pythonRuntimeContext });
 
-registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader, packsLoader });
+registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, runtimeContext: pythonRuntimeContext, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader, packsLoader });
 
 registerProjectIpc({ ipcMain, app, workerManager, exportManager });
 registerExportIpc({ ipcMain, app, dialog, fs, exportManager, sendExportEvent, getMainWindow: () => mainWindow });
 registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader });
-registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });
+registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, runtimeContext: pythonRuntimeContext, catalogLoader: ttsCatalogLoader });
 registerVoiceConfigIpc({ ipcMain, app, safeStorage });
 registerDiagnosticsIpc({ ipcMain, app });
 

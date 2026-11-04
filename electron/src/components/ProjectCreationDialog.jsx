@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Plus } from "lucide-react";
-import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import {
@@ -155,10 +154,6 @@ export default function ProjectCreationDialog({ open, onOpenChange, onCreated })
       if (!res || res.ok !== true || !res.project) {
         throw new Error(res?.error ?? "Could not create the project.");
       }
-      toast.success("Project created", {
-        id: "project-created",
-        description: res.project.name,
-      });
       onOpenChange(false);
       onCreated?.(res.project.id);
     } catch (err) {

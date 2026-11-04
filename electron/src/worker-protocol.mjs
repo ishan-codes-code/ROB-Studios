@@ -43,6 +43,17 @@ const WORKER_CONTROL_VERSION = 1;
  */
 const ADAPTIVE_HARD_MAX_FRAMES = 10000;
 
+const PYTHON_TOOL_SCRIPTS = Object.freeze({
+  worker: 'worker.py',
+  'provider-setup': 'provider_setup.py',
+  'prompt-packs': 'prompt_packs.py',
+  'tts-catalog': 'tts_catalog.py',
+  'tts-say': 'tts_say.py',
+});
+
+const PYTHON_ENGINE_DIRECTORY = 'ROBEngine';
+const PYTHON_ENGINE_EXECUTABLE = 'ROBEngine.exe';
+
 function buildStopControlLine() {
   return JSON.stringify({ type: 'stop', version: WORKER_CONTROL_VERSION }) + '\n';
 }
@@ -396,6 +407,82 @@ function resolvePythonExecutable(repoRoot) {
   return { executable: null, source: 'venv', missing: executable };
 }
 
+/** Resolve a Python-backed operation for development or a packaged Windows app. */
+function resolvePythonTool({
+  tool,
+  repoRoot,
+  isPackaged = false,
+  resourcesPath,
+  platform = process.platform,
+  existsSync = fs.existsSync,
+  cwd,
+} = {}) {
+  const scriptName = PYTHON_TOOL_SCRIPTS[tool];
+  if (!scriptName) {
+    throw new TypeError(`Unsupported Python tool: ${String(tool)}.`);
+  }
+  const pathApi = platform === 'win32' ? path.win32 : path;
+
+  if (isPackaged) {
+    const executable = pathApi.join(resourcesPath ?? '', PYTHON_ENGINE_DIRECTORY, PYTHON_ENGINE_EXECUTABLE);
+    if (platform !== 'win32') {
+      return {
+        executable: null,
+        argsPrefix: [],
+        cwd: cwd ?? resourcesPath ?? null,
+        source: 'bundled',
+        missing: executable,
+        reason: 'unsupported-platform',
+      };
+    }
+    try {
+      if (existsSync(executable)) {
+        return {
+          executable,
+          argsPrefix: [tool],
+          cwd: cwd ?? resourcesPath ?? null,
+          source: 'bundled',
+          missing: null,
+          reason: null,
+        };
+      }
+    } catch {
+      // Fall through to the same actionable missing-resource result.
+    }
+    return {
+      executable: null,
+      argsPrefix: [],
+      cwd: cwd ?? resourcesPath ?? null,
+      source: 'bundled',
+      missing: executable,
+      reason: 'missing-resource',
+    };
+  }
+
+  const interpreter = platform === 'win32'
+    ? pathApi.join(repoRoot ?? '', '.venv', 'Scripts', 'python.exe')
+    : pathApi.join(repoRoot ?? '', '.venv', 'bin', 'python');
+  const script = pathApi.join(repoRoot ?? '', 'python', scriptName);
+  try {
+    if (!existsSync(interpreter)) {
+      return { executable: null, argsPrefix: [], cwd: cwd ?? repoRoot ?? null, source: 'venv', missing: interpreter, reason: 'missing-interpreter' };
+    }
+    if (!existsSync(script)) {
+      return { executable: null, argsPrefix: [], cwd: cwd ?? repoRoot ?? null, source: 'venv', missing: script, reason: 'missing-script' };
+    }
+  } catch {
+    return { executable: null, argsPrefix: [], cwd: cwd ?? repoRoot ?? null, source: 'venv', missing: interpreter, reason: 'missing-interpreter' };
+  }
+  return {
+    executable: interpreter,
+    argsPrefix: [script],
+    cwd: cwd ?? repoRoot ?? null,
+    source: 'venv',
+    missing: null,
+    reason: null,
+  };
+}
+
 /** True when a vision API key is present in the given environment. */
 function isVisionConfigured(env = process.env) {
   const key =
@@ -495,5 +582,6 @@ export {
   isValidTtsSegment,
   isValidApiActivity,
   resolvePythonExecutable,
+  resolvePythonTool,
   resolveWorkerScript,
 };

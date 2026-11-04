@@ -366,13 +366,19 @@ export default function DashboardSection({ onOpenProject, onProjectDeleted, acti
   }
 
   async function handleCreated(projectId) {
-    // The dialog toasts success itself; refresh the library, then open.
-    // A refresh failure here must never read as a creation failure.
+    // Keep project creation success in the dashboard owner so toast
+    // responsibility stays in one place and the library refresh is
+    // still atomic with the open action. A refresh failure here must
+    // never read as a creation failure.
     try {
       setProjects(await refresh());
     } catch {
       // The project exists; the next mount reloads the list.
     }
+    toast.success("Project created", {
+      id: "project-created",
+      description: projects.find((entry) => entry.id === projectId)?.name ?? "Project created",
+    });
     onOpenProject(projectId);
   }
 

@@ -193,6 +193,9 @@ class FailFromErrorTest(unittest.TestCase):
 
 
 class AdapterAccountingTest(unittest.TestCase):
+    def setUp(self):
+        api_activity.drain_events()
+
     def tearDown(self):
         api_activity.drain_events()
 

@@ -28,7 +28,7 @@ import {
   TTS_API_KEY_ENV_VAR,
   TTS_PREVIEW_TEXT_MAX_LENGTH,
 } from '../../tts-config.mjs';
-import { resolvePythonExecutable } from '../../worker-protocol.mjs';
+import { resolvePythonTool } from '../../worker-protocol.mjs';
 
 export const TTS_PREVIEW_PHRASE =
   "He's pushing into the compound! One player spotted near the building, the fight is about to explode!";
@@ -65,12 +65,16 @@ function scrubKey(text, key) {
  * injectable for tests.
  */
 export function runTtsPreviewProcess({
-  executable, args, key, spawnFn = spawn, timeoutMs = TTS_PREVIEW_TIMEOUT_MS,
+  executable, args, key, cwd, spawnFn = spawn, timeoutMs = TTS_PREVIEW_TIMEOUT_MS,
 }) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawnFn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'], env: childEnv(key) });
+      child = spawnFn(executable, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: childEnv(key),
+        ...(cwd ? { cwd } : {}),
+      });
     } catch {
       resolve({ ok: false, stderr: 'Could not start the TTS preview process.' });
       return;
@@ -163,7 +167,7 @@ async function credentialMetadata(userDataPath, safeStorage, credentialId) {
 }
 
 export function registerTtsIpc({
-  ipcMain, app, safeStorage, repoRoot, catalogLoader, spawnFn = spawn,
+  ipcMain, app, safeStorage, repoRoot, runtimeContext = null, catalogLoader, spawnFn = spawn,
   previewTimeoutMs = TTS_PREVIEW_TIMEOUT_MS, runPreview = runTtsPreviewProcess,
 }) {
   const userData = () => app.getPath('userData');
@@ -344,19 +348,26 @@ export function registerTtsIpc({
         };
       }
       const root = typeof repoRoot === 'function' ? repoRoot() : repoRoot;
-      const { executable } = resolvePythonExecutable(root);
-      if (!executable) {
+      const runtime = typeof runtimeContext === 'function'
+        ? runtimeContext()
+        : { repoRoot: root, isPackaged: app.isPackaged === true, platform: process.platform };
+      const launch = resolvePythonTool({ tool: 'tts-say', ...runtime, repoRoot: runtime.repoRoot ?? root });
+      if (!launch.executable) {
+        if (launch.reason === 'missing-resource') {
+          return { ok: false, error: `Bundled Python runtime not found at ${launch.missing}. Reinstall ROB Studios.`, code: 'config' };
+        }
         return { ok: false, error: 'Python virtual environment is not configured.', code: 'config' };
       }
       sweepStalePreviews(userData());
       tmp = previewTempPath(userData());
       const previewStartedAt = Date.now();
       const result = await runPreview({
-        executable,
-        args: buildPreviewArgv(ttsSayScript(root), {
+        executable: launch.executable,
+        args: buildPreviewArgv(launch.argsPrefix[0], {
           text, model: triple.model, voice: triple.voice, style: triple.voiceDirection, out: tmp,
         }),
         key: snapshot.apiKey,
+        cwd: launch.cwd,
         spawnFn,
         timeoutMs: previewTimeoutMs,
       });

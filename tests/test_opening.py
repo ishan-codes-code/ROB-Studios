@@ -311,10 +311,10 @@ class RunOpeningTests(unittest.TestCase):
         self.assertEqual(utterance["timestamp"], 0)
 
     def test_already_emitted_suppresses_repeat(self):
-        claim = engine.build_opening_claim(FULL_METADATA, "BGMI")
-        claim_id = engine.claim_id_of(claim)
         client = RequestTextClient(lambda prompt, index: "{}")
-        with pack_env(settings=FULL_SETTINGS):
+        with run_env(), pack_env(settings=FULL_SETTINGS):
+            claim = engine.build_opening_claim(FULL_METADATA, "BGMI")
+            claim_id = engine.claim_id_of(claim)
             utterance, omitted, __ = engine.run_opening(
                 client, "bgmi", {claim_id}, []
             )

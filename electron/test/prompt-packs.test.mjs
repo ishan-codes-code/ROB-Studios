@@ -60,6 +60,8 @@ function tempRepo(t) {
   const venvBin = path.join(root, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin');
   fs.mkdirSync(venvBin, { recursive: true });
   fs.writeFileSync(path.join(venvBin, process.platform === 'win32' ? 'python.exe' : 'python'), '');
+  fs.mkdirSync(path.join(root, 'python'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'python', 'prompt_packs.py'), '');
   return root;
 }
 

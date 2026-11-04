@@ -15,7 +15,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolvePythonExecutable } from './worker-protocol.mjs';
+import { resolvePythonTool } from './worker-protocol.mjs';
 
 export const PROMPT_PACKS_VERSION = 1;
 export const PROMPT_PACKS_FILE_NAME = 'prompt-packs.json';
@@ -144,11 +144,14 @@ export function parsePacksOutput(output) {
   return normalizeFactoryPacks(parsed);
 }
 
-function runProbe({ executable, script, spawnFn, timeoutMs }) {
+function runProbe({ executable, args, cwd, spawnFn, timeoutMs }) {
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawnFn(executable, [script], { stdio: ['ignore', 'pipe', 'ignore'] });
+      child = spawnFn(executable, args, {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        ...(cwd ? { cwd } : {}),
+      });
     } catch {
       reject(new Error('Could not start the prompt packs probe.'));
       return;
@@ -185,19 +188,26 @@ function runProbe({ executable, script, spawnFn, timeoutMs }) {
   });
 }
 
-export function createPromptPackLoader({ repoRoot, spawnFn = spawn, timeoutMs = PROMPT_PACK_LOADER_TIMEOUT_MS } = {}) {
+export function createPromptPackLoader({ repoRoot, runtimeContext = null, spawnFn = spawn, timeoutMs = PROMPT_PACK_LOADER_TIMEOUT_MS } = {}) {
   let cached = null;
   return {
     async load() {
       if (cached) return cached;
       const root = typeof repoRoot === 'function' ? repoRoot() : repoRoot;
-      const { executable } = resolvePythonExecutable(root);
-      if (!executable) {
+      const runtime = typeof runtimeContext === 'function'
+        ? runtimeContext()
+        : { repoRoot: root, isPackaged: false, platform: process.platform };
+      const launch = resolvePythonTool({ tool: 'prompt-packs', ...runtime, repoRoot: runtime.repoRoot ?? root });
+      if (!launch.executable) {
+        if (launch.reason === 'missing-resource') {
+          throw new Error(`Bundled Python runtime not found at ${launch.missing}.`);
+        }
         throw new Error('Python virtual environment is not configured.');
       }
       cached = await runProbe({
-        executable,
-        script: promptPacksScript(root),
+        executable: launch.executable,
+        args: launch.argsPrefix,
+        cwd: launch.cwd,
         spawnFn,
         timeoutMs,
       });

@@ -21,8 +21,11 @@ function tempRepo(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-tts-cat-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const venvBin = path.join(root, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin');
+  const pythonDir = path.join(root, 'python');
   fs.mkdirSync(venvBin, { recursive: true });
+  fs.mkdirSync(pythonDir, { recursive: true });
   fs.writeFileSync(path.join(venvBin, process.platform === 'win32' ? 'python.exe' : 'python'), '');
+  fs.writeFileSync(path.join(pythonDir, 'tts_catalog.py'), '#!/usr/bin/env python\n');
   return root;
 }
 

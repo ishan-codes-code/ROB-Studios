@@ -16,6 +16,7 @@ import {
   isValidWorkerMessage,
   isVisionConfigured,
   resolvePythonExecutable,
+  resolvePythonTool,
   resolveWorkerScript,
   validateVideoInput,
   WORKER_CONTROL_VERSION,
@@ -355,6 +356,57 @@ test('resolveWorkerScript reports presence or absence', () => {
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test('resolvePythonTool uses the virtual environment and source script in development', () => {
+  const root = String.raw`C:\workspaces\ROB Studios`;
+  const expected = new Set([
+    String.raw`C:\workspaces\ROB Studios\.venv\Scripts\python.exe`,
+    String.raw`C:\workspaces\ROB Studios\python\tts_catalog.py`,
+  ]);
+  const resolved = resolvePythonTool({
+    tool: 'tts-catalog',
+    repoRoot: root,
+    platform: 'win32',
+    existsSync: (file) => expected.has(file),
+  });
+  assert.equal(resolved.executable, String.raw`C:\workspaces\ROB Studios\.venv\Scripts\python.exe`);
+  assert.deepEqual(resolved.argsPrefix, [String.raw`C:\workspaces\ROB Studios\python\tts_catalog.py`]);
+  assert.equal(resolved.cwd, root);
+  assert.equal(resolved.source, 'venv');
+});
+
+test('resolvePythonTool selects the packaged Windows runtime without quoting spaced paths', () => {
+  const resourcesPath = String.raw`C:\Users\Jane Doe\AppData\Local\Programs\ROB Studios\resources`;
+  const userDataPath = String.raw`C:\Users\Jane Doe\AppData\Roaming\ROB Studio`;
+  const executable = String.raw`C:\Users\Jane Doe\AppData\Local\Programs\ROB Studios\resources\ROBEngine\ROBEngine.exe`;
+  const resolved = resolvePythonTool({
+    tool: 'worker',
+    isPackaged: true,
+    resourcesPath,
+    platform: 'win32',
+    cwd: userDataPath,
+    existsSync: (file) => file === executable,
+  });
+  assert.equal(resolved.executable, executable);
+  assert.deepEqual(resolved.argsPrefix, ['worker']);
+  assert.equal(resolved.cwd, userDataPath);
+  assert.equal(resolved.source, 'bundled');
+});
+
+test('resolvePythonTool reports a missing packaged runtime instead of falling back', () => {
+  const resolved = resolvePythonTool({
+    tool: 'worker',
+    repoRoot: String.raw`C:\source\repo`,
+    isPackaged: true,
+    resourcesPath: String.raw`C:\Program Files\ROB Studios\resources`,
+    platform: 'win32',
+    existsSync: () => false,
+  });
+  assert.equal(resolved.executable, null);
+  assert.equal(resolved.reason, 'missing-resource');
+  assert.equal(resolved.source, 'bundled');
+  assert.match(resolved.missing, /ROBEngine\\ROBEngine\.exe$/);
 });
 
 test('control channel carries a versioned stop line', () => {

@@ -8,7 +8,7 @@
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { resolvePythonExecutable } from './worker-protocol.mjs';
+import { resolvePythonTool } from './worker-protocol.mjs';
 import { normalizeTtsCatalog } from './tts-config.mjs';
 
 export const TTS_CATALOG_TIMEOUT_MS = 25000;
@@ -30,11 +30,14 @@ export function parseCatalogOutput(output) {
   return normalizeTtsCatalog(parsed);
 }
 
-function runProbe({ executable, script, spawnFn, timeoutMs }) {
+function runProbe({ executable, args, cwd, spawnFn, timeoutMs }) {
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawnFn(executable, [script], { stdio: ['ignore', 'pipe', 'ignore'] });
+      child = spawnFn(executable, args, {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        ...(cwd ? { cwd } : {}),
+      });
     } catch (err) {
       reject(new Error('Could not start the TTS catalogue probe.'));
       return;
@@ -71,19 +74,26 @@ function runProbe({ executable, script, spawnFn, timeoutMs }) {
   });
 }
 
-export function createTtsCatalogLoader({ repoRoot, spawnFn = spawn, timeoutMs = TTS_CATALOG_TIMEOUT_MS } = {}) {
+export function createTtsCatalogLoader({ repoRoot, runtimeContext = null, spawnFn = spawn, timeoutMs = TTS_CATALOG_TIMEOUT_MS } = {}) {
   let cached = null;
   return {
     async load() {
       if (cached) return cached;
       const root = typeof repoRoot === 'function' ? repoRoot() : repoRoot;
-      const { executable } = resolvePythonExecutable(root);
-      if (!executable) {
+      const runtime = typeof runtimeContext === 'function'
+        ? runtimeContext()
+        : { repoRoot: root, isPackaged: false, platform: process.platform };
+      const launch = resolvePythonTool({ tool: 'tts-catalog', ...runtime, repoRoot: runtime.repoRoot ?? root });
+      if (!launch.executable) {
+        if (launch.reason === 'missing-resource') {
+          throw new Error(`Bundled Python runtime not found at ${launch.missing}.`);
+        }
         throw new Error('Python virtual environment is not configured.');
       }
       cached = await runProbe({
-        executable,
-        script: ttsCatalogScript(root),
+        executable: launch.executable,
+        args: launch.argsPrefix,
+        cwd: launch.cwd,
         spawnFn,
         timeoutMs,
       });

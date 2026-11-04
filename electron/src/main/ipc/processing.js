@@ -1,12 +1,12 @@
 import path from 'node:path';
 import { flushApiActivity, getProjectOutputDir, getProject as getStoredProject, isProjectDeletionLocked, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
-import { buildWorkerArgv, isVisionConfigured, resolvePythonExecutable, resolveWorkerScript, validateVideoInput } from '../../worker-protocol.mjs';
+import { buildWorkerArgv, isVisionConfigured, resolvePythonTool, validateVideoInput } from '../../worker-protocol.mjs';
 import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../run-config.mjs';
 import { TTS_API_KEY_ENV_VAR } from '../../tts-config.mjs';
 import { loadSettings } from '../../settings-store.mjs';
 import { recordDiagnosticsEvent } from '../diagnostics-log.mjs';
 
-export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow, ttsCatalogLoader = null, packsLoader = null }) {
+export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, runtimeContext = null, sendWorkerEvent, getMainWindow, ttsCatalogLoader = null, packsLoader = null }) {
   // True once the active run emitted its terminal `stopped` message.
   // Reset on every start; runs never overlap, so one flag is enough.
   let stoppedSeenForActiveRun = false;
@@ -67,19 +67,33 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       videoPath = bound.videoPath;
       opts.outputDir = bound.outputDir;
     }
-    const root = repoRoot();
-    const { executable, missing } = resolvePythonExecutable(root);
-    if (!executable) {
+    const runtime = typeof runtimeContext === 'function'
+      ? runtimeContext()
+      : {
+          repoRoot: repoRoot(),
+          isPackaged: app.isPackaged === true,
+          resourcesPath: process.resourcesPath,
+          platform: process.platform,
+          cwd: app.isPackaged === true ? app.getPath('userData') : repoRoot(),
+        };
+    const launch = resolvePythonTool({
+      tool: 'worker',
+      ...runtime,
+      repoRoot: runtime.repoRoot ?? repoRoot(),
+    });
+    if (!launch.executable) {
+      if (launch.reason === 'missing-resource') {
+        return { ok: false, error: `Bundled Python worker not found at ${launch.missing}. Reinstall ROB Studios.` };
+      }
       return {
         ok: false,
         error:
-          `Python virtual environment not found at ${missing}. ` +
+          `Python virtual environment or worker source not found at ${launch.missing}. ` +
           'Create it with `python3 -m venv .venv` and install requirements.',
       };
     }
-    const { script, missing: missingScript } = resolveWorkerScript(root);
-    if (!script) {
-      return { ok: false, error: `Worker script not found at ${missingScript}.` };
+    if (opts.projectId === undefined && !opts.outputDir) {
+      opts.outputDir = path.join(app.getPath('userData'), 'output');
     }
     // Adaptive sampling is a paid run: refuse to spawn without a key.
     // The worker also fails fast, but this stops the job before any
@@ -166,7 +180,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     }
     let argv;
     try {
-      argv = buildWorkerArgv(script, videoPath, opts);
+      argv = buildWorkerArgv(launch.argsPrefix[0], videoPath, opts);
     } catch (err) {
       return { ok: false, error: err?.message ?? 'Invalid run options.' };
     }
@@ -226,9 +240,10 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       // Diagnostics never break a run (the recorder is no-throw).
     }
     const startedJob = workerManager.start({
-      executable,
+      executable: launch.executable,
       argv,
       env: workerEnv,
+      cwd: launch.cwd,
       onMessage: (message) => {
         if (message && message.type === 'stopped') {
           stoppedSeenForActiveRun = true;

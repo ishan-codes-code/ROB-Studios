@@ -172,7 +172,7 @@ test('creation dialog gates submit on name plus recording and stays open on fail
   assert.match(creationDialog, /window\.api\.createProject\(trimmed, recording\.path, game\)/);
   assert.match(creationDialog, /Could not create the project/);
   assert.match(creationDialog, /if \(!creating\) \{\s*onOpenChange\(next\);\s*\}/);
-  assert.match(creationDialog, /toast\.success\("Project created"/);
+  assert.doesNotMatch(creationDialog, /toast\.success\("Project created"/);
   assert.match(creationDialog, /onCreated\?\.\(res\.project\.id\)/);
 });
 
@@ -216,7 +216,8 @@ test('loading uses skeletons and errors offer retry', () => {
 });
 
 test('project toasts are stable single-slot notifications', () => {
-  assert.match(creationDialog, /toast\.success\("Project created", \{\s*id: "project-created"/);
+  assert.doesNotMatch(creationDialog, /toast\.success\("Project created"/);
+  assert.match(dashboard, /toast\.success\("Project created", \{\s*id: "project-created"/);
   assert.match(dashboard, /toast\.success\("Project deleted", \{\s*id: "project-deleted"/);
   assert.match(dashboard, /toast\.error\("Could not delete project"/);
   assert.doesNotMatch(dashboard, /toast\.loading/);

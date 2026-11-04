@@ -9,23 +9,36 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 // macOS, icon.png on Linux.
 const APP_ICON = path.resolve(__dirname, 'src/assets/icons/icon');
 const APP_ICON_PNG = `${APP_ICON}.png`;
+const PYTHON_ENGINE = path.resolve(__dirname, '../python/dist/ROBEngine');
+const FFMPEG_BINARY = path.resolve(
+  __dirname,
+  'node_modules/ffmpeg-static',
+  process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
+);
 
 module.exports = {
   packagerConfig: {
     asar: true,
     icon: APP_ICON,
+    executableName: 'ROB Studios',
+    win32metadata: {
+      CompanyName: 'ROB Studios',
+      FileDescription: 'ROB Studios',
+      InternalName: 'ROB Studios',
+      OriginalFilename: 'ROB Studios.exe',
+      ProductName: 'ROB Studios',
+    },
     // The ffmpeg binary ships beside the asar (it cannot execute from
     // inside the archive). The vite plugin prunes node_modules, so the
     // binary rides as an extra resource instead of a require() target.
     // icon.png rides along so the packaged BrowserWindow can use it
     // (src/assets is not part of the vite main bundle).
     extraResource: [
-      process.platform === 'win32'
-        ? './node_modules/ffmpeg-static/ffmpeg.exe'
-        : './node_modules/ffmpeg-static/ffmpeg',
-      './node_modules/ffmpeg-static/ffmpeg.LICENSE',
-      './node_modules/ffmpeg-static/ffmpeg.README',
-      './src/assets/icons/icon.png',
+      FFMPEG_BINARY,
+      path.resolve(__dirname, 'node_modules/ffmpeg-static/ffmpeg.LICENSE'),
+      path.resolve(__dirname, 'node_modules/ffmpeg-static/ffmpeg.README'),
+      APP_ICON_PNG,
+      ...(require('node:fs').existsSync(PYTHON_ENGINE) ? [PYTHON_ENGINE] : []),
     ],
   },
   rebuildConfig: {},
@@ -34,6 +47,7 @@ module.exports = {
       name: '@electron-forge/maker-squirrel',
       config: {
         setupIcon: `${APP_ICON}.ico`,
+        setupExe: 'ROB-Studios-Setup.exe',
       },
     },
     {

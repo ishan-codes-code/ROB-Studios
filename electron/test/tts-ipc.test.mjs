@@ -68,8 +68,11 @@ function register({ dir, safeStorage, catalog = CATALOG, runPreview = null, cata
   // Fake repository root with a resolvable (never executed) interpreter.
   const repoRoot = path.join(dir, 'repo');
   const venvBin = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin');
+  const pythonDir = path.join(repoRoot, 'python');
   fs.mkdirSync(venvBin, { recursive: true });
+  fs.mkdirSync(pythonDir, { recursive: true });
   fs.writeFileSync(path.join(venvBin, process.platform === 'win32' ? 'python.exe' : 'python'), '');
+  fs.writeFileSync(path.join(pythonDir, 'tts_say.py'), '#!/usr/bin/env python\n');
   const fakePreview = runPreview ?? (async (request) => {
     calls.previews.push(request);
     const outIndex = request.args.indexOf('--out');

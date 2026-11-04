@@ -319,10 +319,13 @@ test('TTS preview synthesizes with a memory credential', async (t) => {
       return { ok: true, stderr: '' };
     },
   });
-  // Fake interpreter so preview path resolution succeeds (never executed).
+  // Valid dev layout: the interpreter and the repo script both exist, but
+  // the script is never executed because the preview run is stubbed.
   const venvBin = path.join(dir, '.venv', 'bin');
   fs.mkdirSync(venvBin, { recursive: true });
   fs.writeFileSync(path.join(venvBin, 'python'), '');
+  fs.mkdirSync(path.join(dir, 'python'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'python', 'tts_say.py'), '');
   const result = await ttsHandlers['tts-preview']({}, {
     text: 'Hello from memory.',
     model: 'gemini-3.8-flash-tts',
