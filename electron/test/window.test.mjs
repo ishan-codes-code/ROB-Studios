@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TITLE_BAR_OVERLAY_HEIGHT, createMainWindow } from '../src/main/window.js';
+import { TITLE_BAR_OVERLAY_HEIGHT, WINDOW_LOAD_MAX_ATTEMPTS, WINDOW_LOAD_RETRY_MS, createMainWindow, loadErrorHtml } from '../src/main/window.js';
 
 function makeWindowFactory({ destroyed = false } = {}) {
   const calls = {
@@ -116,4 +116,89 @@ test('preserves the selected renderer loading path', () => {
   const packaged = makeWindowFactory();
   createMainWindow({ BrowserWindow: packaged.BrowserWindow, preloadPath: '/preload.js', rendererPath: '/index.html', platform: 'linux' });
   assert.deepEqual(packaged.calls.loaded, ['file', '/index.html']);
+});
+
+function makeRecoveryFactory() {
+  const calls = { loads: [], scheduled: [], handlers: {}, errorPage: null };
+  const window = {
+    isDestroyed() { return false; },
+    once() {},
+    loadURL(url) {
+      if (String(url).startsWith('data:text/html')) calls.errorPage = url;
+      else calls.loads.push(['url', url]);
+    },
+    loadFile(file) { calls.loads.push(['file', file]); },
+    webContents: {
+      on(event, handler) { calls.handlers[event] = handler; },
+      loadURL(url) { calls.errorPage = url; },
+    },
+  };
+  class BrowserWindow {
+    constructor() {
+      return window;
+    }
+  }
+  const scheduleRetry = (fn, ms) => {
+    calls.scheduled.push(ms);
+    fn();
+  };
+  return { calls, BrowserWindow, scheduleRetry };
+}
+
+function failMainFrame(calls, desc = 'ERR_CONNECTION_REFUSED') {
+  assert.equal(typeof calls.handlers['did-fail-load'], 'function', 'recovery handler registered');
+  calls.handlers['did-fail-load']({}, -102, desc, 'http://localhost:5173/', true);
+}
+
+test('a failed main-frame load retries instead of sitting blank', () => {
+  const { calls, BrowserWindow, scheduleRetry } = makeRecoveryFactory();
+  createMainWindow({
+    BrowserWindow, preloadPath: '/preload.js', devServerUrl: 'http://localhost:5173',
+    rendererPath: '/index.html', platform: 'win32', scheduleRetry,
+  });
+
+  assert.deepEqual(calls.loads, [['url', 'http://localhost:5173']]);
+  failMainFrame(calls);
+  assert.deepEqual(calls.loads, [['url', 'http://localhost:5173'], ['url', 'http://localhost:5173']]);
+  assert.deepEqual(calls.scheduled, [WINDOW_LOAD_RETRY_MS * 2]);
+  assert.equal(calls.errorPage, null, 'no error page while retries remain');
+});
+
+test('retries stop at the attempt budget and land on an error page', () => {
+  const { calls, BrowserWindow, scheduleRetry } = makeRecoveryFactory();
+  createMainWindow({
+    BrowserWindow, preloadPath: '/preload.js', devServerUrl: 'http://localhost:5173',
+    rendererPath: '/index.html', platform: 'linux', scheduleRetry,
+  });
+
+  assert.equal(WINDOW_LOAD_MAX_ATTEMPTS, 3);
+  for (let attempt = 1; attempt < WINDOW_LOAD_MAX_ATTEMPTS; attempt += 1) {
+    failMainFrame(calls);
+  }
+  assert.equal(calls.loads.length, WINDOW_LOAD_MAX_ATTEMPTS);
+  assert.equal(calls.errorPage, null);
+  failMainFrame(calls, 'ERR_FILE_NOT_FOUND');
+  assert.equal(calls.loads.length, WINDOW_LOAD_MAX_ATTEMPTS, 'no further retries past the budget');
+  assert.ok(String(calls.errorPage).startsWith('data:text/html'), 'visible error page instead of blank');
+  assert.match(decodeURIComponent(calls.errorPage), /Could not load ROB Studio/);
+  assert.match(decodeURIComponent(calls.errorPage), /ERR_FILE_NOT_FOUND/);
+});
+
+test('subframe failures never disturb the main window', () => {
+  const { calls, BrowserWindow, scheduleRetry } = makeRecoveryFactory();
+  createMainWindow({
+    BrowserWindow, preloadPath: '/preload.js', devServerUrl: 'http://localhost:5173',
+    rendererPath: '/index.html', platform: 'darwin', scheduleRetry,
+  });
+
+  calls.handlers['did-fail-load']({}, -102, 'ERR_BLOCKED', 'http://localhost:5173/frame', false);
+  assert.deepEqual(calls.loads, [['url', 'http://localhost:5173']]);
+  assert.deepEqual(calls.scheduled, []);
+  assert.equal(calls.errorPage, null);
+});
+
+test('load error page escapes untrusted detail', () => {
+  const html = loadErrorHtml('<script>alert(1)</script>');
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /&lt;script&gt;/);
 });

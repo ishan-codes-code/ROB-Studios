@@ -1,5 +1,24 @@
 # Current state
 
+## ROB app icon + terminology isolation (uncommitted)
+
+Supplied waveform icon integrated: `electron/src/assets/icons/icon.{png,ico,icns,svg}`
+(renamed from `svgviewer-output.*`, design untouched). Forge `packagerConfig.icon`
++ per-maker icons (squirrel setupIcon, deb/rpm png, macOS via packager icns) and
+`BrowserWindow` icon via dev/packaged-aware `windowIconPath()` (extraResource png);
+no tray exists so no tray wiring. Terminology: COD script rules fixed
+("confirmed kill, knock" → "confirmed kill, elimination"); script validator stems
+extended so invented finish/flush, blue/red zone, Booyah, and chicken-dinner claims
+are rejected without evidence (no evidence-rule weakening). Resolution fallback
+(unknown game → Free Fire default) kept as the documented intent; invalid explicit
+packs keep failing loudly; custom overlays stay per-pack scoped. Supersedes the
+"no logo asset / icon wiring still open" note below.
+
+Verification (relevant only): Python terminology-isolation (23), prompt-packs (34),
+script (22), opening (31), commentary-writer (21), streaming (24), worker (36) pass;
+Electron app-icon (9), window (8), prompt-packs (14), rob-brand (11) pass. No paid
+calls; no native Windows/macOS packaged build run yet.
+
 ## ROB reliability + rebrand milestone (uncommitted)
 
 Audio lifecycle: run state carries a monotonic `runSeq` and the TTS

@@ -346,7 +346,7 @@ def _cod_fields():
             "or mechanics the quotes do not show. A candidate event is NOT "
             "confirmed: echo segments must keep an uncertainty marker such as "
             "'unconfirmed' or 'possible'. Never present a candidate as a "
-            "confirmed kill, knock, or victory, and never name a killer, "
+            "confirmed kill, elimination, or victory, and never name a killer, "
             "victim, or outcome the quotes do not give. Mention a player name "
             "only when the quote contains it. Never recite the game reference, "
             "and never mention timestamps, confidence scores, evidence ids, or "

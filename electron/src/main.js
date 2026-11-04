@@ -107,12 +107,28 @@ function spawnSetup({ operation, provider, model, key }) {
   });
 }
 
+// ROB window icon: dev builds read it from the source tree
+// (electron/src/assets/icons), packaged builds from extraResource
+// (process.resourcesPath/icon.png). Fail-soft: a missing file means
+// no icon key, never a broken window.
+function windowIconPath() {
+  const candidate = app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.png')
+    : path.join(__dirname, '..', '..', 'src', 'assets', 'icons', 'icon.png');
+  try {
+    return fs.existsSync(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
 function createWindow() {
   mainWindow = createMainWindow({
     BrowserWindow,
     preloadPath: path.join(__dirname, 'preload.js'),
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
     rendererPath: path.join(__dirname, '../renderer', `${MAIN_WINDOW_VITE_NAME}/index.html`),
+    iconPath: windowIconPath(),
   });
 }
 

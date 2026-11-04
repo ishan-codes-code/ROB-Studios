@@ -206,16 +206,27 @@ SCRIPT_CERTAINTY_MARKERS = ("confirmed", "definitely", "certainly")
 SCRIPT_KILL_STEMS = (
     "kill", "killed", "killer", "elim", "knock", "knocked",
     "assist", "damage", "headshot", "downed",
+    # BGMI finish/flush synonyms: a script line may only use them when
+    # the cited evidence already carries kill semantics.
+    "finish", "flush",
 )
 SCRIPT_OUTCOME_STEMS = (
     "victor", " winner", " wins", "defeat", " champion",
     "placement", "first place", "top 1", "takes the match",
+    # Victory shouts are outcome claims: Booyah (Free Fire) and Winner
+    # Winner Chicken Dinner (BGMI) need outcome evidence behind them.
+    "booyah", "chicken dinner",
 )
 SCRIPT_ACTION_STEMS = (
     "pushing", "retreat", "healing", "fighting", "camping",
     "rotating", "rotation", " aiming", "flanking", "third-part",
 )
-SCRIPT_ZONE_STEMS = ("safe zone", "safe-zone", "map control", "circle is")
+SCRIPT_ZONE_STEMS = (
+    "safe zone", "safe-zone", "map control", "circle is",
+    # BGMI shrinking-area vocabulary: blue zone / red zone need zone
+    # evidence behind them, never invented pressure.
+    "blue zone", "blue-zone", "red zone", "red-zone",
+)
 SCRIPT_CAUSAL_MARKERS = (
     "because", "therefore", "as a result", "led to", "caused by",
     "thanks to",
