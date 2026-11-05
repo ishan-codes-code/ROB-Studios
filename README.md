@@ -1,138 +1,450 @@
-# AI Commentator
+ROB — Real-time Observer & Broadcaster
 
-A native desktop application that analyses recorded Free Fire gameplay
-footage with a Baseten-hosted vision model and writes evidence-grounded
-esports commentary. Details live in `docs/`; start with
-`docs/current-state.md`.
+An AI-powered esports commentary application that transforms gameplay into intelligent, context-aware, broadcast-ready commentary.
 
-## Architecture
+ROB is a desktop application designed to observe gameplay, understand what is happening across a match, identify meaningful events, and generate natural commentary with optional AI-powered voice narration.
 
+Rather than treating every frame as an isolated image, ROB maintains match context, tracks developments, and uses visual evidence to produce relevant commentary.
+
+Built for esports creators, tournament organizers, streamers, and competitive gaming broadcasts.
+
+---
+
+Overview
+
+Traditional AI vision systems often analyze individual frames without understanding how gameplay evolves. ROB takes a different approach.
+
+It combines adaptive visual analysis, persistent match-state tracking, evidence-aware event detection, streaming commentary generation, and voice synthesis into one integrated workflow.
+
+From importing gameplay footage to exporting a finished video with commentary, ROB provides a complete desktop workspace for AI-assisted esports broadcasting.
+
+Features
+
+1. Intelligent Gameplay Analysis
+
+- Adaptive Vision Sampling: Dynamically adjusts frame sampling frequency based on gameplay activity.
+- Structured Observations: Converts visual analysis into validated, structured observation data.
+- Match-State Tracking: Maintains contextual understanding across multiple moments in a match.
+- Event Detection: Identifies meaningful gameplay developments using evidence-based rules.
+- Game-Aware Intelligence: Uses game-specific knowledge and terminology to improve analysis accuracy.
+
+2. Context-Aware Commentary
+
+- Generates commentary based on evolving match context rather than isolated frames.
+- Prioritizes meaningful gameplay developments.
+- Uses evidence-aware generation to reduce unsupported claims.
+- Prevents repetitive commentary through event prioritization and deduplication.
+- Preserves timestamps for synchronization with the original gameplay.
+- Supports incremental script generation through the streaming pipeline.
+
+3. AI Voice Generation
+
+- Optional text-to-speech integration.
+- Google Gemini TTS integration.
+- Generates spoken commentary from eligible script segments.
+- Supports audio review and synchronized playback.
+- Keeps voice generation independent of the vision provider configuration.
+
+4. Desktop Commentary Workspace
+
+ROB provides a dedicated desktop workspace built around the gameplay video and its generated commentary.
+
+- Project-based workflow.
+- Gameplay video preview.
+- Processing status and diagnostics.
+- Script and commentary review.
+- Synchronized audio timeline.
+- Per-segment audio playback.
+- Export workflow with progress and cancellation.
+
+5. Video Export
+
+- Combines gameplay footage with generated commentary audio.
+- Preserves the original game's audio.
+- Uses FFmpeg for media processing.
+- Exports the final result as an MP4 video.
+
+6. Flexible AI Provider Configuration
+
+ROB supports configurable AI providers instead of locking users into a single model.
+
+Vision providers:
+
+- Meta
+- Baseten
+- Custom OpenAI-compatible API endpoints
+
+Voice provider:
+
+- Google Gemini TTS
+
+Provider configuration includes credential management, model selection, connection testing, and image-analysis verification.
+
+---
+
+Architecture
+
+ROB follows a local-first desktop architecture.
+
+The Electron application handles the interface, project management, configuration, and media workflow. A local Python worker handles gameplay analysis and the AI commentary pipeline.
+
+```text
+┌──────────────────────────┐
+│       ROB Desktop       │
+│                          │
+│     Electron + React     │
+│                          │
+│  Projects & Configuration│
+│  Gameplay Preview        │
+│  Commentary Editor      │
+│  Audio Timeline         │
+│  Video Export           │
+└────────────┬─────────────┘
+│
+Secure IPC Bridge
+│
+┌────────────▼─────────────┐
+│     Python Worker       │
+│                          │
+│   Adaptive Sampling     │
+│          ↓               │
+│   Vision Analysis       │
+│          ↓               │
+│   Structured Observations│
+│          ↓               │
+│   Match-State Tracking  │
+│          ↓               │
+│   Event Detection       │
+│          ↓               │
+│   Commentary Generation │
+│          ↓               │
+│   Text-to-Speech        │
+└────────────┬─────────────┘
+│
+Provider APIs
+│
+Vision Models / TTS Models
 ```
-Electron (React + Vite + Tailwind)  ←→  Python engine (OpenCV + Baseten)
-   electron/src/main.js                    python/main.py
-   electron/src/preload.js                  python/worker.py  (NDJSON over stdout)
-   electron/src/renderer.jsx
+
+Processing Pipeline
+
+1. Gameplay footage is loaded into a project.
+2. The vision engine samples frames according to its adaptive sampling strategy.
+3. Frames are analyzed using the configured vision provider.
+4. Structured observations are validated and persisted.
+5. The match-state tracker updates the contextual understanding of the game.
+6. Event detection identifies meaningful developments.
+7. The commentary engine generates timestamped script segments.
+8. Optional TTS generates corresponding audio.
+9. The editor synchronizes the script, audio, and gameplay timeline.
+10. FFmpeg combines the source video and commentary audio during export.
+
+---
+
+Technology Stack
+
+Component| Technology
+Desktop Framework| Electron 36
+Frontend| React 19
+Build Tool| Vite
+Styling| Tailwind CSS 4
+UI Components| Radix UI
+Animations| Motion
+Notifications| Sonner
+Icons| Lucide
+Processing Engine| Python 3.12+
+Computer Vision| OpenCV
+AI Integration| OpenAI-compatible API, Google Gen AI SDK
+Vision Providers| Meta, Baseten, Custom API
+Voice Generation| Google Gemini TTS
+Media Processing| FFmpeg
+Communication| Electron IPC, Preload Bridge, NDJSON
+
+---
+
+Supported Games
+
+ROB uses game-specific prompt packs and terminology to improve gameplay understanding and commentary quality.
+
+Current built-in prompt packs include:
+
+- Free Fire
+- BGMI
+- Call of Duty
+
+The architecture also supports custom prompt-pack overlays and configurable commentary presets.
+
+---
+
+Getting Started
+
+Prerequisites
+
+Before installing ROB, make sure you have:
+
+- Git
+- Node.js 20 or newer
+- npm
+- Python 3.12 or newer
+- A supported desktop environment
+
+AI provider credentials are required for live model inference and voice generation. These services may incur usage charges.
+
+1. Clone the Repository
+
+```bash
+git clone https://github.com/ishan-codes-code/ROB-Studios.git
+
+cd ROB-Studios
 ```
 
-- **Electron** owns the desktop shell: window, IPC routing, and the
-  Python child-process lifecycle. It launches `python/worker.py` with
-  `child_process.spawn()` and streams newline-delimited JSON progress to
-  the renderer.
-- **Python** owns the AI engine: frame extraction, vision analysis,
-  structured observation validation, match-state reconstruction, event
-  detection, commentary generation, and the final casting script.
-- Python is a local processing engine, not a network server. There is no
-  Docker, no FastAPI, no database in this project.
-- The protocol between them is documented in
-  `docs/contracts/worker-protocol.md`.
+2. Set Up Python Environment
 
-## Technology stack
+Create a virtual environment:
 
-| Layer | Choice |
-|---|---|
-| Desktop shell | Electron + React + Vite + Tailwind CSS |
-| AI engine | Python (OpenCV, OpenAI-compatible client) |
-| AI provider | Baseten (`meta-models/muse-spark-open-1026`) |
-| Python env | Native `.venv` at the repository root |
-| Electron ↔ Python | `spawn()` + NDJSON over stdout |
-
-## Prerequisites
-
-- Python 3.12+ (`python3 --version`)
-- Node.js 20+ (`node --version`)
-- A Baseten API key (paid stages only; see `.env.example`)
-
-## Setup
-
-```sh
-# Python engine: native virtual environment at the repo root.
+```bash
 python3 -m venv .venv
-# Linux/macOS:
+```
+
+Activate it:
+
+Linux / macOS
+
+```bash
 source .venv/bin/activate
-# Windows (PowerShell):
-# .venv\Scripts\Activate.ps1
+```
+
+Windows PowerShell
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
+
+```bash
+python -m pip install --upgrade pip
+
 pip install -r requirements.txt
-
-# API key for the paid vision/script stages (never commit .env).
-cp .env.example .env
-# Edit .env and set BASETEN_API_KEY.
-
-# Desktop shell dependencies.
-cd electron && npm install
 ```
 
-## Running
+3. Install Electron Dependencies
 
-```sh
-# Desktop app (from electron/).
-cd electron && npm start
+```bash
+cd electron
 
-# Python engine directly (from the repo root; defaults read
-# gameplay/match.mp4 and write output/).
-.venv/bin/python python/main.py --help
-.venv/bin/python python/main.py --video /path/to/clip.mp4 --output-dir /tmp/run1
-.venv/bin/python python/main.py --vision-test            # one paid request
-.venv/bin/python python/main.py --vision-batch --limit 5 # paid, one request/frame
-.venv/bin/python python/main.py --rebuild-state          # offline
-.venv/bin/python python/main.py --detect-events          # offline
-.venv/bin/python python/main.py --generate-commentary    # offline
-.venv/bin/python python/main.py --commentary-write       # paid, opt-in
-.venv/bin/python python/main.py --generate-script        # paid, opt-in
-
-# Worker as Electron launches it (offline subset, no paid calls):
-.venv/bin/python python/worker.py /path/to/clip.mp4 --output-dir /tmp/run1 --skip-vision
+npm install
 ```
 
-Output layout under the output directory: `frames/` holds extracted
-JPEGs; `observations/` holds generated JSON (`frame_<timestamp>.json`
-per analysed frame plus the `match_state.json` snapshot); `events/`
-holds `events.json`; `commentary/` holds `commentary.json`; `script/`
-holds `script.json` (the TTS input contract; TTS itself is not
-implemented).
+4. Launch ROB
 
-## How Electron communicates with Python
+```bash
+npm start
+```
 
-1. The renderer calls `window.api.processVideo(videoPath, options)`.
-2. The main process validates the input, resolves the `.venv`
-   interpreter and `python/worker.py`, and spawns it.
-3. The worker emits `started` / `progress` / `stage_completed` /
-   `result` / `error` JSON lines on stdout; diagnostics go to stderr.
-4. The main process forwards them to the renderer as `worker-event`
-   messages (`window.api.onWorkerEvent(...)`).
-5. `window.api.cancelProcessing()` terminates the run; only one job runs
-   at a time; the child is cleaned up when the app exits.
+The Electron application launches the desktop interface and manages the local Python worker when processing is started.
 
-## Environment variables
+---
 
-| Name | Needed for |
-|---|---|
-| `BASETEN_API_KEY` | Paid stages: vision test/batch, commentary writer, script, and the worker's `vision_analysis`/`script` stages |
+Configuration
 
-## Testing
+ROB provides an in-app configuration workflow for connecting AI providers.
 
-```sh
-# Python suite (offline, no API calls) — from the repo root.
-.venv/bin/python -m unittest discover -s tests -v
+Vision Configuration
 
-# Electron protocol/process tests (dependency-free) — from electron/.
+1. Open provider configuration.
+2. Select a supported vision provider.
+3. Enter the required API credentials.
+4. Select or configure the model.
+5. Test the connection.
+6. Verify image-analysis functionality.
+
+Custom Providers
+
+ROB supports configurable OpenAI-compatible vision endpoints.
+
+Users can provide:
+
+- API endpoint URL.
+- API key.
+- Model identifier.
+
+Model discovery is supported when the configured endpoint exposes a compatible models endpoint. Manual model entry is also available.
+
+Voice Configuration
+
+Voice generation is optional.
+
+Configure Google Gemini TTS separately when spoken commentary is required.
+
+Important: Keep API credentials private. Never commit real API keys or secrets to the repository. External provider usage may incur charges.
+
+---
+
+Development
+
+Electron Commands
+
+Run these commands inside the "electron/" directory.
+
+Command| Description
+"npm start"| Launch ROB
+"npm test"| Run Electron tests
+"npm run package"| Package the application
+"npm run make"| Build distributable targets
+
+Python Commands
+
+Run these commands from the repository root with the virtual environment activated.
+
+Display CLI options:
+
+```bash
+python python/main.py --help
+```
+
+Run the worker directly:
+
+```bash
+python python/worker.py /path/to/gameplay.mp4 --output-dir /tmp/rob-run
+```
+
+Run Python tests:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The Python worker communicates with Electron through newline-delimited JSON messages. Standard output is reserved for protocol messages, while diagnostic output is written to standard error.
+
+---
+
+Project Structure
+
+```text
+ROB-Studios/
+│
+├── electron/
+│   ├── src/
+│   │   ├── main/
+│   │   ├── main.js
+│   │   ├── preload.js
+│   │   └── ...
+│   │
+│   ├── test/
+│   └── package.json
+│
+├── python/
+│   ├── ai_commentator/
+│   │   ├── vision/
+│   │   ├── state/
+│   │   ├── events/
+│   │   ├── commentary/
+│   │   ├── script/
+│   │   ├── streaming/
+│   │   ├── tts/
+│   │   └── prompts/
+│   │
+│   ├── main.py
+│   ├── worker.py
+│   ├── provider_setup.py
+│   └── tts_provider_setup.py
+│
+├── docs/
+│   ├── architecture.md
+│   ├── current-state.md
+│   ├── roadmap.md
+│   ├── contracts/
+│   └── decisions/
+│
+├── tests/
+│
+├── requirements.txt
+└── README.md
+```
+
+---
+
+Testing
+
+ROB includes automated tests for its Python processing engine and Electron application.
+
+The test suites are designed to validate application behavior without requiring live AI provider calls wherever possible.
+
+Run Python tests:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Run Electron tests:
+
+```bash
+cd electron
+
 npm test
-
-# Synthetic timing comparison (not collected by unittest).
-.venv/bin/python tests/benchmark_jobs.py
 ```
 
-## Current limitations
+Build the desktop application:
 
-- The video-selection UI and dashboard are not built yet; the
-  integration API and a minimal worker-status view exist.
-- TTS/audio playback, live capture, and OBS integration are not
-  implemented (see `docs/roadmap.md`).
-- The `.venv` interpreter packaging/distribution problem for production
-  builds is explicitly out of scope: the current target is local
-  development with a native `.venv`.
-- Live Baseten runs (vision batch, writer, script) are paid and opt-in;
-  never run them without explicit authorization.
-- Implemented versus planned: frame extraction, vision analysis,
-  match-state tracking, event detection, deterministic and LLM-worded
-  commentary, and the final casting script are implemented; see
-  `docs/current-state.md` for the verified state.
+```bash
+npm run package
+```
+
+Live provider connectivity, model availability, and end-to-end audio quality should be verified separately using configured provider credentials.
+
+---
+
+Security & Privacy
+
+- API credentials should never be committed to version control.
+- Use the in-app provider configuration for desktop workflows.
+- Only configure trusted external API endpoints.
+- Review the privacy, data-retention, and billing policies of external providers.
+- Gameplay sent to external AI providers is subject to their respective data-handling policies.
+
+---
+
+Project Status
+
+ROB is actively under development.
+
+The repository includes the Electron desktop application, local Python processing engine, vision integrations, adaptive sampling, match-state tracking, evidence-aware event detection, streaming commentary pipeline, TTS integration, synchronized editor timeline, and video export workflow.
+
+Some capabilities depend on external provider availability, credentials, quotas, and operating-system compatibility.
+
+For implementation details, see:
+
+- "Architecture" (docs/architecture.md)
+- "Current State" (docs/current-state.md)
+- "Roadmap" (docs/roadmap.md)
+
+---
+
+Contributing
+
+Contributions, bug reports, and feature suggestions are welcome.
+
+1. Check existing issues before creating a new one.
+2. Discuss significant changes before implementation.
+3. Keep automated tests deterministic and offline wherever possible.
+4. Never commit API keys, private gameplay, or generated credentials.
+5. Update relevant documentation when changing application behavior.
+
+"Report an Issue" (https://github.com/ishan-codes-code/ROB-Studios/issues)
+
+---
+
+License
+
+No repository-level license file was identified at the time of writing.
+
+Until a license is added, all rights remain reserved by the copyright holder. Do not assume unrestricted permission to redistribute or reuse the project.
+
+---
+
+<p align="center">
+  **ROB — Real-time Observer & Broadcaster**
+  <br />
+  Making esports commentary intelligent.
+</p>
