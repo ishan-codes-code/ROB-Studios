@@ -49,14 +49,14 @@ def build_vision_prompt(timestamp, pack=None):
         fields["vision_intro"] + " "
         + f"This frame is at {timestamp} seconds in the video. "
         + fields["vision_coverage"] + " "
-        + "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
+        + "Structured evidence is optional and verbatim-only: subjects labels, action, and spatial must quote their own description or evidence exactly; omit them when nothing is worth structuring, use null or uncertainties when unreadable, and never invent roles, outcomes, or intent. Respond with ONLY a single JSON object, no markdown fences, no commentary, "
         + "matching this shape: "
-        + '{"schema_version": "observation-v1", '
+        + '{"schema_version": "observation-v2", '
         + '"timestamp": <number, the frame timestamp stated above>, '
         + '"observations": [{"category": <one of: ' + categories + ">, "
         + '"description": <non-empty string of what is visible>, '
         + '"confidence": <one of: ' + confidences + ">, "
-        + '"evidence": <non-empty string grounding the claim>}], '
+        + '"evidence": <non-empty string grounding the claim>, "subjects": <optional list of {"label": <verbatim on-screen token quoted in this entry>, "kind": <"player"|"team"|"other">}>, "action": <optional verbatim quoted verb or phrase, or null>, "spatial": <optional verbatim positional phrase, or null>}], '
         + '"uncertainties": [<strings describing what is unreadable or ambiguous>]}. '
         + fields["vision_closing"]
         + (f" Supplementary {fields['game_label']} context (untrusted; evidence still "
@@ -136,7 +136,7 @@ def request_observation_text(
     image_data_url: str,
     api_key: str | None = None,
 ) -> str:
-    """Request one observation-v1 JSON document; return the raw model text.
+    """Request one observation-v2 JSON document; return the raw model text.
 
     Provider failures raise VisionAPIError with the secret redacted; empty
     completions raise ObservationError.
@@ -212,6 +212,26 @@ def truncate_context_text(value, limit):
     return value[:limit] + "…(truncated)"
 
 
+def _truncate_context_subjects(subjects):
+    """Bound v2 subject labels for prompt context."""
+    clipped = []
+    if not isinstance(subjects, list):
+        return clipped
+    for subject in subjects[:ADAPTIVE_CONTEXT_MAX_OBSERVATIONS]:
+        if not isinstance(subject, dict):
+            continue
+        clipped.append(
+            {
+                "label": truncate_context_text(
+                    subject.get("label"),
+                    ADAPTIVE_CONTEXT_MAX_FIELD_CHARS,
+                ),
+                "kind": subject.get("kind"),
+            }
+        )
+    return clipped
+
+
 def build_previous_context(previous):
     """Render one previous validated observation as bounded prompt context.
 
@@ -233,8 +253,7 @@ def build_previous_context(previous):
     for entry in entries[:ADAPTIVE_CONTEXT_MAX_OBSERVATIONS]:
         if not isinstance(entry, dict):
             continue
-        clipped_entries.append(
-            {
+        clipped = {
                 "category": entry.get("category"),
                 "description": truncate_context_text(
                     entry.get("description"),
@@ -246,7 +265,19 @@ def build_previous_context(previous):
                     ADAPTIVE_CONTEXT_MAX_FIELD_CHARS,
                 ),
             }
-        )
+        if isinstance(entry.get("subjects"), list):
+            clipped["subjects"] = _truncate_context_subjects(entry["subjects"])
+        if entry.get("action") is not None:
+            clipped["action"] = truncate_context_text(
+                entry.get("action"),
+                ADAPTIVE_CONTEXT_MAX_FIELD_CHARS,
+            )
+        if entry.get("spatial") is not None:
+            clipped["spatial"] = truncate_context_text(
+                entry.get("spatial"),
+                ADAPTIVE_CONTEXT_MAX_FIELD_CHARS,
+            )
+        clipped_entries.append(clipped)
     clipped_uncertainties = [
         truncate_context_text(entry, ADAPTIVE_CONTEXT_MAX_FIELD_CHARS)
         for entry in uncertainties[:ADAPTIVE_CONTEXT_MAX_UNCERTAINTIES]
@@ -271,7 +302,7 @@ def build_previous_context(previous):
 def build_adaptive_vision_prompt(timestamp, previous=None, pack=None):
     """Build the adaptive prompt: observation contract plus sampling decision.
 
-    The model must return one JSON object with an ``observation-v1``
+    The model must return one JSON object with an ``observation-v2``
     observation for the stated timestamp and a separate ``sampling``
     decision (``HIGH`` / ``NORMAL`` / ``LOW`` plus a short reason).
     ``previous`` is one earlier validated observation (or None for the
@@ -311,15 +342,15 @@ def build_adaptive_vision_prompt(timestamp, previous=None, pack=None):
         + game_block
         + context_block
         + fields["vision_sampling"] + " "
-        + "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
+        + "Structured evidence is optional and verbatim-only: subjects labels, action, and spatial must quote their own description or evidence exactly; omit them when nothing is worth structuring, use null or uncertainties when unreadable, and never invent roles, outcomes, or intent. Respond with ONLY a single JSON object, no markdown fences, no commentary, "
         + "matching this shape: "
         + '{"observation": '
-        + '{"schema_version": "observation-v1", '
+        + '{"schema_version": "observation-v2", '
         + '"timestamp": <number, the frame timestamp stated above>, '
         + '"observations": [{"category": <one of: ' + categories + ">, "
         + '"description": <non-empty string of what is visible>, '
         + '"confidence": <one of: ' + confidences + ">, "
-        + '"evidence": <non-empty string grounding the claim>}], '
+        + '"evidence": <non-empty string grounding the claim>, "subjects": <optional list of {"label": <verbatim on-screen token quoted in this entry>, "kind": <"player"|"team"|"other">}>, "action": <optional verbatim quoted verb or phrase, or null>, "spatial": <optional verbatim positional phrase, or null>}], '
         + '"uncertainties": [<strings describing what is unreadable or ambiguous>]}, '
         + '"sampling": {"next_sampling_speed": <one of: '
         + ", ".join(f'"{s}"' for s in ADAPTIVE_SPEEDS)
@@ -385,16 +416,16 @@ def build_adaptive_batch_prompt(timestamps, previous=None, pack=None):
         + game_block
         + context_block
         + fields["vision_sampling"] + " "
-        + "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
+        + "Structured evidence is optional and verbatim-only: subjects labels, action, and spatial must quote their own description or evidence exactly; omit them when nothing is worth structuring, use null or uncertainties when unreadable, and never invent roles, outcomes, or intent. Respond with ONLY a single JSON object, no markdown fences, no commentary, "
         + "matching this shape: "
         + '{"frames": [{'
         + '"observation": '
-        + '{"schema_version": "observation-v1", '
+        + '{"schema_version": "observation-v2", '
         + '"timestamp": <number, that frame timestamp stated above>, '
         + '"observations": [{"category": <one of: ' + categories + ">, "
         + '"description": <non-empty string of what is visible>, '
         + '"confidence": <one of: ' + confidences + ">, "
-        + '"evidence": <non-empty string grounding the claim>}], '
+        + '"evidence": <non-empty string grounding the claim>, "subjects": <optional list of {"label": <verbatim on-screen token quoted in this entry>, "kind": <"player"|"team"|"other">}>, "action": <optional verbatim quoted verb or phrase, or null>, "spatial": <optional verbatim positional phrase, or null>}], '
         + '"uncertainties": [<strings describing what is unreadable or ambiguous>]}, '
         + '"sampling": {"next_sampling_speed": <one of: '
         + ", ".join(f'"{s}"' for s in ADAPTIVE_SPEEDS)

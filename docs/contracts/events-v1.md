@@ -33,7 +33,7 @@ Each event object has exactly these fields:
 |---|---|---|
 | `schema_version` | string | Always `"events-v1"` (each event is self-describing) |
 | `id` | non-empty string | Deterministic id (`evt-` + 12 hex chars) derived from the event's canonical content |
-| `type` | non-empty string | Rule name that fired (v1: `kill_feed_entry` or `elim_count_increased`) |
+| `type` | non-empty string | Rule name that fired (v1: `kill_feed_entry`, `elim_count_increased`, `elim_streak`, or `feed_cluster`) |
 | `timestamp` | number | Timestamp semantics per rule (see "Rules" below): the triggering observation's timestamp |
 | `status` | `candidate` | v1 emits candidates only — supported, never certified (see "Statuses" below) |
 | `rule` | non-empty string | Rule name and version that fired (e.g. `kill_feed_entry/v1`) |
@@ -97,6 +97,56 @@ claims only that the counter increased — never who was eliminated, by whom,
 or by what means. Equal readings, decreases, resets, and counters without a
 shared scope token are suppressed (a decrease may mean a new game, not an
 event).
+
+### `elim_streak` (rule `elim_streak/v1`)
+
+Fires when the same team-scoped elimination counter is read at three
+or more timestamps as a strictly increasing chain (at least two
+strictly-increasing steps) whose total span fits
+`EVENT_STREAK_WINDOW_S` seconds (initial value 30; a tuning
+placeholder, not a product decision). All of the following must hold:
+
+- Every reading comes from a `hud` observation with confidence `high`
+  or `medium`, scoped exactly like `elim_count_increased` readings
+  (an `Elim <integer>` counter and a team label in the same sentence,
+  attributed to the nearest team label, preceding wins ties).
+- Timestamps and counters both strictly increase along the chain;
+  equal readings, decreases, and scope changes break the chain into
+  maximal runs, each evaluated independently.
+- The chain's span (last timestamp minus first) fits the window.
+
+Timestamp: the last reading's timestamp. The event cites every
+reading (with state fact ids) and quotes every counter sentence;
+confidence is the last reading's label. It claims only that the
+counter rose through the quoted steps — never who was eliminated, by
+whom, or by what means. Pairwise `elim_count_increased` events still
+fire for each increasing step alongside the streak.
+
+### `feed_cluster` (rule `feed_cluster/v1`)
+
+Fires when two or more `kill_feed_entry`-satisfying `hud`
+observations fall within `EVENT_CLUSTER_WINDOW_S` seconds (initial
+value 10; a tuning placeholder) with pairwise-disjoint transcribed
+name-token sets. All of the following must hold:
+
+- Each entry independently satisfies the `kill_feed_entry` predicate
+  (`hud`, `high`/`medium`, explicit feed mention, at least two
+  distinct `TAG.NAME` tokens in evidence).
+- In timestamp order, each entry after the first joins the cluster
+  only when its span from the cluster start fits the window and none
+  of its name tokens appeared in an earlier cluster entry; otherwise
+  the cluster closes and a new one opens (greedy, deterministic).
+
+Timestamp: the last entry's timestamp. The event cites every entry
+(with state fact ids) and quotes every description and evidence
+string; confidence is the last entry's label. Killer and victim roles
+are **not** assigned. A lone feed entry, overlapping name sets, and
+spans beyond the window never cluster.
+
+Significance between event types is deterministic but computed, not
+stored: `feed_cluster` > `elim_streak` > `elim_count_increased` >
+`kill_feed_entry`, tie-broken by (timestamp, id) at gating and
+rendering time. No stored significance field exists.
 
 ## Suppressed claims (never events in v1)
 

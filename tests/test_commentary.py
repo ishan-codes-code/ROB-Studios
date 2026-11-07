@@ -22,6 +22,7 @@ from main import (
     commentary_claim_id,
     detect_events,
     gate_commentary_claims,
+    prioritize_writer_claims,
     render_commentary_claims,
     run_generate_commentary,
     validate_commentary,
@@ -630,6 +631,285 @@ class PreservationTests(unittest.TestCase):
                 for path in list(obs_dir.glob("*.json")) + [st, ev]
             }
             self.assertEqual(before, after)
+
+
+SEQ_ELIM_4 = obs_item(
+    "hud",
+    "Bottom-left team panel for team AG showing members AG.BAROS and "
+    "AG.SAIFA, plus header 'Elim 4'.",
+    "high",
+    "Team AG panel header Elim 4.",
+)
+SEQ_ELIM_5 = obs_item(
+    "hud",
+    "Bottom-left team panel for team AG showing members AG.BAROS and "
+    "AG.NAMELESS, plus header 'Elim 5'.",
+    "high",
+    "Team AG panel header Elim 5.",
+)
+SEQ_ELIM_6 = obs_item(
+    "hud",
+    "Bottom-left team panel for team AG showing members AG.BAROS and "
+    "AG.SOLO, plus header 'Elim 6'.",
+    "high",
+    "Team AG panel header Elim 6.",
+)
+SEQ_FEED_A = obs_item(
+    "hud",
+    "Top-right kill feed lines show recent eliminations.",
+    "high",
+    "Feed lines read 'RRQ.JEEK eliminated OG.IQOOPAWDI' and "
+    "'SBUL.BUNNY eliminated TAG.VIPER'.",
+)
+SEQ_FEED_B = obs_item(
+    "hud",
+    "Top-right kill feed shows two more fresh entries.",
+    "high",
+    "Feed lines read 'TLX.ALPHA eliminated VPE.BRAVO' and "
+    "'NVX.CHARLIE eliminated DRX.DELTA'.",
+)
+
+
+def sequence_bundle(root):
+    obs_dir, st, ev, out = write_tree(
+        root,
+        {
+            0: obs_doc(0, [SEQ_ELIM_4]),
+            3: obs_doc(3, [SEQ_ELIM_5, SEQ_FEED_A]),
+            6: obs_doc(6, [SEQ_ELIM_6, SEQ_FEED_B]),
+        },
+    )
+    return obs_dir, st, ev, out
+
+
+def load_bundle(obs_dir, state_path, events_path, docs):
+    accepted = {}
+    for timestamp in sorted(docs):
+        accepted[f"frame_{timestamp:05d}.json"] = docs[timestamp]
+    state = json.loads(Path(state_path).read_text(encoding="utf-8"))
+    events = json.loads(Path(events_path).read_text(encoding="utf-8"))
+    return {"observations": accepted, "state": state, "events": events}
+
+
+class EventSequenceTests(unittest.TestCase):
+    def test_streak_yields_sequence_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, out = write_tree(
+                tmp,
+                {
+                    0: obs_doc(0, [SEQ_ELIM_4]),
+                    3: obs_doc(3, [SEQ_ELIM_5]),
+                    6: obs_doc(6, [SEQ_ELIM_6]),
+                },
+            )
+            code, _, _ = run_capture(
+                observations_dir=obs_dir, state_path=st,
+                events_path=ev, commentary_path=out,
+            )
+            self.assertEqual(code, 0)
+            doc = read_commentary(out)
+        sequences = [line for line in doc["lines"]
+                     if line["template"] == "event_sequence"]
+        self.assertEqual(len(sequences), 1)
+        line = sequences[0]
+        self.assertEqual(line["type"], "event_echo")
+        self.assertEqual(line["timestamp"], 6)
+        self.assertIsNotNone(line["event_id"])
+        self.assertIn("not established", line["qualification"])
+        self.assertTrue(line["text"].startswith("Sequence:"))
+        for quote in line["evidence"]:
+            self.assertIn(quote, line["text"])
+
+    def test_cluster_yields_sequence_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, out = write_tree(
+                tmp,
+                {
+                    0: obs_doc(0, [SEQ_FEED_A]),
+                    3: obs_doc(3, [SEQ_FEED_B]),
+                },
+            )
+            code, _, _ = run_capture(
+                observations_dir=obs_dir, state_path=st,
+                events_path=ev, commentary_path=out,
+            )
+            self.assertEqual(code, 0)
+            doc = read_commentary(out)
+        sequences = [line for line in doc["lines"]
+                     if line["template"] == "event_sequence"]
+        self.assertEqual(len(sequences), 1)
+        self.assertEqual(sequences[0]["timestamp"], 3)
+        self.assertIn("RRQ.JEEK", sequences[0]["text"])
+
+    def test_single_feed_still_echoes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, out = write_tree(
+                tmp, {0: obs_doc(0, [SEQ_FEED_A])}
+            )
+            code, _, _ = run_capture(
+                observations_dir=obs_dir, state_path=st,
+                events_path=ev, commentary_path=out,
+            )
+            self.assertEqual(code, 0)
+            doc = read_commentary(out)
+        templates = [line["template"] for line in doc["lines"]]
+        self.assertIn("event_echo", templates)
+        self.assertNotIn("event_sequence", templates)
+
+    def test_unknown_rule_suppressed(self):
+        docs = {
+            0: obs_doc(0, [SEQ_ELIM_4]),
+            3: obs_doc(3, [SEQ_ELIM_5]),
+            6: obs_doc(6, [SEQ_ELIM_6]),
+        }
+        accepted = [(ts, f"frame_{ts:05d}.json", docs[ts])
+                    for ts in sorted(docs)]
+        state = build_match_state(list(accepted))
+        events, _ = detect_events(list(accepted), state)
+        streak = [e for e in events["events"] if e["type"] == "elim_streak"][0]
+        streak["rule"] = "bogus/v1"
+        _claims, suppressed = gate_commentary_claims(
+            list(accepted), state, events
+        )
+        subjects = [entry["subject"] for entry in suppressed
+                    if entry["rule"] == "no-justified-wording"]
+        self.assertIn(f"event '{streak['id']}'", subjects)
+
+    def test_gate_orders_echoes_by_significance(self):
+        docs = {
+            0: obs_doc(0, [SEQ_ELIM_4]),
+            3: obs_doc(3, [SEQ_ELIM_5, SEQ_FEED_A]),
+            6: obs_doc(6, [SEQ_ELIM_6, SEQ_FEED_B]),
+        }
+        accepted = [(ts, f"frame_{ts:05d}.json", docs[ts])
+                    for ts in sorted(docs)]
+        state = build_match_state(list(accepted))
+        events, _ = detect_events(list(accepted), state)
+        claims, _ = gate_commentary_claims(list(accepted), state, events)
+        echoes = [c for c in claims if c["type"] == "event_echo"]
+        self.assertEqual(
+            [c["rule"] for c in echoes],
+            ["feed_cluster", "elim_streak", "elim_count_increased",
+             "elim_count_increased", "kill_feed_entry", "kill_feed_entry"],
+        )
+        self.assertEqual(
+            [c["template"] for c in echoes[:2]],
+            ["event_sequence", "event_sequence"],
+        )
+
+    def test_rendered_echoes_follow_significance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, out = sequence_bundle(tmp)
+            code, _, _ = run_capture(
+                observations_dir=obs_dir, state_path=st,
+                events_path=ev, commentary_path=out,
+            )
+            self.assertEqual(code, 0)
+            doc = read_commentary(out)
+            events = json.loads(Path(ev).read_text(encoding="utf-8"))
+        rule_of = {e["id"]: e["rule"].split("/")[0]
+                   for e in events["events"]}
+        ordered = [rule_of[line["event_id"]] for line in doc["lines"]
+                   if line["type"] == "event_echo" and line["timestamp"] == 6]
+        self.assertEqual(
+            ordered,
+            ["feed_cluster", "elim_streak", "elim_count_increased",
+             "kill_feed_entry"],
+        )
+
+
+class SequenceProvenanceTests(unittest.TestCase):
+    def run_tree(self, tmp, docs):
+        obs_dir, st, ev, out = write_tree(tmp, docs)
+        code, _, _ = run_capture(
+            observations_dir=obs_dir, state_path=st,
+            events_path=ev, commentary_path=out,
+        )
+        self.assertEqual(code, 0)
+        return read_commentary(out), load_bundle(obs_dir, st, ev, docs)
+
+    def test_sequence_line_passes_bundle_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = {
+                0: obs_doc(0, [SEQ_ELIM_4]),
+                3: obs_doc(3, [SEQ_ELIM_5]),
+                6: obs_doc(6, [SEQ_ELIM_6]),
+            }
+            doc, bundle = self.run_tree(tmp, docs)
+        validate_commentary(doc, bundle)
+
+    def test_sequence_qualification_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = {0: obs_doc(0, [SEQ_FEED_A]), 3: obs_doc(3, [SEQ_FEED_B])}
+            doc, _bundle = self.run_tree(tmp, docs)
+        line = [entry for entry in doc["lines"]
+                if entry["template"] == "event_sequence"][0]
+        line["qualification"] = None
+        with self.assertRaises(ObservationError):
+            validate_commentary(doc)
+
+    def test_sequence_confidence_ceiling(self):
+        # Mirrors the enforced rule for all templates: a line weaker
+        # than its cited sources is rejected.
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = {0: obs_doc(0, [SEQ_FEED_A]), 3: obs_doc(3, [SEQ_FEED_B])}
+            doc, bundle = self.run_tree(tmp, docs)
+        validate_commentary(doc, bundle)
+        line = [entry for entry in doc["lines"]
+                if entry["template"] == "event_sequence"][0]
+        line["confidence"] = "low"
+        with self.assertRaises(ObservationError):
+            validate_commentary(doc, bundle)
+
+    def test_sequence_token_subset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = {0: obs_doc(0, [SEQ_FEED_A]), 3: obs_doc(3, [SEQ_FEED_B])}
+            doc, bundle = self.run_tree(tmp, docs)
+        line = [entry for entry in doc["lines"]
+                if entry["template"] == "event_sequence"][0]
+        line["text"] = line["text"] + " ZZZ.QQQ"
+        with self.assertRaises(ObservationError):
+            validate_commentary(doc, bundle)
+
+
+class SignificanceTests(unittest.TestCase):
+    def echo_claim(self, rule, source_id, timestamp=6):
+        template = ("event_sequence" if rule in
+                    ("elim_streak", "feed_cluster") else "event_echo")
+        return {
+            "type": "event_echo",
+            "template": template,
+            "timestamp": timestamp,
+            "source_ids": [source_id],
+            "rule": rule,
+        }
+
+    def test_prioritize_orders_echoes_by_significance(self):
+        claims = [
+            self.echo_claim("kill_feed_entry", "f4"),
+            self.echo_claim("elim_count_increased", "f3"),
+            self.echo_claim("elim_streak", "f2"),
+            self.echo_claim("feed_cluster", "f1"),
+        ]
+        model, overflow = prioritize_writer_claims(claims)
+        self.assertEqual(overflow, [])
+        self.assertEqual(
+            [c["rule"] for c in model],
+            ["feed_cluster", "elim_streak", "elim_count_increased",
+             "kill_feed_entry"],
+        )
+
+    def test_tie_break_is_deterministic(self):
+        first = self.echo_claim("elim_streak", "f9")
+        second = self.echo_claim("elim_streak", "f1")
+        model, _ = prioritize_writer_claims([first, second])
+        self.assertEqual(
+            [c["source_ids"] for c in model], [["f1"], ["f9"]]
+        )
+        again, _ = prioritize_writer_claims([second, first])
+        self.assertEqual(
+            [c["source_ids"] for c in again], [["f1"], ["f9"]]
+        )
 
 
 if __name__ == "__main__":

@@ -136,7 +136,8 @@ stages are paid and conditional); TTS, playback, and OBS remain planned.
   shape, error mapping) behind a clear boundary so the provider can change
   without touching pipeline logic.
 - **Status:** implemented for the single test frame and the multi-frame
-  batch (structured `observation-v1` JSON via Baseten); live multi-frame
+  batch (structured `observation-v2` JSON via Baseten, v1 still accepted);
+  live multi-frame
   use verified on 5 frames. Reused unchanged by the worker.
 
 ### 3. Structured observation validation
@@ -145,7 +146,8 @@ stages are paid and conditional); TTS, playback, and OBS remain planned.
   reject or flag anything that does not conform, before downstream stages
   may use it.
 - **Status:** implemented for the single-frame case
-  (`observation-v1` in [contracts/observation-v1.md](contracts/observation-v1.md),
+  (`observation-v2` in [contracts/observation-v2.md](contracts/observation-v2.md),
+  with `observation-v1` still accepted,
   validated by `parse_observation` / `validate_observation`). Contract
   changes must be reviewed for compatibility
   (see [contracts/README.md](contracts/README.md)).

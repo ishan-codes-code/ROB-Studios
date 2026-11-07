@@ -19,6 +19,8 @@ from ..config import (
     EVENT_SCHEMA_VERSION,
     EVENT_STATUSES,
     EVENT_TEAM_SCOPE_RE,
+    EVENT_CLUSTER_WINDOW_S,
+    EVENT_STREAK_WINDOW_S,
     EVENT_TRIGGER_CONFIDENCES,
 )
 from ..errors import ObservationError
@@ -265,6 +267,99 @@ def _elim_readings(description: str) -> list:
     return readings
 
 
+def _streak_chains(readings: list, window: float) -> list:
+    """Maximal strictly-increasing same-team Elim chains in a window.
+
+    ``readings`` are ``_elim_readings`` entries sorted by (timestamp,
+    source). A chain extends while timestamps and counters both
+    strictly increase within one team scope; a scope change, repeat,
+    or decrease starts a new chain. Only chains of at least three
+    readings whose total span fits ``window`` seconds are returned
+    (at least two strictly-increasing steps of the same counter).
+    """
+    chains = []
+    current: list = []
+    for entry in readings:
+        if (
+            current
+            and entry["scope"] == current[-1]["scope"]
+            and entry["timestamp"] > current[-1]["timestamp"]
+            and entry["count"] > current[-1]["count"]
+        ):
+            current.append(entry)
+        else:
+            if (
+                len(current) >= 3
+                and current[-1]["timestamp"] - current[0]["timestamp"]
+                <= window
+            ):
+                chains.append(current)
+            current = [entry]
+    if (
+        len(current) >= 3
+        and current[-1]["timestamp"] - current[0]["timestamp"] <= window
+    ):
+        chains.append(current)
+    return chains
+
+
+def _feed_candidates(clean: list) -> list:
+    """HUD observations satisfying the kill-feed entry predicate."""
+    candidates = []
+    for timestamp, source_name, validated in clean:
+        for item in validated["observations"]:
+            if (
+                item["category"] != "hud"
+                or item["confidence"] not in EVENT_TRIGGER_CONFIDENCES
+            ):
+                continue
+            if not _mentions_feed(item["description"]):
+                continue
+            names = _feed_name_tokens(item["evidence"])
+            if len(names) < 2:
+                continue
+            candidates.append(
+                {
+                    "timestamp": timestamp,
+                    "source": source_name,
+                    "item": item,
+                    "names": names,
+                }
+            )
+    candidates.sort(key=lambda entry: (entry["timestamp"], entry["source"]))
+    return candidates
+
+
+def _feed_clusters(candidates: list, window: float) -> list:
+    """Greedy feed clusters: entries in a window with disjoint names.
+
+    In timestamp order, an entry joins the open cluster when its span
+    from the cluster start fits ``window`` and every name token is new
+    to the cluster; otherwise the cluster closes and a new one opens.
+    Only clusters of at least two entries are returned.
+    """
+    clusters = []
+    current: list = []
+    seen: set = set()
+    start = None
+    for entry in candidates:
+        tokens = set(entry["names"])
+        if current and entry["timestamp"] - start <= window and not (
+            tokens & seen
+        ):
+            current.append(entry)
+            seen |= tokens
+            continue
+        if len(current) >= 2:
+            clusters.append(current)
+        current = [entry]
+        seen = set(tokens)
+        start = entry["timestamp"]
+    if len(current) >= 2:
+        clusters.append(current)
+    return clusters
+
+
 def detect_events(observations: list, state: dict) -> tuple[dict, dict]:
     """Detect evidence-grounded events from validated observations + state.
 
@@ -448,6 +543,67 @@ def detect_events(observations: list, state: dict) -> tuple[dict, dict]:
             f"explicitly scope the counter to the same team. Who was "
             f"eliminated, by whom, and by what means are not established.",
         )
+    for chain in _streak_chains(readings, EVENT_STREAK_WINDOW_S):
+        first, last = chain[0], chain[-1]
+        steps = "->".join(str(entry["count"]) for entry in chain)
+        emit(
+            "elim_streak",
+            last["timestamp"],
+            "elim_streak/v1",
+            [
+                {
+                    "timestamp": entry["timestamp"],
+                    "file": entry["source"],
+                    "fact_id": entry["fact_id"],
+                }
+                for entry in chain
+            ],
+            [entry["sentence"] for entry in chain],
+            last["confidence"],
+            f"Team {last['scope']} elim counter rose through {steps} "
+            f"across {len(chain)} readings between {first['timestamp']}s "
+            f"and {last['timestamp']}s; every step is explicitly scoped "
+            f"to the same team. Who was eliminated, by whom, and by "
+            f"what means are not established.",
+        )
+    for cluster in _feed_clusters(
+        _feed_candidates(clean), EVENT_CLUSTER_WINDOW_S
+    ):
+        first, last = cluster[0], cluster[-1]
+        sources = []
+        evidence = []
+        for entry in cluster:
+            fact = state_fact(
+                entry["item"]["category"],
+                entry["item"]["description"],
+                entry["source"],
+            )
+            if fact is None:
+                break
+            sources.append(
+                {
+                    "timestamp": entry["timestamp"],
+                    "file": entry["source"],
+                    "fact_id": fact["id"],
+                }
+            )
+            evidence.extend(
+                [entry["item"]["description"], entry["item"]["evidence"]]
+            )
+        else:
+            names = [name for entry in cluster for name in entry["names"]]
+            emit(
+                "feed_cluster",
+                last["timestamp"],
+                "feed_cluster/v1",
+                sources,
+                evidence,
+                last["item"]["confidence"],
+                f"HUD observations at {first['timestamp']}s and "
+                f"{last['timestamp']}s transcribe distinct kill feed "
+                f"entries ({', '.join(names)}); killer/victim roles are "
+                f"not established.",
+            )
     document = {
         "schema_version": EVENT_SCHEMA_VERSION,
         "generated_from": {

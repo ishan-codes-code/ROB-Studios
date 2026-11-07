@@ -12,6 +12,7 @@ from ..config import (
     BASETEN_MODEL,
     COMMENTARY_QUALIFIERS,
     COMMENTARY_SCHEMA_VERSION,
+    EVENT_SIGNIFICANCE_RANK,
     WRITER_MAX_CLAIMS,
     WRITER_MAX_EVIDENCE_CHARS,
     WRITER_MAX_HISTORY_LINES,
@@ -44,6 +45,9 @@ def render_claim_text(claim: dict) -> str:
     if claim["template"] == "event_echo":
         quoted = " — ".join(claim["evidence"])
         return f"{quoted} — unconfirmed: {claim['qualification']}"
+    if claim["template"] == "event_sequence":
+        quoted = " — ".join(claim["evidence"])
+        return f"Sequence: {quoted} — unconfirmed: {claim['qualification']}"
     raise ObservationError(
         f"Unknown commentary template '{claim['template']}'."
     )
@@ -81,12 +85,28 @@ def _render_claim_line(claim: dict, text: str, seq: int) -> dict:
     }
 
 
+def _claim_significance(claim: dict) -> int:
+    """Significance rank for ordering (lower = more significant).
+
+    Event echoes rank by their rule; anything else (including claims
+    without a rule, e.g. hand-built fixtures) sorts before echoes at
+    the same timestamp, preserving the development-first order.
+    """
+    if claim.get("type") != "event_echo":
+        return -1
+    rule = claim.get("rule") or ""
+    if rule in EVENT_SIGNIFICANCE_RANK:
+        return EVENT_SIGNIFICANCE_RANK.index(rule)
+    return len(EVENT_SIGNIFICANCE_RANK)
+
+
 def order_commentary_claims(claims: list) -> list:
     """Deterministic claim order shared by both renderers."""
     return sorted(
         claims,
         key=lambda claim: (
             claim["timestamp"],
+            _claim_significance(claim),
             claim["template"],
             sorted(claim["source_ids"]),
         ),
@@ -123,6 +143,7 @@ def prioritize_writer_claims(claims: list) -> tuple:
         key=lambda claim: (
             0 if claim["type"] in ("development", "event_echo") else 1,
             claim["timestamp"],
+            _claim_significance(claim),
             claim["template"],
             sorted(claim["source_ids"]),
         ),

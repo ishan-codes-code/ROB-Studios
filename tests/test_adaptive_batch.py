@@ -94,7 +94,7 @@ class BatchPromptTests(unittest.TestCase):
         self.assertIn('"frames"', prompt)
         self.assertIn("JSON-escaped", prompt)
         self.assertIn("one concise sentence", prompt)
-        self.assertIn("observation-v1", prompt)
+        self.assertIn("observation-v2", prompt)
         self.assertLess(
             prompt.index("frame 1"), prompt.index("frame 2")
         )

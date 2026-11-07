@@ -1,5 +1,34 @@
 # Current state
 
+## Temporal gameplay event intelligence (uncommitted)
+
+Additive multi-observation patterns on branch
+`session-2-gameplay-intelligence`: `observation-v2` (v1 core plus
+optional verbatim-only `subjects`/`action`/`spatial`, per-version
+strict validation, mixed-directory support), two new detection
+rules (`elim_streak`: 3+ same-team strictly-increasing Elim
+readings within 30s; `feed_cluster`: 2+ feed-satisfying
+observations within 10s with disjoint name tokens), computed
+significance ordering, and one echo-like `event_sequence`
+commentary template (type stays `event_echo`, so qualifier,
+uncertainty, confidence, token-subset, and containment rules
+apply unchanged). No `events`/`commentary`/`script` schema bump,
+no state/worker-protocol/TTS/Electron change; pairwise events
+still fire alongside sequences; streaming words sequences once
+across windows via stable claim ids. Docs: new
+`observation-v2.md` contract, new rules/template sections in
+`events-v1.md`/`commentary-v1.md`/`script-v1.md`, ADR 0015,
+roadmap 5.1. Known limits: window thresholds are tuning
+placeholders; live v2 field population unverified (no paid
+calls); v1-vs-v2 rewrites force `--rebuild-state` by design.
+
+Verification: 58 new offline fixture tests across schema,
+detection, commentary, writer, script, and streaming suites;
+full Python suite 704 tests with only the 3 pre-existing
+full-run failures (Windows `con` path, api_activity leak,
+opening already-emitted — all reproduce on the clean tree).
+Electron suite not run (no Electron changes).
+
 ## Finish-later dismissal + crash-forensics lifecycle (uncommitted)
 
 Finish Later is now a persisted dismissal, not a bare navigation: the wizard

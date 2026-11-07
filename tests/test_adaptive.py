@@ -404,7 +404,7 @@ class PromptAndEncodingTests(unittest.TestCase):
         self.assertIn('"HIGH"', prompt)
         self.assertIn('"NORMAL"', prompt)
         self.assertIn('"LOW"', prompt)
-        self.assertIn("observation-v1", prompt)
+        self.assertIn("observation-v2", prompt)
         self.assertIn("No previous observation", prompt)
 
     def test_prompt_includes_bounded_previous_context(self):

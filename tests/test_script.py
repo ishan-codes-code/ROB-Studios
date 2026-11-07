@@ -36,7 +36,14 @@ from main import (
     validate_observation,
     validate_script,
 )
-from test_commentary import obs_doc, obs_item, write_tree
+from test_commentary import (
+    SEQ_ELIM_4,
+    SEQ_ELIM_5,
+    SEQ_ELIM_6,
+    obs_doc,
+    obs_item,
+    write_tree,
+)
 
 ENV_A = "Arid desert mesas under bright light."
 ENV_B = "Green containers near a rocky ledge."
@@ -695,6 +702,105 @@ class ProvenanceTests(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0)
         self.assertIn("--generate-script", proc.stdout)
+
+
+def sequence_tree(root):
+    return write_tree(
+        root,
+        {
+            0: obs_doc(0, [SEQ_ELIM_4]),
+            3: obs_doc(3, [SEQ_ELIM_5]),
+            6: obs_doc(6, [SEQ_ELIM_6]),
+        },
+    )
+
+
+def sequence_claim(by_id):
+    matches = [claim for claim in by_id.values()
+               if claim["template"] == "event_sequence"]
+    assert len(matches) == 1, [c["template"] for c in by_id.values()]
+    return matches[0]
+
+
+class SequenceScriptTests(unittest.TestCase):
+    def test_uncertainty_required_for_sequence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, _ = sequence_tree(tmp)
+            by_id = gate_script_claims(obs_dir, st, ev)
+        seq = sequence_claim(by_id)
+        self.assertFalse(script_text_valid(
+            "Team AG kept raising their elimination count.", [seq]))
+        self.assertTrue(script_text_valid(
+            "Team AG may have kept raising their count, unconfirmed.",
+            [seq]))
+
+    def test_causal_identity_outcome_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, _ = sequence_tree(tmp)
+            by_id = gate_script_claims(obs_dir, st, ev)
+        seq = sequence_claim(by_id)
+        self.assertFalse(script_text_valid(
+            "RRQ.JEEK drove the AG count up, unconfirmed.", [seq]))
+        self.assertFalse(script_text_valid(
+            "The count rose because AG pushed hard, unconfirmed.", [seq]))
+        self.assertFalse(script_text_valid(
+            "Team AG takes the match, unconfirmed.", [seq]))
+
+    def test_segment_timestamp_is_latest_cited(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, _ = sequence_tree(tmp)
+            out = Path(tmp) / "script.json"
+            by_id = gate_script_claims(obs_dir, st, ev)
+            by_claim = {claim_id_of(claim): claim
+                        for claim in by_id.values()}
+            seq_id = [cid for cid, claim in by_claim.items()
+                      if claim["template"] == "event_sequence"][0]
+            pair_id = [cid for cid, claim in by_claim.items()
+                       if claim["template"] == "event_echo"
+                       and claim["timestamp"] == 3][0]
+            text = ("The AG counter possibly climbed twice in a row, "
+                    "unconfirmed.")
+            self.assertTrue(script_text_valid(
+                text, [by_claim[seq_id], by_claim[pair_id]]))
+            client = FakeScriptClient(
+                lambda kwargs, index: script_response(script_json([
+                    {"source_claim_ids": [pair_id, seq_id], "text": text}
+                ]))
+            )
+            code, _, _ = run_script_capture(
+                **script_kwargs(obs_dir, st, ev, out), client=client
+            )
+            self.assertEqual(code, 0)
+            doc = read_script(out)
+        self.assertEqual(doc["status"], "success")
+        self.assertEqual(doc["segments"][0]["timestamp_seconds"], 6)
+        self.assertEqual(
+            sorted(doc["segments"][0]["source_claim_ids"]),
+            sorted([pair_id, seq_id]),
+        )
+
+    def test_sequence_success_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_dir, st, ev, _ = sequence_tree(tmp)
+            out = Path(tmp) / "script.json"
+            by_id = gate_script_claims(obs_dir, st, ev)
+            seq_id = [cid for cid, claim in by_id.items()
+                      if claim["template"] == "event_sequence"][0]
+            text = ("The AG panel appears to show a rising count, "
+                    "unconfirmed.")
+            self.assertTrue(script_text_valid(text, [by_id[seq_id]]))
+            client = FakeScriptClient(
+                lambda kwargs, index: script_response(script_json([
+                    {"source_claim_ids": [seq_id], "text": text}
+                ]))
+            )
+            code, _, _ = run_script_capture(
+                **script_kwargs(obs_dir, st, ev, out), client=client
+            )
+            self.assertEqual(code, 0)
+            doc = read_script(out)
+        self.assertEqual(doc["status"], "success")
+        validate_script(doc, by_id)
 
 
 if __name__ == "__main__":

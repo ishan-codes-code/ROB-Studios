@@ -68,6 +68,28 @@ acceptance criteria, and what is explicitly out of scope.
   suppressed. Real-tree run: 5 accepted, 0 emitted — documented as the
   honest result for the current evidence.
 
+## 5.1. Temporal gameplay event intelligence
+
+- **Goal:** detect multi-observation gameplay patterns (elimination
+  streaks, kill-feed clusters) as evidence-gated candidates with
+  sequence wording, without weakening gating or breaking contracts.
+- **Dependencies:** milestones 2–5, 7 (observation, state, events,
+  commentary, script validation).
+- **Acceptance:** `observation-v2` validates alongside v1 with
+  verbatim-only structured evidence; `elim_streak`/`feed_cluster`
+  fire on supported fixtures and stay suppressed on weak evidence;
+  `event_sequence` wording carries qualifiers through the unchanged
+  validators; streaming words sequences once across windows.
+- **Out of scope:** confirmed statuses, role assignment, identity
+  merging, intent/off-screen/outcome inference, new pipeline
+  stages, model/provider changes.
+- **Status:** complete on branch `session-2-gameplay-intelligence`
+  (uncommitted). Additive only: no `events`/`commentary`/`script`
+  schema bump, no state/worker/TTS/Electron change; 58 new offline
+  fixture tests, full Python suite green apart from 3 pre-existing
+  failures. Window thresholds are tuning placeholders; live v2
+  field population unverified (no paid calls made).
+
 ## 4.1. LLM-guided adaptive sampling (M4.1)
 
 - **Goal:** sample recorded video adaptively: one captured frame, one

@@ -148,7 +148,7 @@ def parse_adaptive_response(text, expected_timestamp):
     """Parse one adaptive wrapper response.
 
     Returns ``(observation, speed, reason, sampling_diagnostics)`` where
-    ``observation`` passed the unchanged ``observation-v1`` validation and
+    ``observation`` passed ``observation-v1``/``observation-v2`` validation and
     its timestamp matches the requested source timestamp. Raises
     ``ObservationError`` when the response is malformed, the observation is
     missing or invalid, extra fields appear, or the timestamp mismatches.
@@ -214,7 +214,7 @@ def parse_adaptive_batch_response(text, expected_timestamps):
     The model must return ``{"frames": [{...}, ...]}`` with exactly one
     entry per requested timestamp, in order. Each entry carries the same
     ``{"observation": ..., "sampling": ...}`` shape as a single-frame
-    response and is validated identically: observation-v1 documents are
+    response and is validated identically: observation documents are
     strict (wrong timestamp or extra fields fail the batch), sampling
     decisions fall back to NORMAL. Returns a list of
     ``(validated, speed, reason, diagnostics)`` tuples aligned with

@@ -113,6 +113,26 @@ and no other wording path; a line naming any other template is invalid.
   The qualifier slot has no variable path: the renderer holds no other
   wording for this template.
 
+### `event_sequence`
+
+- Precondition: an `events-v1` event with status `candidate` from a
+  temporal rule (`elim_streak`, `feed_cluster`) whose every cited
+  fact is non-conflicted in state.
+- Allowed claim: quote the event's evidence (every reading or entry
+  in the sequence) and state that it is unconfirmed.
+- Text shape: `"Sequence: {evidence quotes} — unconfirmed:
+  {qualifier}"` where `{qualifier}` is fixed per rule
+  (`elim_streak`: `"who was eliminated, by whom, and by what means
+  are not established"`; `feed_cluster`: `"killer and victim roles
+  are not established"`). The line type stays `event_echo`, so the
+  qualifier, uncertainty, and validator rules for echoes apply
+  unchanged; only the template key differs.
+
+Event echoes (both templates) gate and render in significance order
+(`feed_cluster` > `elim_streak` > `elim_count_increased` >
+`kill_feed_entry`, tie-broken by timestamp then identity) after
+developments and scene wording.
+
 ## Gating rules
 
 Rules are evaluated in order; the first failure for a candidate emits one

@@ -38,6 +38,8 @@ from main import (
     parse_observation,
     parse_writer_lines,
     prioritize_writer_claims,
+    render_claim_text,
+    render_writer_claims,
     request_writer_text,
     run_generate_commentary,
     validate_events,
@@ -688,6 +690,73 @@ class CliWriterTests(unittest.TestCase):
             )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("BASETEN_API_KEY", proc.stderr.decode("utf-8"))
+
+
+class EventSequenceWriterTests(unittest.TestCase):
+    def sequence_claim(self):
+        return {
+            "template": "event_sequence",
+            "type": "event_echo",
+            "timestamp": 6,
+            "sources": [
+                {"timestamp": 0, "file": "frame_00000.json",
+                 "fact_id": "f0001"},
+                {"timestamp": 6, "file": "frame_00006.json",
+                 "fact_id": "f0002"},
+            ],
+            "source_ids": ["f0001", "f0002"],
+            "event_id": "evt-0123456789ab",
+            "evidence": ["Team AG panel header Elim 4.",
+                         "Team AG panel header Elim 6."],
+            "confidence": "high",
+            "qualification": (
+                "who was eliminated, by whom, and by what means "
+                "are not established"
+            ),
+        }
+
+    def test_render_sequence_shape(self):
+        text = render_claim_text(self.sequence_claim())
+        self.assertTrue(text.startswith("Sequence:"))
+        self.assertIn("Team AG panel header Elim 4.", text)
+        self.assertIn("Team AG panel header Elim 6.", text)
+        self.assertIn("are not established", text)
+
+    def test_valid_sequence_wording(self):
+        claim = self.sequence_claim()
+        text = (
+            "Sequence: Team AG panel header Elim 4. "
+            "Team AG panel header Elim 6., unconfirmed: who was "
+            "eliminated, by whom, and by what means are not established."
+        )
+        self.assertTrue(writer_text_valid(text, claim))
+
+    def test_missing_qualifier_invalid(self):
+        claim = self.sequence_claim()
+        text = ("Sequence: Team AG panel header Elim 4. "
+                "Team AG panel header Elim 6.")
+        self.assertFalse(writer_text_valid(text, claim))
+
+    def test_missing_quote_invalid(self):
+        claim = self.sequence_claim()
+        text = ("Sequence: Team AG panel header Elim 6., unconfirmed: "
+                "who was eliminated, by whom, and by what means "
+                "are not established.")
+        self.assertFalse(writer_text_valid(text, claim))
+
+    def test_invented_identity_invalid(self):
+        claim = self.sequence_claim()
+        text = render_claim_text(claim) + " RRQ.INVENTED"
+        self.assertFalse(writer_text_valid(text, claim))
+
+    def test_invalid_wording_falls_back_to_template(self):
+        claim = self.sequence_claim()
+        lines = render_writer_claims(
+            [claim], {claim_id_of(claim): "Something entirely unsupported."}
+        )
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0]["text"], render_claim_text(claim))
+        self.assertEqual(lines[0]["template"], "event_sequence")
 
 
 if __name__ == "__main__":

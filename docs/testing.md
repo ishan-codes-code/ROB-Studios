@@ -34,7 +34,7 @@ BASETEN_API_KEY="$BASETEN_API_KEY" .venv/bin/python python/main.py --vision-test
 ```
 
 Sends only `output/frames/frame_00000.jpg` to the configured model,
-validates the response against `docs/contracts/observation-v1.md`, prints
+validates the response against `docs/contracts/observation-v2.md` (v1 still accepted), prints
 the validated JSON, and saves it to `output/observations/frame_00000.json`
 (git-ignored). Requires `BASETEN_API_KEY` to be set in your shell
 or `.env` (never echo or commit its value). Invalid model output exits
@@ -55,7 +55,14 @@ legacy migration, and extraction (see `tests/test_output_layout.py`); and
 match-state validation, update semantics, determinism, and no-inference
 rules (see `tests/test_match_state.py`); event validation, firing
 rules, suppression cases, deduplication, determinism, and source
-preservation via fixtures (see `tests/test_event_detection.py`); and
+preservation via fixtures (see `tests/test_event_detection.py`,
+including the `observation-v2` schema, streak/cluster firing and
+suppression, temporal dedup/provenance, and mixed v1/v2 directory
+suites); and sequence gating, significance ordering, and bundle
+provenance (see `tests/test_commentary.py`), sequence rendering and
+writer fallback (see `tests/test_commentary_writer.py`), sequence
+uncertainty/wording gates (see `tests/test_script.py`), and
+once-across-windows wording (see `tests/test_streaming.py`); and
 bounded concurrency — argument/bound validation, sequential/concurrent
 output identity, in-flight caps via barrier rendezvous, reverse completion
 order, error/timeout isolation, cache skip, `--force`, schema enforcement,

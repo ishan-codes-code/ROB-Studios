@@ -72,6 +72,10 @@ add a paid request per segment with its own failure modes, while the
 deterministic checks already reject the load-bearing risks (invented
 identities, numbers, outcomes, actions, causes, and confirmed echoes).
 
+Sequence claims (`event_sequence` template) keep the `event_echo`
+claim type, so the uncertainty/certainty rules above cover them with
+no script-shape change; no new stems were needed.
+
 ## Compatibility
 
 - `script-v1` is a new, distinct artifact. It does not change the

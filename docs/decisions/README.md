@@ -32,3 +32,4 @@ not need an ADR; record choices that constrain future work.
 - [0012 — Game prompt packs with immutable factory defaults](0012-game-prompt-packs.md)
 - [0013 — Streaming pipeline as opt-in threaded stages](0013-streaming-pipeline.md)
 - [0014 — User-configured OpenAI-compatible custom provider](0014-custom-openai-compatible-provider.md)
+- [0015 — Temporal gameplay event intelligence as an additive extension](0015-temporal-event-intelligence.md)

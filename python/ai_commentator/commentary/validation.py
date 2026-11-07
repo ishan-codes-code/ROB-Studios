@@ -407,10 +407,10 @@ def _verify_commentary_template(line: dict, where: str, facts_by_id: dict, event
                 f"{where} template '{template}' requires a current "
                 f"high/medium environment, character, or hud fact."
             )
-    elif template == "event_echo":
+    elif template in ("event_echo", "event_sequence"):
         if line["type"] != "event_echo":
             raise ObservationError(
-                f"{where} template 'event_echo' requires type 'event_echo'."
+                f"{where} template '{template}' requires type 'event_echo'."
             )
         event = events_by_id.get(line["event_id"])
         if event is None or event["status"] != "candidate":

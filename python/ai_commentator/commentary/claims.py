@@ -7,11 +7,13 @@ from ..config import (
     COMMENTARY_GATE_RULES,
     COMMENTARY_PRIOR_STATUSES,
     COMMENTARY_QUALIFIERS,
+    COMMENTARY_SEQUENCE_RULES,
     COMMENTARY_SCENE_CATEGORIES,
     COMMENTARY_SCHEMA_VERSION,
     COMMENTARY_TEMPLATES,
     COMMENTARY_TYPES,
     EVENT_NAME_RE,
+    EVENT_SIGNIFICANCE_RANK,
     EVENT_STATUSES,
     EVENT_TRIGGER_CONFIDENCES,
     OBSERVATION_CATEGORIES,
@@ -95,6 +97,14 @@ def _commentary_fact_claim(
     )
 
 
+def _event_significance(event: dict) -> int:
+    """Significance rank of an event (lower = more significant)."""
+    rule_base = event.get("rule", "").split("/")[0]
+    if rule_base in EVENT_SIGNIFICANCE_RANK:
+        return EVENT_SIGNIFICANCE_RANK.index(rule_base)
+    return len(EVENT_SIGNIFICANCE_RANK)
+
+
 def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
     """Evaluate gating rules over validated inputs; return (claims, suppressed).
 
@@ -175,7 +185,15 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
         claim["template"] = template
         claim["type"] = "development"
         emit(claim)
-    for event in events.get("events", []):
+    ranked = sorted(
+        events.get("events", []),
+        key=lambda item: (
+            _event_significance(item),
+            item["timestamp"],
+            item["id"],
+        ),
+    )
+    for event in ranked:
         subject = f"event '{event['id']}'"
         if event["status"] != "candidate":
             suppress("valid-inputs", subject,
@@ -204,12 +222,17 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
             continue
         emit(
             {
-                "template": "event_echo",
+                "template": (
+                    "event_sequence"
+                    if rule_base in COMMENTARY_SEQUENCE_RULES
+                    else "event_echo"
+                ),
                 "type": "event_echo",
                 "timestamp": event["timestamp"],
                 "sources": list(event["sources"]),
                 "source_ids": [source["fact_id"] for source in event["sources"]],
                 "event_id": event["id"],
+                "rule": rule_base,
                 "evidence": list(event["evidence"]),
                 "confidence": event["confidence"],
                 "qualification": qualifier,

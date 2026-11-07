@@ -2,7 +2,14 @@ import json
 import math
 import re
 
-from ..config import OBSERVATION_CATEGORIES, OBSERVATION_CONFIDENCES, OBSERVATION_SCHEMA_VERSION
+from ..config import (
+    OBSERVATION_CATEGORIES,
+    OBSERVATION_CONFIDENCES,
+    OBSERVATION_SCHEMA_VERSION,
+    OBSERVATION_SCHEMA_VERSION_V2,
+    OBSERVATION_SCHEMA_VERSIONS,
+    OBSERVATION_SUBJECT_KINDS,
+)
 from ..errors import ObservationError
 
 
@@ -39,6 +46,80 @@ def _require_non_empty_string(mapping, field, where):
     return value
 
 
+def _check_entry_core(item, where):
+    """Validate the v1 core fields shared by both schema versions."""
+    if item.get("category") not in OBSERVATION_CATEGORIES:
+        raise ObservationError(
+            f"{where} has unsupported category "
+            f"'{item.get('category')}'; expected one of: "
+            f"{', '.join(OBSERVATION_CATEGORIES)}."
+        )
+    _require_non_empty_string(item, "description", where)
+    if item.get("confidence") not in OBSERVATION_CONFIDENCES:
+        raise ObservationError(
+            f"{where} has invalid confidence '{item.get('confidence')}'; "
+            f"expected one of: {', '.join(OBSERVATION_CONFIDENCES)}."
+        )
+    _require_non_empty_string(item, "evidence", where)
+
+
+def _check_verbatim_quote(value, description, evidence, where, what):
+    """Require a structured token to quote the entry's own text verbatim."""
+    if value not in description and value not in evidence:
+        raise ObservationError(
+            f"{where} {what} must quote the entry's description "
+            f"or evidence verbatim."
+        )
+
+
+def _validate_entry_v2(item, where):
+    """Validate one observation-v2 entry: v1 core plus optional evidence."""
+    _reject_extra(
+        item,
+        (
+            "category",
+            "description",
+            "confidence",
+            "evidence",
+            "subjects",
+            "action",
+            "spatial",
+        ),
+        where,
+    )
+    _check_entry_core(item, where)
+    description = item["description"]
+    evidence = item["evidence"]
+    if "subjects" in item:
+        subjects = item["subjects"]
+        if not isinstance(subjects, list):
+            raise ObservationError(f"{where} field 'subjects' must be a list.")
+        for sub_index, subject in enumerate(subjects):
+            sub_where = f"{where}.subjects[{sub_index}]"
+            if not isinstance(subject, dict):
+                raise ObservationError(f"{sub_where} must be an object.")
+            _reject_extra(subject, ("label", "kind"), sub_where)
+            label = _require_non_empty_string(subject, "label", sub_where)
+            if subject.get("kind") not in OBSERVATION_SUBJECT_KINDS:
+                raise ObservationError(
+                    f"{sub_where} has unsupported kind "
+                    f"'{subject.get('kind')}'; expected one of: "
+                    f"{', '.join(OBSERVATION_SUBJECT_KINDS)}."
+                )
+            _check_verbatim_quote(label, description, evidence, sub_where, "label")
+    for field in ("action", "spatial"):
+        if field not in item:
+            continue
+        value = item[field]
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            raise ObservationError(
+                f"{where} field '{field}' must be a non-empty string or null."
+            )
+        _check_verbatim_quote(value, description, evidence, where, f"field '{field}'")
+
+
 def validate_observation(data):
     if not isinstance(data, dict):
         raise ObservationError("Observation must be a JSON object.")
@@ -47,10 +128,12 @@ def validate_observation(data):
         ("schema_version", "timestamp", "observations", "uncertainties"),
         "Observation",
     )
-    if data.get("schema_version") != OBSERVATION_SCHEMA_VERSION:
+    version = data.get("schema_version")
+    if version not in OBSERVATION_SCHEMA_VERSIONS:
         raise ObservationError(
             "Observation requires schema_version "
-            f"'{OBSERVATION_SCHEMA_VERSION}'."
+            f"'{OBSERVATION_SCHEMA_VERSION}' or "
+            f"'{OBSERVATION_SCHEMA_VERSION_V2}'."
         )
     if "timestamp" not in data:
         raise ObservationError("Observation requires field 'timestamp'.")
@@ -67,22 +150,13 @@ def validate_observation(data):
         where = f"observations[{index}]"
         if not isinstance(item, dict):
             raise ObservationError(f"{where} must be an object.")
-        _reject_extra(
-            item, ("category", "description", "confidence", "evidence"), where
-        )
-        if item.get("category") not in OBSERVATION_CATEGORIES:
-            raise ObservationError(
-                f"{where} has unsupported category "
-                f"'{item.get('category')}'; expected one of: "
-                f"{', '.join(OBSERVATION_CATEGORIES)}."
+        if version == OBSERVATION_SCHEMA_VERSION_V2:
+            _validate_entry_v2(item, where)
+        else:
+            _reject_extra(
+                item, ("category", "description", "confidence", "evidence"), where
             )
-        _require_non_empty_string(item, "description", where)
-        if item.get("confidence") not in OBSERVATION_CONFIDENCES:
-            raise ObservationError(
-                f"{where} has invalid confidence '{item.get('confidence')}'; "
-                f"expected one of: {', '.join(OBSERVATION_CONFIDENCES)}."
-            )
-        _require_non_empty_string(item, "evidence", where)
+            _check_entry_core(item, where)
     if "uncertainties" not in data or not isinstance(data["uncertainties"], list):
         raise ObservationError("Observation requires field 'uncertainties' as a list.")
     for index, entry in enumerate(data["uncertainties"]):
@@ -91,5 +165,3 @@ def validate_observation(data):
                 f"uncertainties[{index}] must be a non-empty string."
             )
     return data
-
-

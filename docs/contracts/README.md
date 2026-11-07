@@ -20,9 +20,13 @@ Defined contracts:
   observation of a single frame (roadmap milestones 2–3). Includes why
   server-side schema enforcement is unavailable for our model and why
   validation happens in code.
+- [observation-v2.md](observation-v2.md) — the v1 shape plus optional
+  verbatim-only structured evidence (`subjects`/`action`/`spatial`):
+  per-version strict validation, the substring rule, absent-vs-null
+  semantics, and mixed-directory compatibility.
 - [adaptive-sampling-v1.md](adaptive-sampling-v1.md) — the LLM-guided
   sequential sampling loop (roadmap milestone M4.1): one wrapper
-  response with a validated `observation-v1` half plus a separately
+  response with a validated observation half plus a separately
   validated sampling decision, the HIGH/NORMAL/LOW scheduler, the
   fractional observation filename form, the `adaptive_run.json`
   manifest, and cooperative stop semantics.
@@ -32,7 +36,7 @@ Defined contracts:
   tracker explicitly does not infer.
 - [events-v1.md](events-v1.md) — evidence-grounded gameplay events detected
   offline from stored observations and match state (roadmap milestone 5):
-  event identity, candidate-only statuses, the two firing rules with their
+  event identity, candidate-only statuses, the four firing rules with their
   evidence requirements, suppression rules, determinism, and replay
   provenance.
 - [commentary-v1.md](commentary-v1.md) — concise commentary lines generated

@@ -938,5 +938,71 @@ class WorkerStreamingTests(unittest.TestCase):
             self.assertTrue((out / "script" / "script.json").is_file())
 
 
+def elim_obs(timestamp, count, member):
+    return (
+        timestamp,
+        f"frame_{timestamp:05d}.json",
+        validated_obs(timestamp, [obs_item(
+            "hud",
+            f"Bottom-left team panel for team AG showing members "
+            f"AG.BAROS and {member}, plus header 'Elim {count}'.",
+            "high",
+            f"Team AG panel header Elim {count}.",
+        )]),
+    )
+
+
+STREAK_MEMBERS = {4: "AG.SAIFA", 5: "AG.NAMELESS", 6: "AG.SOLO"}
+
+
+def streak_obs(counts=(4, 5, 6)):
+    return [elim_obs(ts, count, STREAK_MEMBERS[count])
+            for ts, count in zip((0, 3, 6), counts)]
+
+
+class SequenceWindowTests(unittest.TestCase):
+    def test_sequence_worded_once_across_windows(self):
+        seen: set = set()
+        client = FakeTextClient()
+        history: list = []
+        prefix: list = []
+        utterances_all: list = []
+        omitted_all: list = []
+        for obs in streak_obs():
+            prefix.append(obs)
+            utterances, omitted, _fresh, error = engine.run_script_window(
+                list(prefix), list(history), seen, client
+            )
+            self.assertIsNone(error)
+            utterances_all.extend(utterances)
+            omitted_all.extend(omitted)
+            history.extend(u["text"] for u in utterances)
+        state = engine.build_match_state(list(prefix))
+        events, _ = engine.detect_events(list(prefix), state)
+        claims, _ = engine.gate_commentary_claims(list(prefix), state, events)
+        seq_ids = {engine.claim_id_of(c) for c in claims
+                   if c["template"] == "event_sequence"}
+        self.assertEqual(len(seq_ids), 1)
+        seq_id = next(iter(seq_ids))
+        citing = [u for u in utterances_all
+                  if seq_id in u["source_claim_ids"]]
+        self.assertEqual(len(citing), 1)
+        # No utterance repeats: every worded claim set is unique.
+        sets = [tuple(sorted(u["source_claim_ids"]))
+                for u in utterances_all]
+        self.assertEqual(len(sets), len(set(sets)))
+        # Re-gated older claims collapse via already-emitted.
+        self.assertTrue(any(e["rule"] == "already-emitted"
+                            for e in omitted_all))
+
+    def test_sequence_priority_is_high_like_echo(self):
+        claim = {"type": "event_echo", "template": "event_sequence",
+                 "evidence": ["Team AG panel header Elim 6."]}
+        self.assertEqual(
+            engine.utterance_priority([claim]), engine.PRIORITY_HIGH
+        )
+        self.assertEqual(engine.utterance_intensity([claim]), "high")
+
+
 if __name__ == "__main__":
     unittest.main()

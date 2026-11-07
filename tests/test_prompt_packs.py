@@ -201,14 +201,14 @@ class BuilderThreadingTests(unittest.TestCase):
         self.assertIn("Free Fire", script)
         self.assertIn("Free Fire", writer)
         for prompt in (vision, adaptive):
-            self.assertIn("observation-v1", prompt)
+            self.assertIn("observation-v2", prompt)
 
     def test_pack_argument_changes_wording_not_shape(self):
         with pack_env():
             adaptive = engine.build_adaptive_vision_prompt(0, pack="cod")
             script = engine.build_script_prompt([sample_claim()], [], pack="bgmi")
         self.assertIn("Call of Duty", adaptive)
-        self.assertIn("observation-v1", adaptive)
+        self.assertIn("observation-v2", adaptive)
         self.assertIn('"HIGH"', adaptive)
         self.assertIn("BGMI", script)
         self.assertIn('"segments"', script)

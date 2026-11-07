@@ -640,5 +640,349 @@ class PreservationTests(unittest.TestCase):
             )
 
 
+ELIM_AG_6 = (
+    "hud",
+    "Bottom-left team panel for team AG showing members AG.BAROS and "
+    "AG.SOLO, plus header 'Elim 6'.",
+    "high",
+    "Team AG panel header Elim 6.",
+)
+ELIM_AG_7 = (
+    "hud",
+    "Bottom-left team panel for team AG showing members AG.BAROS and "
+    "AG.VEX, plus header 'Elim 7'.",
+    "high",
+    "Team AG panel header Elim 7.",
+)
+ELIM_AGX_5 = (
+    "hud",
+    "Bottom-left team panel for team AGX showing member AGX.RAY, "
+    "plus header 'Elim 5'.",
+    "high",
+    "Team AGX panel header Elim 5.",
+)
+KILL_FEED_B = (
+    "hud",
+    "Top-right kill feed shows two more fresh entries.",
+    "high",
+    "Feed lines read 'TLX.ALPHA eliminated VPE.BRAVO' and "
+    "'NVX.CHARLIE eliminated DRX.DELTA'.",
+)
+KILL_FEED_C = (
+    "hud",
+    "Top-right kill feed shows another pair of entries.",
+    "high",
+    "Feed lines read 'PQX.GOLF eliminated RSX.HOTEL' and "
+    "'TUX.INDIA eliminated VWX.JULIET'.",
+)
+KILL_FEED_OVERLAP = (
+    "hud",
+    "Top-right kill feed shows overlapping entries.",
+    "high",
+    "Feed lines read 'RRQ.JEEK eliminated NVX.ECHO' and "
+    "'SBUL.BUNNY eliminated TAG.FOXTROT'.",
+)
+
+
+def streak_docs(*readings):
+    return [obs_doc(ts, [reading]) for ts, reading in readings]
+
+
+class ElimStreakRuleTests(unittest.TestCase):
+    def test_supported_streak_emitted(self):
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, ELIM_AG_5), (6, ELIM_AG_6)
+        ))
+        streaks = [e for e in document["events"] if e["type"] == "elim_streak"]
+        self.assertEqual(len(streaks), 1)
+        streak = streaks[0]
+        self.assertEqual(streak["rule"], "elim_streak/v1")
+        self.assertEqual(streak["timestamp"], 6)
+        self.assertEqual(streak["status"], "candidate")
+        self.assertEqual(streak["confidence"], "high")
+        self.assertEqual(len(streak["sources"]), 3)
+        self.assertEqual(len(streak["evidence"]), 3)
+        self.assertIn("AG", streak["detail"])
+        self.assertIn("4->5->6", streak["detail"])
+        self.assertIn("not established", streak["detail"])
+        # Pairwise increases still fire alongside the streak.
+        pairs = [e for e in document["events"]
+                 if e["type"] == "elim_count_increased"]
+        self.assertEqual([e["timestamp"] for e in pairs], [3, 6])
+
+    def test_four_reading_chain_cites_all_sources(self):
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, ELIM_AG_5), (6, ELIM_AG_6), (9, ELIM_AG_7)
+        ))
+        streaks = [e for e in document["events"] if e["type"] == "elim_streak"]
+        self.assertEqual(len(streaks), 1)
+        self.assertEqual(len(streaks[0]["sources"]), 4)
+        self.assertEqual(len(streaks[0]["evidence"]), 4)
+        pairs = [e for e in document["events"]
+                 if e["type"] == "elim_count_increased"]
+        self.assertEqual(len(pairs), 3)
+
+    def test_single_step_has_no_streak(self):
+        document = detect(*streak_docs((0, ELIM_AG_4), (3, ELIM_AG_5)))
+        self.assertEqual(
+            [e["type"] for e in document["events"]], ["elim_count_increased"]
+        )
+
+    def test_non_monotonic_chain_has_no_streak(self):
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, ELIM_AG_6), (6, ELIM_AG_5)
+        ))
+        types = [e["type"] for e in document["events"]]
+        self.assertNotIn("elim_streak", types)
+        self.assertEqual(types, ["elim_count_increased"])
+
+    def test_scope_change_has_no_streak(self):
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, ELIM_AG_5), (6, ELIM_AGX_5)
+        ))
+        types = [e["type"] for e in document["events"]]
+        self.assertNotIn("elim_streak", types)
+        self.assertEqual(types, ["elim_count_increased"])
+
+    def test_similar_team_names_not_merged(self):
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, ELIM_AGX_5), (6, ELIM_AG_6)
+        ))
+        self.assertEqual(document["events"], [])
+
+    def test_span_beyond_window_has_no_streak(self):
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, ELIM_AG_5), (60, ELIM_AG_6)
+        ))
+        types = [e["type"] for e in document["events"]]
+        self.assertNotIn("elim_streak", types)
+        # Pairwise increases carry no window: both still fire.
+        self.assertEqual(types, ["elim_count_increased"] * 2)
+
+    def test_low_confidence_reading_breaks_chain(self):
+        weak = (ELIM_AG_5[0], ELIM_AG_5[1], "low", ELIM_AG_5[3])
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, weak), (6, ELIM_AG_6)
+        ))
+        types = [e["type"] for e in document["events"]]
+        self.assertNotIn("elim_streak", types)
+        self.assertEqual(types, ["elim_count_increased"])
+
+    def test_roles_not_assigned_in_detail(self):
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, ELIM_AG_5), (6, ELIM_AG_6)
+        ))
+        streak = [e for e in document["events"]
+                  if e["type"] == "elim_streak"][0]
+        self.assertIn("not established", streak["detail"])
+        self.assertNotIn("killed", streak["detail"])
+        self.assertNotIn("eliminated by", streak["detail"])
+
+
+class FeedClusterRuleTests(unittest.TestCase):
+    def test_supported_cluster_emitted(self):
+        document = detect(obs_doc(0, [KILL_FEED]), obs_doc(3, [KILL_FEED_B]))
+        clusters = [e for e in document["events"]
+                    if e["type"] == "feed_cluster"]
+        self.assertEqual(len(clusters), 1)
+        cluster = clusters[0]
+        self.assertEqual(cluster["rule"], "feed_cluster/v1")
+        self.assertEqual(cluster["timestamp"], 3)
+        self.assertEqual(cluster["status"], "candidate")
+        self.assertEqual(cluster["confidence"], "high")
+        self.assertEqual(len(cluster["sources"]), 2)
+        self.assertEqual(len(cluster["evidence"]), 4)
+        self.assertIn("RRQ.JEEK", cluster["detail"])
+        self.assertIn("TLX.ALPHA", cluster["detail"])
+        self.assertIn("not established", cluster["detail"])
+        entries = [e for e in document["events"]
+                   if e["type"] == "kill_feed_entry"]
+        self.assertEqual(len(entries), 2)
+
+    def test_single_feed_has_no_cluster(self):
+        document = detect(obs_doc(0, [KILL_FEED]))
+        self.assertEqual(
+            [e["type"] for e in document["events"]], ["kill_feed_entry"]
+        )
+
+    def test_overlapping_names_have_no_cluster(self):
+        document = detect(
+            obs_doc(0, [KILL_FEED]), obs_doc(3, [KILL_FEED_OVERLAP])
+        )
+        types = [e["type"] for e in document["events"]]
+        self.assertNotIn("feed_cluster", types)
+        self.assertEqual(types, ["kill_feed_entry"] * 2)
+
+    def test_span_beyond_window_has_no_cluster(self):
+        document = detect(
+            obs_doc(0, [KILL_FEED]), obs_doc(60, [KILL_FEED_B])
+        )
+        types = [e["type"] for e in document["events"]]
+        self.assertNotIn("feed_cluster", types)
+        self.assertEqual(types, ["kill_feed_entry"] * 2)
+
+    def test_low_confidence_feed_breaks_cluster(self):
+        weak = (KILL_FEED_B[0], KILL_FEED_B[1], "low", KILL_FEED_B[3])
+        document = detect(obs_doc(0, [KILL_FEED]), obs_doc(3, [weak]))
+        self.assertEqual(
+            [e["type"] for e in document["events"]], ["kill_feed_entry"]
+        )
+
+    def test_three_entry_cluster_emits_once(self):
+        document = detect(
+            obs_doc(0, [KILL_FEED]),
+            obs_doc(3, [KILL_FEED_B]),
+            obs_doc(6, [KILL_FEED_C]),
+        )
+        clusters = [e for e in document["events"]
+                    if e["type"] == "feed_cluster"]
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(len(clusters[0]["sources"]), 3)
+        entries = [e for e in document["events"]
+                   if e["type"] == "kill_feed_entry"]
+        self.assertEqual(len(entries), 3)
+
+    def test_contested_candidate_breaks_cluster(self):
+        feed = obs_doc(48, [KILL_FEED])
+        other = obs_doc(48, [TIMER_742])
+        late = obs_doc(96, [KILL_FEED_B])
+        named = [
+            (48, "frame_00048.json", feed),
+            (48, "frame_00048b.json", other),
+            (96, "frame_00096.json", late),
+        ]
+        state = build_match_state(named)
+        document, counts = detect_events(named, state)
+        self.assertEqual(counts["contested"], [48])
+        self.assertEqual(
+            [e["type"] for e in document["events"]], ["kill_feed_entry"]
+        )
+
+
+class TemporalDedupTests(unittest.TestCase):
+    def test_repeat_detection_identical_ids(self):
+        docs = [
+            obs_doc(0, [ELIM_AG_4, KILL_FEED]),
+            obs_doc(3, [ELIM_AG_5, KILL_FEED_B]),
+            obs_doc(6, [ELIM_AG_6]),
+        ]
+        first = detect(*docs)
+        second = detect(*docs)
+        self.assertTrue(
+            {e["type"] for e in first["events"]} >= {"elim_streak"}
+        )
+        self.assertEqual(
+            [e["id"] for e in first["events"]],
+            [e["id"] for e in second["events"]],
+        )
+        self.assertEqual(first, second)
+
+    def test_temporal_rules_listed_once(self):
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, ELIM_AG_5), (6, ELIM_AG_6)
+        ))
+        self.assertEqual(document["rules_evaluated"], sorted(EVENT_RULES))
+        self.assertIn("elim_streak", document["rules_evaluated"])
+        self.assertIn("feed_cluster", document["rules_evaluated"])
+
+
+class TemporalProvenanceTests(unittest.TestCase):
+    def test_temporal_events_provenance(self):
+        docs = [
+            obs_doc(0, [ELIM_AG_4, KILL_FEED]),
+            obs_doc(3, [ELIM_AG_5, KILL_FEED_B]),
+            obs_doc(6, [ELIM_AG_6]),
+        ]
+        state = build_state(*docs)
+        document, _ = detect_events(triples(*docs), state)
+        fact_ids = {fact["id"] for fact in state["facts"]}
+        temporal = [e for e in document["events"]
+                    if e["type"] in ("elim_streak", "feed_cluster")]
+        self.assertEqual(len(temporal), 2)
+        for event in temporal:
+            stamps = [entry["timestamp"] for entry in event["sources"]]
+            self.assertEqual(stamps, sorted(stamps))
+            self.assertEqual(event["timestamp"], max(stamps))
+            for entry in event["sources"]:
+                self.assertIn(entry["fact_id"], fact_ids)
+        keys = [(e["timestamp"], e["type"], e["id"])
+                for e in document["events"]]
+        self.assertEqual(keys, sorted(keys))
+
+
+class NoTemporalInferenceTests(unittest.TestCase):
+    def test_timers_and_banners_yield_no_temporal_events(self):
+        document = detect(
+            obs_doc(0, [TIMER_742, BANNER]),
+            obs_doc(3, [TIMER_1057, BANNER]),
+            obs_doc(6, [TIMER_742, BANNER]),
+        )
+        self.assertEqual(document["events"], [])
+
+
+class MixedVersionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.obs = self.root / "observations"
+        self.frames = self.root / "frames"
+        self.frames.mkdir()
+        self.state_path = self.root / "match_state.json"
+        self.events_path = self.root / "events.json"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def v2_feed(self, timestamp):
+        doc = obs_doc(timestamp, [KILL_FEED_B])
+        doc["schema_version"] = "observation-v2"
+        doc["observations"][0]["subjects"] = [
+            {"label": "TLX.ALPHA", "kind": "player"}
+        ]
+        return doc
+
+    def rebuild(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = run_state_rebuild(
+                observations_dir=self.obs,
+                state_path=self.state_path,
+                frames_dir=self.frames,
+            )
+        return code
+
+    def test_mixed_v1_v2_directory_detects(self):
+        write_obs(self.obs, obs_doc(0, [KILL_FEED]))
+        write_obs(self.obs, self.v2_feed(3))
+        self.assertEqual(self.rebuild(), 0)
+        code, _, _ = capture_detect(
+            observations_dir=self.obs,
+            state_path=self.state_path,
+            events_path=self.events_path,
+            frames_dir=self.frames,
+        )
+        self.assertEqual(code, 0)
+        document = json.loads(self.events_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            sorted(e["type"] for e in document["events"]),
+            ["feed_cluster", "kill_feed_entry", "kill_feed_entry"],
+        )
+
+    def test_v2_rewrite_forces_state_rebuild(self):
+        write_obs(self.obs, obs_doc(0, [KILL_FEED]))
+        self.assertEqual(self.rebuild(), 0)
+        rewritten = obs_doc(0, [KILL_FEED])
+        rewritten["schema_version"] = "observation-v2"
+        write_obs(self.obs, rewritten)
+        code, _, err = capture_detect(
+            observations_dir=self.obs,
+            state_path=self.state_path,
+            events_path=self.events_path,
+            frames_dir=self.frames,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("rebuild-state", err)
+
+
 if __name__ == "__main__":
     unittest.main()
