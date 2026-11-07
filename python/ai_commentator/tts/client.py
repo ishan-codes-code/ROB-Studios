@@ -72,10 +72,11 @@ class GeminiTTSClient:
             from google import genai
             from google.genai import types
 
+            # Gemini TTS models are served on v1beta, not the SDK-default v1.
             self._client = genai.Client(
                 api_key=api_key,
                 http_options=types.HttpOptions(
-                    timeout=int(timeout * 1000)),
+                    timeout=int(timeout * 1000), api_version="v1beta"),
             )
 
     def close(self) -> None:

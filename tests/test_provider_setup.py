@@ -191,7 +191,7 @@ class GeminiTtsSetupTests(unittest.TestCase):
 
         class Client:
             def __init__(self, *, api_key, http_options):
-                calls.append((api_key, http_options.timeout))
+                calls.append((api_key, http_options.timeout, getattr(http_options, "api_version", None)))
                 self.models = Models()
 
         genai = types.SimpleNamespace(Client=Client)
@@ -210,7 +210,7 @@ class GeminiTtsSetupTests(unittest.TestCase):
             result = provider_setup.run("verify-tts-auth", "", "", "google-gemini-tts")
         self.assertTrue(result["ok"])
         self.assertEqual(result["capability"], "authentication-and-model-metadata")
-        self.assertEqual(calls, [("key-abc", 10000), "gemini-3.8-flash-tts"])
+        self.assertEqual(calls, [("key-abc", 10000, "v1beta"), "gemini-3.8-flash-tts"])
 
     def test_api_failures_map_to_safe_categories(self):
         from tts_provider_setup import GeminiSetupError

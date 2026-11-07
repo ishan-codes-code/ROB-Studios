@@ -58,9 +58,10 @@ def verify_tts_api_key(key: str | None = None) -> dict:
         from google import genai
         from google.genai import types
 
+        # Gemini TTS models are served on v1beta, not the SDK-default v1.
         client = genai.Client(
             api_key=api_key,
-            http_options=types.HttpOptions(timeout=10000),
+            http_options=types.HttpOptions(timeout=10000, api_version="v1beta"),
         )
         client.models.get(model=TTS_MODEL_ID)
         return {

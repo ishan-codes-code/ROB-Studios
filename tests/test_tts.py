@@ -567,5 +567,42 @@ class WriteBytesAtomicTests(unittest.TestCase):
             self.assertEqual(leftovers, [])
 
 
+class TtsClientConstructionTests(unittest.TestCase):
+    """Owned SDK clients must target v1beta (offline, fake google modules)."""
+
+    def test_owned_client_pins_v1beta_api_version(self):
+        import types as stdlib_types
+
+        from ai_commentator.tts.client import GeminiTTSClient
+
+        captured = {}
+
+        def fake_http_options(**kwargs):
+            captured.update(kwargs)
+            return stdlib_types.SimpleNamespace(**kwargs)
+
+        class FakeSdkClient:
+            def __init__(self, **kwargs):
+                self.init_kwargs = kwargs
+
+            def close(self):
+                pass
+
+        fake_genai = stdlib_types.SimpleNamespace(Client=FakeSdkClient)
+        fake_types = stdlib_types.SimpleNamespace(HttpOptions=fake_http_options)
+        google = stdlib_types.ModuleType("google")
+        google.genai = fake_genai
+        fake_genai.types = fake_types
+        modules = {"google": google, "google.genai": fake_genai,
+                   "google.genai.types": fake_types}
+        with mock.patch.dict(sys.modules, modules):
+            client = GeminiTTSClient(api_key="construction-probe-not-a-secret")
+        try:
+            self.assertEqual(captured.get("api_version"), "v1beta")
+            self.assertEqual(captured.get("timeout"), 60000)
+        finally:
+            client.close()
+
+
 if __name__ == "__main__":
     unittest.main()
