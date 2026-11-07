@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, safeStorage } from 'electron';
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, net, protocol, safeStorage } from 'electron';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createWorkerManager } from './python-worker.mjs';
@@ -13,11 +14,15 @@ import { registerProjectIpc } from './main/ipc/projects.js';
 import { registerProcessingIpc } from './main/ipc/processing.js';
 import { registerSettingsIpc } from './main/ipc/settings.js';
 import { registerTtsIpc } from './main/ipc/tts.js';
+import { registerVoiceConfigIpc } from './main/ipc/voice-configs.js';
+import { registerDiagnosticsIpc } from './main/ipc/diagnostics.js';
 import { createTtsCatalogLoader } from './tts-catalog.mjs';
 import { createPromptPackLoader } from './prompt-packs.mjs';
 import { registerProjectMediaProtocol } from './main/media-protocol.js';
 import { createMainWindow } from './main/window.js';
-import { reconcileInterruptedRuns, resolveProjectMedia } from './project-store.mjs';
+import { handleChildProcessGone } from './main/process-events.js';
+import { diagnosticsEnvironment, diagnosticsLogPath, recordDiagnosticsEvent } from './main/diagnostics-log.mjs';
+import { flushApiActivity, recordApiActivityEvent, reconcileInterruptedRuns, resolveProjectMedia, sweepDeletionQuarantine } from './project-store.mjs';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -106,18 +111,85 @@ function spawnSetup({ operation, provider, model, key }) {
   });
 }
 
+// ROB window icon: dev builds read it from the source tree
+// (electron/src/assets/icons), packaged builds from extraResource
+// (process.resourcesPath/icon.png). Fail-soft: a missing file means
+// no icon key, never a broken window.
+function windowIconPath() {
+  const candidate = app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.png')
+    : path.join(__dirname, '..', '..', 'src', 'assets', 'icons', 'icon.png');
+  try {
+    return fs.existsSync(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+// Window/process diagnostics land on stderr (never stdout, never the
+// renderer) and persist to the bounded diagnostics log so crash
+// evidence survives the app closing.
+function recordWindowEvent(event) {
+  try {
+    recordDiagnosticsEvent(app.getPath('userData'), event ?? { type: 'event' });
+  } catch {
+    // Diagnostics never break the app (the recorder is already
+    // no-throw; this guards getPath itself).
+  }
+}
+
+function logWindowEvent(event) {
+  try {
+    console.error(`[ROB window] ${event?.type ?? 'event'}: ${JSON.stringify(event ?? {})}`);
+  } catch {
+    // Diagnostics never break the app.
+  }
+  recordWindowEvent(event);
+}
+
+function diagnosticsPathOrNull() {
+  try {
+    return diagnosticsLogPath(app.getPath('userData'));
+  } catch {
+    return null;
+  }
+}
+
 function createWindow() {
   mainWindow = createMainWindow({
     BrowserWindow,
     preloadPath: path.join(__dirname, 'preload.js'),
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
     rendererPath: path.join(__dirname, '../renderer', `${MAIN_WINDOW_VITE_NAME}/index.html`),
+    iconPath: windowIconPath(),
+    onEvent: logWindowEvent,
+    diagnosticsPath: diagnosticsPathOrNull(),
   });
+  recordWindowEvent({ type: 'window-created', packaged: app.isPackaged });
 }
 
 function sendWorkerEvent(message) {
+  if (message && typeof message === 'object' && message.type === 'api_activity') {
+    // Pair and persist before forwarding: Diagnostics and the
+    // pipeline read the same records live and after restart.
+    try {
+      recordApiActivityEvent(
+        app.getPath('userData'),
+        processingState.activeProjectId ?? null,
+        message.run_id ?? null,
+        message.activity ?? null,
+      );
+    } catch {
+      // Persistence never breaks event delivery.
+    }
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('worker-event', message);
+    // Tag the run's project so the renderer routes events to the right
+    // workspace session (additive: consumers ignore unknown fields).
+    const tagged = message && typeof message === 'object' && message.projectId === undefined
+      ? { ...message, projectId: processingState.activeProjectId ?? null }
+      : message;
+    mainWindow.webContents.send('worker-event', tagged);
   }
 }
 
@@ -132,8 +204,70 @@ function sendExportEvent(message) {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  // Local-only crash dumps: minidumps stay on this machine for
+  // post-mortem inspection, nothing is ever uploaded anywhere.
+  try {
+    crashReporter.start({ uploadToServer: false });
+  } catch {
+    // Crash reporting is best effort; the app runs without it.
+  }
+  try {
+    const gpuFeatureStatus = typeof app.getGPUFeatureStatus === 'function'
+      ? app.getGPUFeatureStatus()
+      : null;
+    let crashDumpsPath = null;
+    try {
+      crashDumpsPath = app.getPath('crashDumps');
+    } catch {
+      crashDumpsPath = null;
+    }
+    let appVersion = null;
+    try {
+      appVersion = app.getVersion();
+    } catch {
+      appVersion = null;
+    }
+    // CPU identity matters for native-code crashes (SIGILL-class):
+    // model from Node, instruction flags from /proc/cpuinfo on Linux.
+    let cpuModel = null;
+    let cpuFlags = null;
+    try {
+      cpuModel = os.cpus()?.[0]?.model ?? null;
+    } catch {
+      cpuModel = null;
+    }
+    if (process.platform === 'linux') {
+      try {
+        const match = fs.readFileSync('/proc/cpuinfo', 'utf8').match(/^flags\s*:\s*(.+)$/m);
+        cpuFlags = match?.[1]?.trim() || null;
+      } catch {
+        cpuFlags = null;
+      }
+    }
+    recordWindowEvent({
+      type: 'app-ready',
+      environment: diagnosticsEnvironment({
+        appVersion,
+        electronVersion: process.versions.electron ?? null,
+        chromiumVersion: process.versions.chrome ?? null,
+        nodeVersion: process.versions.node ?? null,
+        platform: process.platform,
+        arch: process.arch,
+        cpuModel,
+        cpuFlags,
+        packaged: app.isPackaged,
+        gpuFeatureStatus,
+        crashDumpsPath,
+      }),
+    });
+  } catch {
+    // The ready milestone is best effort.
+  }
   try {
     reconcileInterruptedRuns(app.getPath('userData'));
+    void sweepDeletionQuarantine(app.getPath('userData')).catch(() => {
+      // Best effort: tombstones survive for the next launch.
+    });
   } catch {
     // userData unreadable: start anyway with no recovery.
   }
@@ -158,10 +292,19 @@ app.on('window-all-closed', () => {
   }
 });
 
+// Non-renderer process termination (GPU, utility, ...): diagnostics
+// only. Recovery for the renderer's own crashes lives in
+// createMainWindow; nothing here disables acceleration or restarts
+// helpers without evidence.
+app.on('child-process-gone', (_event, details) => {
+  handleChildProcessGone(details, { onEvent: logWindowEvent });
+});
+
 // Never leave a worker running after the app exits.
 app.on('before-quit', () => {
   // Temporary dev bypass: memory-held credentials vanish at shutdown.
   try { clearDevCredentials(); } catch { /* never block quit */ }
+  try { flushApiActivity(app.getPath('userData'), { force: true }); } catch { /* best effort */ }
   if (workerManager.isBusy()) {
     // Best effort: the process tree is torn down with the session, but an
     // explicit terminate avoids a stray paid API call or file write.
@@ -178,10 +321,12 @@ const packsLoader = createPromptPackLoader({ repoRoot });
 
 registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state: processingState, repoRoot, sendWorkerEvent, getMainWindow: () => mainWindow, ttsCatalogLoader, packsLoader });
 
-registerProjectIpc({ ipcMain, app, workerManager });
+registerProjectIpc({ ipcMain, app, workerManager, exportManager });
 registerExportIpc({ ipcMain, app, dialog, fs, exportManager, sendExportEvent, getMainWindow: () => mainWindow });
 registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, packsLoader });
 registerTtsIpc({ ipcMain, app, safeStorage, repoRoot, catalogLoader: ttsCatalogLoader });
+registerVoiceConfigIpc({ ipcMain, app, safeStorage });
+registerDiagnosticsIpc({ ipcMain, app });
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.

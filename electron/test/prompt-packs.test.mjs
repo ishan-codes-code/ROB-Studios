@@ -179,6 +179,17 @@ test('run snapshot defaults, selects, and overlays customs', async (t) => {
   assert.throws(() => buildPackSnapshot(dir, factory(), 'bad id!'), /Invalid prompt pack/);
 });
 
+test('run snapshot maps the project game when no pack is selected', async (t) => {
+  const dir = tempDir(t);
+  assert.deepEqual(buildPackSnapshot(dir, factory(), null, 'bgmi'), { packId: 'bgmi', custom: {} });
+  assert.deepEqual(buildPackSnapshot(dir, factory(), null, 'cod'), { packId: 'cod', custom: {} });
+  assert.deepEqual(buildPackSnapshot(dir, factory(), null, 'free-fire'), { packId: 'free-fire', custom: {} });
+  assert.deepEqual(buildPackSnapshot(dir, factory(), null, null), { packId: 'free-fire', custom: {} });
+  assert.deepEqual(buildPackSnapshot(dir, factory(), null, 'unknown-game'), { packId: 'free-fire', custom: {} });
+  // An explicit selection always wins over the game default.
+  assert.deepEqual(buildPackSnapshot(dir, factory(), 'cod', 'bgmi'), { packId: 'cod', custom: {} });
+});
+
 test('run snapshot passes customs through without factory', async (t) => {
   const dir = tempDir(t);
   setPromptField(dir, factory(), 'cod', 'script_closing', 'Custom closing.');

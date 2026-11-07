@@ -44,14 +44,14 @@ export function validateSettings(value) {
  * is checked against the vault when the wizard resumes.
  */
 export function normalizeOnboardingProgress(value) {
-  const fallback = { step: 0, credentialId: null };
+  const fallback = { step: 0, credentialId: null, dismissed: false };
   if (value === undefined || value === null) return { ...fallback };
   if (typeof value !== 'object' || Array.isArray(value)) return { ...fallback };
   const step = Number.isInteger(value.step) && value.step >= 0 && value.step <= 4 ? value.step : 0;
   const credentialId = typeof value.credentialId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value.credentialId)
     ? value.credentialId
     : null;
-  return { step, credentialId };
+  return { step, credentialId, dismissed: value.dismissed === true };
 }
 
 export function settingsPath(userDataPath) { return path.join(userDataPath, 'settings.json'); }

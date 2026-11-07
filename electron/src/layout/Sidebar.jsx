@@ -1,12 +1,9 @@
 import {
-  AudioLines,
   AudioWaveform,
   Clapperboard,
-  Gamepad2,
   KeyRound,
   LayoutDashboard,
   MessagesSquare,
-  MessageSquareText,
   Mic,
   ScanSearch,
   ScrollText,
@@ -16,7 +13,7 @@ import { cn } from "cn";
 import { Separator } from "@/components/ui/separator.jsx";
 
 const WORKSPACE_ITEMS = [
-  { id: "dashboard", label: "Dashboard", icon: Clapperboard },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "matches", label: "AI Analysis", icon: ScanSearch },
   { id: "commentary", label: "Commentary", icon: MessagesSquare },
   { id: "audio", label: "Audio", icon: AudioWaveform },
@@ -26,8 +23,6 @@ const CONFIGURATION_ITEMS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "api-keys", label: "AI Providers", icon: KeyRound },
   { id: "tts-studio", label: "Voice Providers", icon: Mic },
-  { id: "game-profiles", label: "Game Profiles", icon: Gamepad2 },
-  { id: "commentary-presets", label: "Commentary Presets", icon: MessageSquareText },
   { id: "prompt-packs", label: "Prompt Packs", icon: ScrollText },
   { id: "preferences", label: "General", icon: Settings },
 ];
@@ -42,13 +37,16 @@ function NavButton({ id, label, Icon, selected, collapsed, onSelect }) {
       title={collapsed ? label : undefined}
       onClick={() => onSelect(id)}
       className={cn(
-        "flex shrink-0 items-center gap-2.5 rounded-sm text-[12px] transition-colors duration-150",
+        "relative flex shrink-0 items-center gap-2.5 rounded-sm text-[12px] font-medium transition-colors duration-150",
         collapsed ? "size-9 justify-center px-0" : "w-full px-2.5 py-[7px] text-left",
         "text-muted-foreground hover:bg-accent hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         selected && "bg-accent font-medium text-foreground",
       )}
     >
+      {selected ? (
+        <span aria-hidden className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-ring" />
+      ) : null}
       <Icon className="size-4 shrink-0" aria-hidden />
       {!collapsed ? <span className="truncate">{label}</span> : null}
     </button>
@@ -88,17 +86,6 @@ export default function Sidebar({ active, onSelect, collapsed, inWorkspace }) {
       )}
       aria-label="Application navigation"
     >
-      <div className={cn("flex h-11 shrink-0 items-center gap-2.5", collapsed ? "justify-center px-1" : "px-3.5")}>
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-sm bg-foreground text-background">
-          <AudioLines className="size-3.5" aria-hidden />
-        </span>
-        {!collapsed ? (
-          <span className="truncate text-[12px] font-semibold tracking-[-0.01em] text-foreground">
-            Commentary Studio
-          </span>
-        ) : null}
-      </div>
-      <Separator />
       <nav
         id="studio-navigation"
         aria-label="Studio sections"

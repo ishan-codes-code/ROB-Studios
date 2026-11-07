@@ -1,21 +1,16 @@
 // Project run-configuration resolution (Electron main process only).
 //
 // At run start, the main process resolves the project's stored
-// configuration references (credential + game profile + preset) into the
+// configuration (credential reference + owned game metadata) into the
 // concrete, non-secret runtime values the worker needs. The worker
 // receives only the active run's provider, model, decrypted key, and
 // style preferences — never the vault. This resolution is the run
 // snapshot: later UI edits cannot change an already-running job.
-import { getProject } from '../project-store.mjs';
+import { buildWorkerPreferences, getProject } from '../project-store.mjs';
 import {
   getCredentialForRun,
   isCredentialVerifiedForRun,
 } from '../credentials-store.mjs';
-import {
-  buildWorkerPreferences,
-  DEFAULT_COMMENTARY_PRESET_ID,
-  DEFAULT_GAME_PROFILE_ID,
-} from '../game-store.mjs';
 import { getProviderBaseUrl } from '../provider-catalog.mjs';
 import { buildPackSnapshot } from '../prompt-packs.mjs';
 import { loadSettings } from '../settings-store.mjs';
@@ -25,7 +20,7 @@ import { resolveTtsConfig } from '../tts-config.mjs';
  * Resolve `{ provider, model, apiKey, baseUrl, preferences,
  * credentialName, verified }` for a project run. Throws secret-free
  * errors that the IPC handler returns directly: missing selection,
- * missing or unreadable credential, or unknown game/prompt references.
+ * missing or unreadable credential, or invalid game metadata.
  * `verified` reports image-input verification; paid runs require it.
  * Never silently substitutes another key. `packsFactory` may be null
  * when the prompt-pack probe is unavailable (Python backstops).
@@ -40,11 +35,7 @@ export function resolveProjectRunConfig(userDataPath, safeStorage, projectId, pa
   } catch {
     throw new Error('Project not found.');
   }
-  const config = project.configuration ?? {
-    credentialId: null,
-    gameProfileId: DEFAULT_GAME_PROFILE_ID,
-    commentaryPresetId: DEFAULT_COMMENTARY_PRESET_ID,
-  };
+  const config = project.configuration ?? { credentialId: null };
   if (config.credentialId === null || config.credentialId === undefined) {
     throw new Error(
       'This project has no API configuration selected. Open the editor Configure tab to choose one.',
@@ -64,17 +55,16 @@ export function resolveProjectRunConfig(userDataPath, safeStorage, projectId, pa
   const verified = isCredentialVerifiedForRun(resolved.record);
   let preferences;
   try {
-    preferences = buildWorkerPreferences(
-      userDataPath, config.gameProfileId, config.commentaryPresetId,
-    );
+    preferences = buildWorkerPreferences(config.game);
   } catch {
     throw new Error(
-      'The selected game profile or commentary preset is missing. Choose another configuration.',
+      'The project game information is invalid. Update it in the editor Configure tab.',
     );
   }
   try {
     preferences.promptPack = buildPackSnapshot(
       userDataPath, packsFactory, config.promptPackId ?? null,
+      config.game?.id ?? null,
     );
   } catch {
     throw new Error(

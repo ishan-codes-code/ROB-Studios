@@ -48,6 +48,61 @@ def user_prompt_preferences():
         return {"personality": "", "tone": "", "language": "", "instructions": "", "game_context": ""}
 
 
+def project_opening_metadata():
+    """Return bounded structured match metadata for the opening line.
+
+    Reads the ``game`` object Electron snapshots into
+    ``AI_COMMENTATOR_SETTINGS_JSON``: the game id, the structured
+    ``metadata`` fields, and the prompt language. Every value is bounded
+    and every shape is checked, so malformed or foreign settings yield
+    empty values (meaning "no project configuration: skip the opening")
+    instead of raising. Never invents missing fields.
+    """
+    empty = {
+        "game_id": "",
+        "match_type": "",
+        "mode": "",
+        "map": "",
+        "category": "",
+        "teams": [],
+        "tournament": "",
+        "stage": "",
+        "additional_context": "",
+        "language": "",
+    }
+    try:
+        value = json.loads(os.environ.get("AI_COMMENTATOR_SETTINGS_JSON", "{}"))
+        game = value.get("game", {})
+        prompt = value.get("prompt", {})
+        if not isinstance(game, dict) or not isinstance(prompt, dict):
+            return empty
+        meta = game.get("metadata", {})
+        if not isinstance(meta, dict):
+            meta = {}
+        safe = lambda v, n: v.strip()[:n] if isinstance(v, str) else ""
+        teams = meta.get("teams", [])
+        clean_teams = []
+        if isinstance(teams, list):
+            for entry in teams[:8]:
+                text = safe(entry, 80)
+                if text:
+                    clean_teams.append(text)
+        return {
+            "game_id": safe(game.get("id", ""), 64),
+            "match_type": safe(meta.get("matchType", ""), 80),
+            "mode": safe(meta.get("mode", ""), 80),
+            "map": safe(meta.get("map", ""), 80),
+            "category": safe(meta.get("category", ""), 80),
+            "teams": clean_teams,
+            "tournament": safe(meta.get("tournament", ""), 80),
+            "stage": safe(meta.get("stage", ""), 80),
+            "additional_context": safe(meta.get("additionalContext", ""), 2000),
+            "language": safe(prompt.get("language", ""), 80),
+        }
+    except (ValueError, TypeError, AttributeError):
+        return dict(empty)
+
+
 def provider_runtime_config():
     """Resolve ``(provider, model, api_key)`` for the active run.
 
@@ -151,16 +206,27 @@ SCRIPT_CERTAINTY_MARKERS = ("confirmed", "definitely", "certainly")
 SCRIPT_KILL_STEMS = (
     "kill", "killed", "killer", "elim", "knock", "knocked",
     "assist", "damage", "headshot", "downed",
+    # BGMI finish/flush synonyms: a script line may only use them when
+    # the cited evidence already carries kill semantics.
+    "finish", "flush",
 )
 SCRIPT_OUTCOME_STEMS = (
     "victor", " winner", " wins", "defeat", " champion",
     "placement", "first place", "top 1", "takes the match",
+    # Victory shouts are outcome claims: Booyah (Free Fire) and Winner
+    # Winner Chicken Dinner (BGMI) need outcome evidence behind them.
+    "booyah", "chicken dinner",
 )
 SCRIPT_ACTION_STEMS = (
     "pushing", "retreat", "healing", "fighting", "camping",
     "rotating", "rotation", " aiming", "flanking", "third-part",
 )
-SCRIPT_ZONE_STEMS = ("safe zone", "safe-zone", "map control", "circle is")
+SCRIPT_ZONE_STEMS = (
+    "safe zone", "safe-zone", "map control", "circle is",
+    # BGMI shrinking-area vocabulary: blue zone / red zone need zone
+    # evidence behind them, never invented pressure.
+    "blue zone", "blue-zone", "red zone", "red-zone",
+)
 SCRIPT_CAUSAL_MARKERS = (
     "because", "therefore", "as a result", "led to", "caused by",
     "thanks to",
@@ -220,5 +286,15 @@ ADAPTIVE_CONTEXT_MAX_OBSERVATIONS = 8
 ADAPTIVE_CONTEXT_MAX_FIELD_CHARS = 200
 ADAPTIVE_CONTEXT_MAX_UNCERTAINTIES = 4
 ADAPTIVE_CONTEXT_MAX_CHARS = 2000
+# Multi-frame analysis: while the sampling speed is HIGH, one paid
+# request carries this many consecutive frames so the model observes
+# gameplay progression instead of isolated instants. Bounded and fixed:
+# NORMAL/LOW always analyze one frame per request.
+ADAPTIVE_HIGH_BATCH_FRAMES = 3
+# Output budget for one multi-frame batch request: sized for
+# ADAPTIVE_HIGH_BATCH_FRAMES observation-v1 documents plus their
+# sampling decisions. Without an explicit budget the provider default
+# can truncate a long batch response mid-JSON.
+ADAPTIVE_BATCH_MAX_TOKENS = 4096
 
 

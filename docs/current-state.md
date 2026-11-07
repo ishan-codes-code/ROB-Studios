@@ -1,5 +1,558 @@
 # Current state
 
+## Finish-later dismissal + crash-forensics lifecycle (uncommitted)
+
+Finish Later is now a persisted dismissal, not a bare navigation: the wizard
+exits through `exitSetup` (persists `onboarding.dismissed` before navigating,
+stays + errors on save failure), startup routes on `shouldShowOnboarding`
+(completed or dismissed hides the wizard), and Preferences replays from either
+state via `setupTogglePayload`. Dismissal never marks provider/model verified.
+Forensics for the affected-machine exit-132: renderer lifecycle milestones
+(wizard exit, persist, navigation, dashboard mount/hydration) flow through a
+new allowlisted `diagnostics-report` IPC into the bounded userData log;
+`worker.start` is recorded main-side; the ready snapshot gains CPU model and
+Linux instruction flags. The native SIGILL itself was not reproduced here
+(this container kills Electron pre-ready) and no native fix is claimed; the
+added trail pinpoints the crash phase on the next affected-machine run.
+
+Verification: Electron suite 616/617 (only the known pre-existing toast
+failure); dismissal/routing/payload logic covered behaviorally; transition
+verified in a jsdom harness with the real settings store (dismiss persists,
+reload lands on dashboard, full trail, max 1 active subscription, no errors);
+Vite build + forge-start main boot pass.
+
+## Exit-133 crash investigation + diagnostics persistence (uncommitted)
+
+Not a crash fix: the reported renderer crash (exit 133) was not reproduced
+here, so no crash-behavior change is claimed. Local finding: stock Electron
+36.9.5 cannot boot its browser process in this container at all (SIGTRAP
+pre-ready in 12/12 flag configurations, including single-process and
+no-sandbox) — a stricter, earlier failure than the reported one, where main
+boots and the renderer dies. Deduction from the user screenshot: the crash
+page itself renders, so renderer spawn works there and the trigger is
+content-specific (native crash; JS exceptions cannot kill the process). GPU
+remains an unconfirmed hypothesis. Shipped instead: a bounded JSONL
+diagnostics log under userData (`main/diagnostics-log.mjs`, secret-scrubbed,
+rotated, no-throw) recording app-ready environment snapshots (versions,
+platform, GPU feature status, crash-dumps path), window/child-process/crash/
+load/retry milestones; local-only crashReporter (no upload); separated
+failure screens (dev-load, packaged-load, renderer-crash, crash-exhausted
+with diagnostics path); explicit manual retry via an intercepted
+`rob-retry://` navigation that resets budgets only on user action.
+
+Verification: Electron suite 600/601 (only the known pre-existing toast
+failure); new diagnostics-log (8) + new recovery tests pass; Vite build
+passes; forge start boots the real main process. Real renderer-crash and
+packaged-build verification still require the affected machine; exact
+repro/diagnostic commands are in the task handoff.
+
+## Blank-window recovery audit (uncommitted)
+
+Renderer failure handling completed around the committed ErrorBoundary and
+load-retry work (kept intact): `render-process-gone` now logs reason + exit
+code and reloads the same window in place (duplicate-suppressed, lifetime
+cap of 3, crash page after exhaustion); `unresponsive`/`responsive` emit
+diagnostics only and never destroy a busy renderer; `app` `child-process-gone`
+(GPU, utility, ...) logs type/reason/exit code via `main/process-events.js`
+with no automatic GPU or helper action; scheduled load retries re-check
+destruction before firing. Recovery never creates a second window and never
+touches the Python worker or project state. Pre-existing failure (verified at
+clean HEAD, unrelated): `editor-export` "toast notifications have exactly four
+owners" — ProjectCreationDialog is a legitimate fifth sonner owner.
+
+Verification: Electron suite 584/585 (only the pre-existing toast failure);
+new `renderer-recovery` behavioral tests (11) pass; window retry/overlay tests
+intact; Vite renderer build passes; forge start boots the real main process.
+Renderer crash/load-failure paths verified via event mocks only — real Electron
+GUI reproduction is impossible in this container (GPU/zygote SIGTRAP).
+
+## ROB app icon + terminology isolation (uncommitted)
+
+Supplied waveform icon integrated: `electron/src/assets/icons/icon.{png,ico,icns,svg}`
+(renamed from `svgviewer-output.*`, design untouched). Forge `packagerConfig.icon`
++ per-maker icons (squirrel setupIcon, deb/rpm png, macOS via packager icns) and
+`BrowserWindow` icon via dev/packaged-aware `windowIconPath()` (extraResource png);
+no tray exists so no tray wiring. Terminology: COD script rules fixed
+("confirmed kill, knock" → "confirmed kill, elimination"); script validator stems
+extended so invented finish/flush, blue/red zone, Booyah, and chicken-dinner claims
+are rejected without evidence (no evidence-rule weakening). Resolution fallback
+(unknown game → Free Fire default) kept as the documented intent; invalid explicit
+packs keep failing loudly; custom overlays stay per-pack scoped. Supersedes the
+"no logo asset / icon wiring still open" note below.
+
+Verification (relevant only): Python terminology-isolation (23), prompt-packs (34),
+script (22), opening (31), commentary-writer (21), streaming (24), worker (36) pass;
+Electron app-icon (9), window (8), prompt-packs (14), rob-brand (11) pass. No paid
+calls; no native Windows/macOS packaged build run yet.
+
+## ROB reliability + rebrand milestone (uncommitted)
+
+Audio lifecycle: run state carries a monotonic `runSeq` and the TTS
+manifest freshness gate now takes a run-started flag — a new run
+immediately invalidates the previous manifest and shows live
+`u-*.wav` segments until its own generation lands; idle/hydrated
+views keep showing the latest persisted audio; project switches
+clear the view; latest listing wins. Opening lifecycle: the opening
+claim id is scoped to a per-process `AI_COMMENTATOR_RUN_ID`, so a
+new run always gets its own introduction even with identical
+metadata, while same-run retries still suppress duplicates; the
+sequential path now writes an opening-only success document (valid
+for TTS) instead of silence when gameplay claims are empty but
+project metadata exists. Terminology: Blue Wall is the canonical
+Free Fire cover term across vision/script/writer prompts (Gloo
+Wall kept once as the item alias in game context); no leakage
+into BGMI/COD (tested). Rebrand: user-facing copy is ROB /
+Real-time Observer & Broadcaster / ROB Studio; NO ROB logo asset
+exists in the repo (swept; only a dashboard photo and third-party
+assets found), so no mark was invented — logo design plus icon
+wiring is still open. Note: unrelated worktree deletions of three
+nav sections found during this milestone were reverted as
+out-of-scope. Prior "Blue Wall not adopted" note below is
+superseded by this milestone.
+
+Verification (targeted only): Python opening/pack/script/
+streaming-subset/worker-TTS suites pass; Electron audio/tray/
+session/brand/titlebar/dashboard/onboarding suites pass. No paid
+calls made; no live E2E run yet.
+
+## Commentary pipeline refinements (uncommitted)
+
+Game-aware commentary, session openings, and reliable audio-tray
+delivery. Null `promptPackId` now maps from the project game
+(bgmi→bgmi, cod→cod, free-fire→free-fire) instead of always
+defaulting to Free Fire, main-side and Python-side with explicit
+selection preserved. One project-aware opening introduction is
+worded per session at audio timestamp 0 from structured game
+metadata (new additive `game.metadata` run snapshot; LLM wording
+with a deterministic verbatim-field fallback, once-per-session id
+suppression, validated by the standard script gates). Pack
+wording extended with canonical-only terms (heals/boosts,
+character skills, lethals/tacticals, Winner Winner Chicken Dinner
+as a confirmed-victory-only phrase, stronger stream-presentation
+exclusions); no cross-game leakage (tested). Audio-tray
+reliability: the tray refetches on `stage_completed` (closes the
+streaming `u-*.wav`→`segment-*.wav` rename gap and populates
+sequential runs at TTS stage end), tracks the run's TTS
+`generation_id` (new additive `stage_completed` tts detail) so a
+stale manifest never shadows live segments, clears the view on
+project switch, and commits only the latest listing. Continuity:
+script prompts carry evidence-derived intensity
+(low/medium/high/critical), and NORMAL gameplay utterances now
+pre-empt queued LOW general commentary (HIGH still pre-empts all;
+in-flight audio never recalled). Schemas, gates, validators, and
+the NDJSON event set untouched; evidence/factuality behavior
+unchanged. Known limits: in-flight (unfinalized) utterances stay
+invisible across a mid-run reload until the manifest lands;
+sequential runs show rows at TTS stage end, not per segment;
+"Blue Wall" was not adopted (no glossary entry; Gloo Wall stays
+canonical per packs/tests). [Superseded by the ROB milestone
+above: Blue Wall is now canonical.]
+
+Verification (targeted only): Python opening/pack/script/
+streaming-subset/worker-TTS suites pass; Electron
+audio-rows/worker-view/workspace-sessions/project-config/
+prompt-packs suites pass. Manually unverified: live run quality
+and voice (no paid calls made).
+
+## Prompt-pack rebuild + match-context integration (uncommitted)
+
+All three factory packs rewritten in place (same 14 field keys,
+metadata, version): gameplay-vs-presentation vision rules (face
+cams/OBS/chat/overlays/menus excluded; HUD may support a fact,
+never a standalone observation), concise per-game references (Free
+Fire Gloo Wall/knock-secure/Clash Squad/Booyah; BGMI
+knock-vs-finish/blue zone/airdrops; title-generic CoD
+operators/Hardpoint hill/dog tags/streaks), broadcast spoken style
+with varied openings and restrained fillers, strict evidence rules
+kept, and verified-context continuity blessed over dead air. No
+cross-game term leakage (tested). Project match details now reach
+every wording stage: Electron composes populated-only context
+(Mode/Match/Map/Category/Tournament/Stage/legacy Teams, labeled
+Notes; category/tournament/stage are newly integrated), and Python
+labels static reference vs project details in vision, script, and
+writer prompts (script/writer previously got none). Schemas, gates,
+validators, and provider contracts untouched. Continuity verdict:
+scene claims already let quiet windows speak from verified context,
+but per-segment WAVs with no stitching or gapless scheduler mean
+zero-silence is NOT guaranteed; no playback refactor proposed here.
+
+Verification (targeted only): Python prompt/script/writer/
+streaming/schema/adaptive/batch suites pass (258/258, exit 0);
+Electron project-config/prompt-packs/processing pass (58/58).
+Renderer/main/preload vite builds currently fail on pre-existing
+tree issues unrelated to this change (renderer.jsx imports
+undeclared, uninstalled `@fontsource/inter`; main config resolves
+the renderer entry) — reported, not fixed here. Manually
+unverified: commentary quality and voice in a live run (no paid
+calls made).
+
+## Typography refinement — Sora + Geist Mono (uncommitted)
+
+Product typography is now Sora (UI) + Geist Mono (technical layer).
+`@fontsource/inter` replaced one-for-one with `@fontsource/sora`
+(same 400/500/600/700 weights; minimal package.json/lock diff, no
+other install collateral); `renderer.jsx` loads Sora + the unchanged
+Geist Mono 400/500, and `--font-sans` points at Sora with the
+previous system fallback stack. Audit found no component-level font
+overrides and `font-mono` already applied consistently to technical
+metadata app-wide, so no component sweep was needed. Hierarchy
+alignment per the type table: hero headline to 700, sidebar
+navigation to 500 (buttons already 500, headings/project names
+already 600, body 400). Self-hosted only — no runtime webfont
+requests. Docs synced (`DESIGN_SYSTEM.md`, `UI_ROADMAP.md`).
+
+Verification: renderer production build succeeds; bundle contains
+Sora 400–700 and Geist Mono 400/500 woff/woff2 with zero Inter
+files. No typography tests exist in the repo, so none were run; no
+behavior, spacing, color, or layout changes. Not manually verified
+in a running shell (clipping/wrapping/weight feel across dashboard,
+editor, settings, dialogs, sidebar).
+
+## Monochrome cinematic dashboard refinement (uncommitted)
+
+Focused visual pass over the broadcast-workspace dashboard. The
+`--live` violet token is fully retired (its only consumer was the
+hero; verified no other usage) and removed from `index.css` and
+`DESIGN_TOKENS.md`, which now states the dashboard is strictly
+monochrome. `LiveCommentaryHero` is now the cinematic centerpiece:
+same `esports-setup.webp` asset, grayscale, `object-cover` with a
+documented 50%/38% focal anchor (keeps the gamer's headset and the
+match monitor in frame at banner aspect ratios), strong black
+horizontal gradient, fixed 250px desktop / 300px narrow height,
+left-aligned editorial composition (LIVE COMMENTARY eyebrow +
+outlined COMING SOON badge, "Every moment. Every play. Live."
+headline, original subtitle), static and non-interactive. The banner
+moved directly below the greeting so project count never buries it.
+Library scalability: the grid renders the 6 most recent projects
+inline (backend sort by last-opened preserved) with an accessible
+View All / Show Less toggle for the rest — no dedicated library view
+exists, so in-place paging was chosen over a new view or a
+virtualization dependency; hidden cards never mount, so their
+thumbnails never load (stats still aggregate all listings honestly).
+Quick Actions gained a primary white Import button; stats slimmed to
+strong white numerals; project cards and the monochrome sidebar
+indicator unchanged. Scrolling unchanged: the App content wrapper
+owns the single vertical scroll, no nested scroll containers added.
+
+Verification (targeted only): rewritten/extended `dashboard` guards
+plus `dashboard-stats`, `navigation`, `renderer-hooks`,
+`project-deletion`, `format` pass 85/85; renderer production build
+succeeds with the new copy confirmed in the bundle and the retired
+violet hex absent from the CSS. No Python, IPC, schema, worker, or
+editor changes. Manually unverified in a running shell (all visual
+states: empty/single/many projects, narrow widths, reduced motion).
+
+## Dashboard redesign — Obsidian broadcast workspace (uncommitted)
+
+Dashboard rebuilt as a premium broadcast workspace: a "Welcome back"
+greeting, three honest stat cards (Projects, Analyses, Commentaries —
+new pure selectors in `lib/dashboard-stats.js` over `listProjects` plus
+one `listArtifacts` pass per project; unconfirmed output is omitted,
+never invented), the library as media cards (first extracted frame via
+the audited `project://` frames scope with lazy loading and a Film
+fallback, name, filename, size, status, last-opened, artifact chips,
+current-project badge, identical open/delete behavior), a Quick Actions
+panel (Import gameplay → creation dialog; Run AI analysis / Generate
+commentary → latest project editor, or the import dialog when empty),
+and the live-commentary photo banner moved to the bottom
+(`LiveCommentaryHero`: `esports-setup.webp` via Vite import,
+readability gradient, one static violet wash, non-interactive). Engine
+status stays solely in `AppHeader` (live `useWorkerStatus`); the
+sidebar gained only a selected-item indicator. One new `--live`
+(`#A78BFA`) token, synced in `DESIGN_TOKENS.md`; no new dependencies,
+no IPC/schema/Python/worker changes, no editor changes. Header
+waveform deliberately omitted (clutter without function).
+
+Verification (targeted only): new `dashboard-stats` (6) plus rewritten
+`dashboard` guards, `navigation`, `renderer-hooks`, `project-deletion`,
+`project-store`, `format` pass (99/100; the one failure is the known
+sandbox EPERM rename flake in untouched `writeAtomic` code);
+`processing` shows only the same EPERM flake (7 EPERM failures, 16
+pass); `editor-export` toast-ownership guard still fails on Windows
+path separators plus files this change never touched (pre-existing —
+no new sonner owner added); renderer production build succeeds with
+the new copy and fingerprinted photo confirmed in the bundle. Manually
+unverified: card/banner feel, thumbnail loading, and narrow widths in
+a running shell.
+
+## Creation dialog + 3-game catalog + recording dropzone (uncommitted)
+
+Creation is a dedicated `ProjectCreationDialog`: project name, a
+central single-recording dropzone (vendored Kokonut UI File Upload,
+adapted to Obsidian tokens; drop/pick/paste, one file, extension
+mirror of the main-process validator), game selection, and a
+game-aware `GameMetadataForm`. A browse-files fallback keeps the
+native picker path; submit sends only `file.path` to the unchanged
+`createProject` IPC (main still imports/copies), gates on name plus
+recording, single-flights, and stays open on import failure so a
+project never appears created when its recording import failed.
+The catalog (`electron/src/lib/games.js`) owns exactly Free Fire,
+Call of Duty (generic), and BGMI with per-game match types, modes,
+maps, and categories. `configuration.game` gains `category`,
+`tournament`, and `stage`; normalization validates bounds only and
+migrates legacy values idempotently — but `composeGameContext` is
+deliberately unchanged, so new fields persist without reaching AI
+prompts yet. Configure edits the same shape (multi-game summary);
+no worker/prompt/TTS change.
+
+Verification (targeted only): new `games` suite plus
+extended/rewritten `project-config`, `dashboard`, and
+`renderer-hooks` suites pass (79/79, run with TEMP redirected:
+sandbox EPERM blocks `os.tmpdir()`); renderer production build
+succeeds. Follow-up fix: dropped/picked recordings failed with
+"Couldn't read this file's path" because Electron 32 removed
+`File.path` from the renderer (app runs Electron 36) — paths now
+resolve through a sync `getPathForFile` preload bridge
+(`webUtils.getPathForFile`), used identically on drop-accept and
+drop-success; dialog widened to `sm:max-w-2xl` with looser grid
+gaps; match type/mode/category selects migrated to the shared
+shadcn Select (legacy-value item and None-to-clear preserved; map
+stays free-text input with datalist). New `preload-bridge` suite;
+83/83 across the focused set; renderer build succeeds. Simplified
+again: the dropzone is gone — creation is a compact `sm:max-w-md`
+dialog (name, game Select with stable ids, optional match
+type/mode/map, single Add video picker with filename +
+Replace/Remove, no teams; category/tournament/teams/notes stay in
+Configure). Kokonut File Upload deleted, `getPathForFile` bridge
+reverted, extension mirror removed; `gameInputToRecord` reused for
+the blanks→null contract. Focused suites (`games`,
+`project-config`, `dashboard`, `renderer-hooks`, new `game-form`)
+pass 79/79; renderer build succeeds. Manually unverified: dialog
+feel, picker flow, and Configure editing in a running shell.
+
+## Project-owned game configuration (uncommitted)
+
+Game Profiles and Commentary Presets are removed as user-facing
+systems: no library pages, nav entries, selectors, stores, hooks, or
+IPC — `game-store.mjs`, both settings sections, `useGameLibrary`, and
+their tests are deleted. Each project owns its game metadata in
+`project.json` (`configuration.game`: fixed `free-fire` id, optional
+mode/match type/map/language/teams/additional context), collected by a
+shared `GameMetadataForm` in the Dashboard creation flow ("Match
+details (optional)") and editable in the editor Configure tab, which
+keeps vision + prompt-pack selection and drops the style section.
+Run resolution builds the unchanged worker `{game, prompt}` snapshot
+from owned metadata (structured context composition; built-in
+Esports/energetic voice; project language), so no Python change was
+needed and default runs behave byte-identically. Legacy
+`gameProfileId`/`commentaryPresetId` configs migrate on read (custom
+context and language survive; unresolvable refs fall back to
+defaults; never breaks loading; idempotent; persisted on next save),
+`game-library.json` is never written or deleted, and Prompt Packs,
+TTS/Voice, credentials, and the worker protocol are untouched.
+Onboarding is four steps (style step removed; stored step 4 clamps to
+done); `vault-migration` keeps credential migration only.
+
+Verification (targeted only): rewritten/extended `project-config`
+(17), `onboarding`, `onboarding-wizard`, `vault-migration`,
+`vault-ipc`, `settings-sections`, `renderer-hooks`, `config-display`,
+`dashboard`, `project-store`, `processing`, `settings-ipc`,
+`voice-config-ipc`, `tts-ipc` suites pass (216/216 across the
+affected batches, run with TEMP redirected: sandbox EPERM blocks
+`os.tmpdir()`); renderer production build succeeds. One transient
+failure during verification was traced to a concurrent edit of
+`ApiKeysSection.jsx` by the other active agent and passes on rerun.
+No Python tests run (no Python-facing change). Manually unverified:
+creation-flow feel and Configure-tab editing in a running shell.
+
+## Unified API diagnostics + live processing pipeline (uncommitted)
+
+Every outbound AI request is now tracked at the call boundary and
+shared by two surfaces. Python captures paired started/terminal
+events (`ai_commentator/api_activity.py`) in the raw Baseten paths,
+all three vision adapters (single, adaptive, HIGH batch), the
+commentary/script writer (purpose-tagged), and per-utterance TTS
+synthesis; `worker.py` drains them as validated `api_activity` NDJSON
+after every protocol message. The main process pairs, persists
+(per-project `api-activity.json`, 200 records; settings-level file,
+100), and forwards them; worker exit/quit force-flush, restarts
+reconcile in-flight requests as interrupted, and deletion drops the
+scope. Settings-level checks (connection, image/TTS verification,
+model discovery, voice previews) record completed entries main-side.
+Malformed activity lines downgrade to log notes and can never fail a
+run; secrets and image payloads are redacted at capture and again at
+persistence. The Diagnostics dialog gains an API Activity tab
+(summary, scope toggle, expandable requests) beside the untouched
+Artifact Browser; the Processing tab replaces the stage loader with a
+live pipeline (observed stages only, expandable counts, sampling
+inside vision, inferred TTS skipped/queued states, streaming-overlap
+aware). Edited files were normalized CRLF→LF (diff-neutral under
+autocrlf); no protocol/IPC contracts changed beyond the additive
+`api_activity` message and `get-api-activity` bridge.
+
+Verification (targeted only): new `test_api_activity.py` (18) plus
+`test_providers`/`test_adaptive*`/`test_commentary_writer`/
+`test_script`/`test_tts`/`test_vision_batch`/`test_streaming`/
+`test_worker`/`test_custom_provider` pass; new Electron
+`api-activity` (13), `api-activity-view` (15), `diagnostics-wiring`
+(5) suites pass with extended `worker-protocol`, `python-worker`,
+`workspace-sessions`, `tts-ipc`, `vault-ipc`, `format` coverage
+(239/239 in the affected set, run with TEMP redirected into the
+workspace: sandbox EPERM blocks `os.tmpdir()` for all suites);
+renderer production build succeeds with the new surfaces in the
+bundle. Manually unverified: live request streaming, dialog/pipeline
+feel, and hydration timing in a running shell.
+
+## Editor Voice tab + reusable voice configurations (uncommitted)
+
+The editor inspector gains a fifth Voice tab (VoicePanel, after Script): project-owned voice editing (TTS credential, catalogue model/voice, delivery style) with draft/save/discard, paid preview through the existing 	ts-preview channel and shared PreviewPlayer, and a reusable preset library (oice-configs.json, oice-config-* IPC) with apply-as-copy, save-new, update, rename, and two-step delete. Library entries carry credential references, never secrets; provider pins from vault metadata; catalogue membership and credential existence stay apply-time gates via the unchanged 	ts-config-set project path, so runs resolve identically. The new tab is inherently project-scoped and carries no scope selector; the standalone Voice Providers page is untouched. See docs/contracts/voice-configs-v1.md.
+
+Verification: 20 new tests pass (store, IPC, panel guards) plus 52 relevant existing (tts-ipc, tts-config, renderer-hooks); renderer production build succeeds with the tab in the bundle. Full-suite editor-export toast-ownership guard fails in this sandbox on Windows path separators (pre-existing, unrelated — no new toast owners). Not manually verified in a running shell: tab feel, preview playback, and apply/save flows.
+
+## Workspace persistence, HIGH multi-frame & default spoken audio (uncommitted)
+
+Back navigation no longer destroys the editor: run state moved from
+`WorkspaceSection` locals into a per-project session store
+(`lib/workspace-sessions.js`, no new dependencies) fed by one
+shell-owned worker subscription, so leaving the editor unmounts the
+view (video/audio resources still release on unmount) while the
+session keeps receiving events, and reopening restores the exact
+state. First opens hydrate from persisted artifacts (manifest,
+script, TTS entries plus listing counts) into stages, adaptive
+samples, script segments with TTS join, and honest terminal states —
+worker logs are not persisted and stay empty. Worker events carry the
+run's `projectId` (additive main-side tag) for cross-project routing;
+deletion disposes the session. HIGH adaptive sampling now analyzes
+up to 3 consecutive frames in one request (strict `{"frames": [...]}`
+validation reusing observation-v1/sampling validators, one request
+counted, per-frame persistence/hooks unchanged) via new adapter batch
+methods; NORMAL/LOW and adapter-less clients keep single-frame
+behavior, and the baseten runtime path now uses `BasetenAdapter`.
+Spoken audio is default: the checkbox and `requestTts` are gone, the
+main process attempts TTS for every script/streaming run and reports
+`{enabled, reason}` on accept, the inspector shows Automatic plus a
+configure note when skipped, and sequential TTS failure no longer
+fails the run (commentary kept, `tts: error` recorded).
+
+Verification (targeted only): new `workspace-sessions` (9) and
+`test_adaptive_batch` (14) suites pass; `test_adaptive`,
+`test_providers`, `test_worker` (35), `test_streaming`,
+`test_control` pass; Electron `processing`, `run-options`,
+`worker-view`, `renderer-hooks`, `export-ipc`, `dashboard` pass
+(120/120 in the affected set); renderer production build succeeds.
+Not manually verified in a running shell: Back/reopen feel,
+hydration loading state, HIGH batch live behavior, and TTS
+skip/failure messaging.
+
+## Reliable project deletion & premium window chrome (uncommitted)
+
+Root cause of the Windows deletion bug was reproduced with a real
+exclusive file lock: `deleteProject` ran a single non-atomic
+`fs.rmSync`, so a locked `gameplay.mp4` failed midway (EBUSY/EPERM),
+left `project.json` deleted, and every retry reported `Project not
+found` while orphaned bytes stayed on disk. Lock owners: the Chromium
+media pipeline (`VideoPreview` had no element-detach cleanup) and
+export FFmpeg (the delete guard only checked the Python worker).
+
+Deletion is now a lifecycle: the store quarantines via one atomic
+same-filesystem rename into `projects/.deleted/` (excluded from
+listings) with a `tombstone.json`, retries transient codes
+(EBUSY/EPERM/ENOTEMPTY/EACCES) with bounded exponential backoff, and
+reports logical success at the rename — physical cleanup failures
+keep the tombstone with a bounded background retry chain plus a
+startup sweep (`sweepDeletionQuarantine`, wired in `main.js`).
+Per-project in-memory locks serialize concurrent requests; a repeat
+delete of a quarantined id returns idempotent success instead of
+`Project not found`. IPC keeps its `{ok, deleted, id}` contract (plus
+`cleanup`/`alreadyDeleted`), refuses while the worker is busy
+(unchanged), refuses while that project's export runs (new
+`activeProjectId` on the export manager), and refuses
+open/update/process/export for a project being deleted. The renderer
+releases video elements on detach (pause, clear src/srcObject,
+`load()`), clears a deleted open workspace via `onProjectDeleted`,
+and keeps the typed-name dialog, single toast, and row-exit motion.
+
+The white native title bar is replaced with integrated Obsidian
+chrome: `titleBarStyle: 'hidden'` + `titleBarOverlay` (surface
+`#101011`, symbols `#f1f1f1`, height 36) on Windows only, dark
+`backgroundColor` everywhere, and a new `TitleBar` layout component
+(drag region, studio mark, section context, Windows caption spacer,
+no interactive elements) rendered above the shell and onboarding;
+the sidebar brand row was removed to avoid a duplicate header.
+Security settings, maximization lifecycle, and preload/IPC
+boundaries are unchanged; no new dependencies.
+
+Verification: new `project-deletion` (16), `titlebar` (7), and
+`media-release` (4) suites pass; rewritten `window` plus extended
+`dashboard`/`navigation`/`export-runner`/`renderer-hooks` suites
+pass; renderer production build succeeds with the new chrome in the
+bundle; main files pass `node --check`. One environmental failure
+recurs in this sandbox (EPERM on rapid `project.json.tmp` renames in
+untouched `writeAtomic` code; reproduced identically on pristine
+HEAD). No live walkthrough was possible: Electron cannot initialize
+Chromium in this sandbox (bare `whenReady` probe crashes), and Forge
+cannot bind a dev server — manual Windows steps are in the handoff.
+
+## Project deletion UX, maximized startup & nav icons (uncommitted)
+
+Deletion is now a deliberate typed-name confirmation: clicking a
+project's delete icon opens a compact `Dialog` (shared primitives,
+`Delete project?` title, exact caution copy) asking for the complete
+project name — case-insensitive, trimmed — with the destructive action
+disabled until it matches and a `Spinner` + `Deleting…` pending state.
+One `deleteProject` IPC call per confirmation (ref + state
+single-flight guards); success drops the row immediately
+(`AnimatePresence` exit, opacity + 12px slide on
+`MOTION.fast`/`EASING.entrance`, exiting row only, no cascade) with a
+stable-id `Project deleted` toast, then reconciles via `listProjects`
+without ever reporting a refresh failure as a deletion failure.
+Failures keep the dialog open with typed input intact for retry/cancel
+and report through a `Could not delete project` toast; deletion no
+longer touches the global `flowError` alert. No `Input` primitive
+exists in `components/ui/`, so the confirmation field reuses the
+native token-styled input pattern with a proper associated label. The
+shell now launches maximized: `createMainWindow` starts hidden
+(`show: false`, same 900×650 fallback size and secure webPreferences)
+and maximizes + shows on `ready-to-show` (destroyed-window safe, no
+fullscreen/kiosk). Sidebar Dashboard moved from `Clapperboard` to the
+already-imported `LayoutDashboard`; Editor keeps `Clapperboard`. No
+IPC, schema, Python, worker-protocol, token, or dependency changes.
+
+Verification: relevant Electron suites 60 tests pass, 0 fail (offline,
+`node:test`: rewritten `window.test.mjs` lifecycle tests, new
+`navigation.test.mjs` icon guards, extended `dashboard.test.mjs`
+dialog/matching/toast/exit guards, plus the untouched
+`renderer-hooks` and `settings-sections` suites); renderer production
+build succeeds with the new dialog copy confirmed in the bundle and no
+`armedDelete` remnants. Manually unverified: dialog feel, toast
+timing, row-exit motion, maximized first paint, and the reduced-motion
+walkthrough in a running shell.
+
+## Dashboard redesign — live AI commentary first (uncommitted)
+
+Dashboard rebuilt around the product vision: a compact heading row, a
+dominant static Live AI Commentary hero (`LiveCommentaryHero`: Coming
+soon badge, "Every moment. Every play. Live." headline, suggested
+description, three capabilities with Radio/Brain/Mic icons, one subtle
+static token-derived radial wash, no actions or fake metrics), then
+the recorded-gameplay library. The library collapses through the
+editor's existing Animate UI `AutoHeight` primitive (same import path,
+`deps`, and `MOTION.standard`/`EASING.entrance` transition as
+`ProcessingInspector`) — note: no "auto-hide" component exists in the
+repo or in `@animate-ui/react` 2.4.2, so `AutoHeight` height-disclosure
+is the reused pattern. The header row (chevron toggle with
+`aria-expanded`/`aria-controls`, heading, mono project count, Plus
+"Add Video") stays visible when collapsed; Add Video also appears in
+the empty state. Project IPC semantics are unchanged (native picker,
+naming, isolated copy, open on success, silent cancel, inline
+recoverable errors, two-step delete); same-tick re-entrancy refs were
+added to add/create/delete. Loading shows a structural skeleton, list
+errors gained a working Retry, and project create/delete successes
+report through stable-id Sonner toasts (failures stay inline-only, so
+no notification duplicates). The dashboard `WorkerStatus` card is
+removed; the `AppHeader` pill is the sole worker indicator and
+`WorkerStatus.jsx` is currently unrendered. No Python, IPC,
+store-schema, Editor, or dependency changes.
+
+Verification: Electron suite 393 tests pass, 0 fail (offline,
+`node:test`, incl. new `dashboard.test.mjs` static guards, two new
+hook-guard entries, and the toast-ownership guard extended to three
+owners); renderer production build succeeds with hero copy and the
+radial wash confirmed in the bundle. Manually unverified: all visual
+states in a running shell (zero/multiple projects, hero, collapse,
+toasts, narrow widths, reduced motion) — no display is available in
+this environment.
+
 ## Processing workspace redesign + unlimited requests (uncommitted)
 
 Processing tab rebuilt around real lifecycle state; the vision-request

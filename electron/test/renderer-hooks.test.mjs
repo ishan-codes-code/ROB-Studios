@@ -12,11 +12,13 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const COMPONENTS = [
   '../src/app/App.jsx',
+  '../src/app/sections/DashboardSection.jsx',
+  '../src/app/sections/LiveCommentaryHero.jsx',
   '../src/app/sections/WorkspaceSection.jsx',
   '../src/app/sections/OnboardingWizard.jsx',
   '../src/app/sections/ApiKeysSection.jsx',
-  '../src/app/sections/GameProfilesSection.jsx',
-  '../src/app/sections/CommentaryPresetsSection.jsx',
+  '../src/components/GameMetadataForm.jsx',
+  '../src/components/ProjectCreationDialog.jsx',
   '../src/app/sections/OverviewSection.jsx',
   '../src/app/sections/providers/ModelPicker.jsx',
   '../src/app/sections/providers/ProviderStatusBadge.jsx',
@@ -34,6 +36,7 @@ const COMPONENTS = [
   '../src/app/sections/workspace/ScriptPanel.jsx',
   '../src/app/sections/workspace/VideoPreview.jsx',
   '../src/layout/Sidebar.jsx',
+  '../src/layout/TitleBar.jsx',
 ];
 
 function checkFile(relative) {
@@ -101,13 +104,14 @@ test('project configuration links to managers instead of nesting dialogs', () =>
     'utf8',
   );
   assert.match(source, /onNavigate\?\.\("api-keys"\)/);
-  assert.match(source, /onNavigate\?\.\("game-profiles"\)/);
-  assert.match(source, /onNavigate\?\.\("commentary-presets"\)/);
   assert.match(source, /onNavigate\?\.\("prompt-packs"\)/);
+  assert.doesNotMatch(source, /game-profiles/);
+  assert.doesNotMatch(source, /commentary-presets/);
   assert.match(source, /Manage providers/);
   assert.match(source, /aria-label="AI vision"/);
-  assert.match(source, /aria-label="Game profile"/);
-  assert.match(source, /aria-label="Commentary style"/);
+  assert.match(source, /aria-label="Game"/);
+  assert.match(source, /GameMetadataForm/);
+  assert.match(source, /save\("game", pendingGame\)/);
   assert.match(source, /isRunReady\(\{ credential, warnings \}\)/);
   assert.doesNotMatch(source, /import ApiKeysSection from/);
   assert.doesNotMatch(source, /import GamesPromptsSection from/);

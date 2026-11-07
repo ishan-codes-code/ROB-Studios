@@ -39,13 +39,18 @@ test('new projects carry default configuration; legacy projects default on read'
   const project = createProject(dir, { name: 'Fresh', sourcePath: seedVideo(t) });
   assert.deepEqual(project.configuration, defaultProjectConfiguration());
   assert.equal(project.configuration.credentialId, null);
+  assert.deepEqual(project.configuration.game, {
+    id: 'free-fire', matchType: null, mode: null, map: null, category: null,
+    teams: [], tournament: null, stage: null,
+    language: 'English', additionalContext: '',
+  });
   // Simulate a pre-migration project.json without configuration.
   const rawPath = path.join(dir, 'projects', project.id, 'project.json');
   const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
   delete raw.configuration;
   fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
   const reread = getProject(dir, project.id);
-  assert.equal(reread.configuration.gameProfileId, 'free-fire-default');
+  assert.equal(reread.configuration.game.id, 'free-fire');
 });
 
 test('partial stored configuration defaults on read without rewriting', async (t) => {
@@ -58,11 +63,116 @@ test('partial stored configuration defaults on read without rewriting', async (t
   fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
   const reread = getProject(dir, project.id);
   assert.equal(reread.configuration.credentialId, null);
-  assert.equal(reread.configuration.gameProfileId, 'free-fire-default');
-  assert.equal(reread.configuration.commentaryPresetId, 'default-energetic');
+  assert.equal(reread.configuration.game.id, 'free-fire');
+  assert.equal(reread.configuration.game.language, 'English');
   // Loading must not silently overwrite the stored selections.
   const stored = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
   assert.deepEqual(stored.configuration, { credentialId: null });
+});
+
+test('creation persists project-owned game metadata', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, {
+    name: 'Match',
+    sourcePath: seedVideo(t),
+    game: {
+      id: 'free-fire', mode: 'battle-royale', matchType: 'Ranked', map: 'Bermuda',
+      language: 'English', teams: ['Team A', 'Team B'], additionalContext: 'Semifinal.',
+    },
+  });
+  assert.deepEqual(project.configuration.game, {
+    id: 'free-fire', mode: 'battle-royale', matchType: 'Ranked', map: 'Bermuda', category: null,
+    language: 'English', teams: ['Team A', 'Team B'], tournament: null, stage: null,
+    additionalContext: 'Semifinal.',
+  });
+  // A fresh read (application restart) returns the same metadata.
+  assert.deepEqual(getProject(dir, project.id).configuration.game, project.configuration.game);
+  // Partial input fills defaults; blanks normalize to null.
+  const partial = createProject(dir, {
+    name: 'Partial', sourcePath: seedVideo(t), game: { map: '  Purgatory ' },
+  });
+  assert.deepEqual(partial.configuration.game, {
+    id: 'free-fire', mode: null, matchType: null, map: 'Purgatory', category: null,
+    language: 'English', teams: [], tournament: null, stage: null, additionalContext: '',
+  });
+});
+
+test('game metadata validation rejects unsupported games and oversize fields', async (t) => {
+  const dir = tempDir(t);
+  const video = seedVideo(t);
+  assert.throws(
+    () => createProject(dir, { name: 'Bad', sourcePath: video, game: { id: 'unknown-game' } }),
+    /Invalid game metadata/,
+  );
+  assert.throws(
+    () => createProject(dir, { name: 'Bad', sourcePath: video, game: { map: 'm'.repeat(81) } }),
+    /Invalid game metadata/,
+  );
+  assert.throws(
+    () => createProject(dir, { name: 'Bad', sourcePath: video, game: { teams: 'not-an-array' } }),
+    /Invalid game metadata/,
+  );
+  const project = createProject(dir, { name: 'P', sourcePath: video });
+  assert.throws(
+    () => updateProject(dir, project.id, { configuration: { game: { id: 'unknown-game' } } }),
+    /Invalid game metadata/,
+  );
+  const updated = updateProject(dir, project.id, { configuration: { game: { map: 'Bermuda' } } });
+  assert.equal(updated.configuration.game.map, 'Bermuda');
+  assert.equal(updated.configuration.game.id, 'free-fire');
+});
+
+function writeLegacyConfig(dir, projectId, configuration) {
+  const rawPath = path.join(dir, 'projects', projectId, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  raw.configuration = configuration;
+  fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+  return rawPath;
+}
+
+test('legacy profile/preset references migrate to owned metadata without rewriting', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'Old', sourcePath: seedVideo(t) });
+  fs.writeFileSync(path.join(dir, 'game-library.json'), JSON.stringify({
+    version: 1,
+    profiles: [{ id: 'custom-room', name: 'Custom', gameId: 'free-fire', context: 'Night tournament.' }],
+    presets: [{ id: 'custom-calm', profileId: 'custom-room', name: 'Calm', personality: 'Caster', tone: 'calm', language: 'Hindi', instructions: '' }],
+  }));
+  const rawPath = writeLegacyConfig(dir, project.id, {
+    credentialId: null, gameProfileId: 'custom-room', commentaryPresetId: 'custom-calm', promptPackId: null,
+  });
+  const reread = getProject(dir, project.id);
+  assert.deepEqual(reread.configuration.game, {
+    id: 'free-fire', mode: null, matchType: null, map: null, category: null,
+    language: 'Hindi', teams: [], tournament: null, stage: null,
+    additionalContext: 'Night tournament.',
+  });
+  // Loading migrates in memory only; the stored file keeps the legacy
+  // references until the next explicit save.
+  assert.deepEqual(JSON.parse(fs.readFileSync(rawPath, 'utf8')).configuration, {
+    credentialId: null, gameProfileId: 'custom-room', commentaryPresetId: 'custom-calm', promptPackId: null,
+  });
+  // An explicit save persists the migrated shape (idempotent: rereads equal).
+  const updated = updateProject(dir, project.id, { configuration: { credentialId: null } });
+  assert.equal(updated.configuration.game.additionalContext, 'Night tournament.');
+  assert.equal(updated.configuration.gameProfileId, undefined);
+  assert.deepEqual(getProject(dir, project.id).configuration, updated.configuration);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(rawPath, 'utf8')).configuration.game.additionalContext,
+    'Night tournament.',
+  );
+});
+
+test('unresolvable legacy references fall back to defaults and never break loading', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'Orphan', sourcePath: seedVideo(t) });
+  // No game-library.json on disk at all, plus garbage ids.
+  writeLegacyConfig(dir, project.id, {
+    credentialId: null, gameProfileId: 'gone!', commentaryPresetId: 'also-gone',
+  });
+  const reread = getProject(dir, project.id);
+  assert.equal(reread.configuration.game.id, 'free-fire');
+  assert.equal(reread.configuration.game.language, 'English');
 });
 
 test('project TTS overrides default to inherit and persist explicitly', async (t) => {
@@ -146,10 +256,11 @@ test('configuration patches merge and validate fields', async (t) => {
   const dir = tempDir(t);
   const project = createProject(dir, { name: 'P', sourcePath: seedVideo(t) });
   const updated = updateProject(dir, project.id, {
-    configuration: { gameProfileId: 'free-fire-default' },
+    configuration: { game: { map: 'Bermuda' } },
   });
-  assert.equal(updated.configuration.gameProfileId, 'free-fire-default');
-  assert.throws(() => updateProject(dir, project.id, { configuration: { gameProfileId: 'nope!' } }), /Invalid project configuration/);
+  assert.equal(updated.configuration.game.map, 'Bermuda');
+  assert.throws(() => updateProject(dir, project.id, { configuration: { game: 'nope!' } }), /Invalid game metadata/);
+  assert.throws(() => updateProject(dir, project.id, { configuration: { gameProfileId: 'free-fire-default' } }), /cannot be updated/);
   assert.throws(() => updateProject(dir, project.id, { configuration: { unknown: 'x' } }), /cannot be updated/);
   assert.throws(() => updateProject(dir, project.id, { name: 'New name' }), /cannot be updated/);
 });
@@ -169,6 +280,163 @@ test('run resolution returns provider runtime without leaking other keys', async
   assert.equal(resolved.baseUrl, 'https://api.meta.ai/v1');
   assert.equal(resolved.verified, true);
   assert.equal(resolved.preferences.game.id, 'free-fire');
+  assert.equal(resolved.preferences.game.context, '');
+  assert.deepEqual(resolved.preferences.prompt, {
+    personality: 'Esports commentator',
+    tone: 'energetic',
+    language: 'English',
+    instructions: '',
+  });
+});
+
+test('all three catalog games persist with their metadata', async (t) => {
+  const dir = tempDir(t);
+  const video = seedVideo(t);
+  const cod = createProject(dir, {
+    name: 'CoD', sourcePath: video,
+    game: { id: 'cod', matchType: 'Multiplayer', mode: 'Domination', map: 'Shoot House', category: 'Casual' },
+  });
+  assert.equal(cod.configuration.game.id, 'cod');
+  assert.equal(cod.configuration.game.mode, 'Domination');
+  const bgmi = createProject(dir, {
+    name: 'BGMI', sourcePath: video,
+    game: { id: 'bgmi', matchType: 'Battle Royale', mode: 'Squad', map: 'Erangel', category: 'Ranked' },
+  });
+  assert.equal(bgmi.configuration.game.id, 'bgmi');
+  assert.deepEqual(getProject(dir, bgmi.id).configuration.game.map, 'Erangel');
+});
+
+test('tournament, stage, and category validate like other short fields', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, {
+    name: 'T', sourcePath: seedVideo(t),
+    game: { category: 'Tournament', tournament: 'City Finals', stage: 'Semifinal' },
+  });
+  assert.equal(project.configuration.game.tournament, 'City Finals');
+  assert.equal(project.configuration.game.stage, 'Semifinal');
+  assert.throws(
+    () => createProject(dir, { name: 'Bad', sourcePath: seedVideo(t), game: { tournament: 't'.repeat(81) } }),
+    /Invalid game metadata/,
+  );
+  assert.throws(
+    () => updateProject(dir, project.id, { configuration: { game: { stage: 42 } } }),
+    /Invalid game metadata/,
+  );
+});
+
+test('legacy free-text mode and match type pass through new validation', async (t) => {
+  const dir = tempDir(t);
+  const project = createProject(dir, { name: 'Legacy', sourcePath: seedVideo(t) });
+  const rawPath = path.join(dir, 'projects', project.id, 'project.json');
+  const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+  // A custom entry from before the per-game suggestion lists.
+  raw.configuration.game.mode = 'Lone Wolf';
+  raw.configuration.game.matchType = 'Room card';
+  fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+  const reread = getProject(dir, project.id);
+  assert.equal(reread.configuration.game.mode, 'Lone Wolf');
+  assert.equal(reread.configuration.game.matchType, 'Room card');
+});
+
+test('worker context carries category, tournament, and stage', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, {
+    name: 'P', sourcePath: seedVideo(t),
+    game: { map: 'Bermuda', category: 'Tournament', tournament: 'City Finals', stage: 'Semifinal' },
+  });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.equal(
+    resolved.preferences.game.context,
+    'Map: Bermuda. Category: Tournament. Tournament: City Finals. Stage: Semifinal.',
+  );
+});
+
+test('worker context omits missing fields and labels free-form notes', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, {
+    name: 'P', sourcePath: seedVideo(t),
+    game: { additionalContext: 'Semifinal.' },
+  });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.equal(resolved.preferences.game.context, 'Notes: Semifinal.');
+});
+
+test('run resolution composes worker context from owned game metadata', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, {
+    name: 'P',
+    sourcePath: seedVideo(t),
+    game: {
+      mode: 'battle-royale', map: 'Bermuda', language: 'Hindi',
+      teams: ['Team A', 'Team B'], additionalContext: 'Semifinal.',
+    },
+  });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.equal(
+    resolved.preferences.game.context,
+    'Mode: battle-royale. Map: Bermuda. Teams: Team A vs Team B. Notes: Semifinal.',
+  );
+  assert.equal(resolved.preferences.prompt.language, 'Hindi');
+  assert.equal(resolved.preferences.prompt.personality, 'Esports commentator');
+});
+
+test('run resolution snapshots structured game metadata for the opening', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  const project = createProject(dir, {
+    name: 'P',
+    sourcePath: seedVideo(t),
+    game: {
+      id: 'bgmi', matchType: 'Battle Royale', mode: 'Squad', map: 'Erangel',
+      category: 'Tournament', teams: ['Team A', 'Team B'],
+      tournament: 'City Finals', stage: 'Semifinal', language: 'Hindi',
+      additionalContext: 'Night match.',
+    },
+  });
+  updateProject(dir, project.id, { configuration: { credentialId: credential.id } });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.deepEqual(resolved.preferences.game.metadata, {
+    matchType: 'Battle Royale',
+    mode: 'Squad',
+    map: 'Erangel',
+    category: 'Tournament',
+    teams: ['Team A', 'Team B'],
+    tournament: 'City Finals',
+    stage: 'Semifinal',
+    additionalContext: 'Night match.',
+  });
+  // Missing optional fields snapshot as null/empty, never invented.
+  const bare = createProject(dir, { name: 'Q', sourcePath: seedVideo(t) });
+  updateProject(dir, bare.id, { configuration: { credentialId: credential.id } });
+  const fallback = resolveProjectRunConfig(dir, storage(), bare.id);
+  assert.deepEqual(fallback.preferences.game.metadata, {
+    matchType: null,
+    mode: null,
+    map: null,
+    category: null,
+    teams: [],
+    tournament: null,
+    stage: null,
+    additionalContext: '',
+  });
 });
 
 test('run resolution never substitutes another key and flags unverified', async (t) => {
@@ -218,6 +486,27 @@ test('run resolution snapshots the prompt pack with customs', async (t) => {
   updateProject(dir, fresh.id, { configuration: { credentialId: credential.id } });
   const fallback = resolveProjectRunConfig(dir, storage(), fresh.id);
   assert.deepEqual(fallback.preferences.promptPack, { packId: 'free-fire', custom: {} });
+});
+
+test('run resolution maps the project game to its pack when unselected', async (t) => {
+  const dir = tempDir(t);
+  const credential = createCredential(dir, storage(), {
+    name: 'Meta', provider: 'meta', model: 'muse-spark-1.3', key: 'run-key',
+  });
+  markCredentialVerified(dir, storage(), credential.id, credential.model);
+  for (const [gameId, packId] of [['bgmi', 'bgmi'], ['cod', 'cod'], ['free-fire', 'free-fire']]) {
+    const project = createProject(dir, { name: `P-${gameId}`, sourcePath: seedVideo(t) });
+    updateProject(dir, project.id, { configuration: { credentialId: credential.id, game: { id: gameId } } });
+    const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+    assert.deepEqual(resolved.preferences.promptPack, { packId, custom: {} });
+  }
+  // An explicit pack still wins over the game default.
+  const project = createProject(dir, { name: 'P-explicit', sourcePath: seedVideo(t) });
+  updateProject(dir, project.id, {
+    configuration: { credentialId: credential.id, game: { id: 'bgmi' }, promptPackId: 'cod' },
+  });
+  const resolved = resolveProjectRunConfig(dir, storage(), project.id);
+  assert.deepEqual(resolved.preferences.promptPack, { packId: 'cod', custom: {} });
 });
 
 test('run resolution snapshots the custom endpoint from the record', async (t) => {

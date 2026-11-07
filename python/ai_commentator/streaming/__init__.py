@@ -11,7 +11,13 @@ from .queues import (
     PrioritySegmentQueue,
     utterance_id,
 )
-from .windows import WINDOW_MIN_OBSERVATIONS, run_script_window, utterance_priority
+from .windows import (
+    INTENSITY_LEVELS,
+    WINDOW_MIN_OBSERVATIONS,
+    run_script_window,
+    utterance_intensity,
+    utterance_priority,
+)
 
 __all__ = [
     "DEFAULT_OBSERVATION_QUEUE_SIZE",
@@ -28,4 +34,6 @@ __all__ = [
     "utterance_id",
     "wav_bytes_valid",
     "utterance_priority",
+    "utterance_intensity",
+    "INTENSITY_LEVELS",
 ]

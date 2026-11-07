@@ -20,12 +20,15 @@ test('first launch renders the wizard instead of redirecting to settings', () =>
   assert.match(app, /import OnboardingWizard from/);
   assert.match(app, /<OnboardingWizard/);
   assert.match(app, /initialSettings=\{onboarding\.settings\}/);
-  assert.match(app, /onboardingCompleted\) \{\s*\n?\s*setOnboarding/);
+  assert.match(app, /shouldShowOnboarding\(result\.settings\)/);
+  assert.match(app, /setOnboarding\(\{ settings: result\.settings \}\)/);
   assert.doesNotMatch(app, /setActiveSection\("api-keys"\)/);
 });
 
 test('wizard persists resumable progress on every transition', () => {
-  assert.match(wizard, /onboarding: \{ step: clampOnboardingStep\(nextStep\), credentialId/);
+  assert.match(wizard, /step: clampOnboardingStep\(nextStep\)/);
+  assert.match(wizard, /credentialId: credentialId \?\? null/);
+  assert.match(wizard, /dismissed: current\.onboarding\?\.dismissed === true/);
   assert.match(wizard, /initialSettings\?\.onboarding\?\.credentialId/);
   assert.match(wizard, /clampOnboardingStep\(initialSettings\?\.onboarding\?\.step/);
 });
@@ -67,4 +70,14 @@ test('wizard completion offers an optional first project', () => {
   assert.match(wizard, /window\.api\.setProjectConfig\(result\.project\.id/);
   assert.match(wizard, /Complete & open project/);
   assert.match(wizard, /Complete setup/);
+});
+
+test('wizard is four steps with no style selection', () => {
+  assert.match(wizard, /const STEP_LABELS = \["Welcome", "Provider", "Model", "Ready"\]/);
+  assert.match(wizard, /step === 3 \? null : "Continue"/);
+  assert.doesNotMatch(wizard, /commentatorStepReady/);
+  assert.doesNotMatch(wizard, /listGameProfiles/);
+  assert.doesNotMatch(wizard, /listPresets/);
+  assert.doesNotMatch(wizard, /gameProfileId/);
+  assert.doesNotMatch(wizard, /commentaryPresetId/);
 });

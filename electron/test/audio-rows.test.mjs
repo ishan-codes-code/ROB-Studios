@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildAudioRows, manifestAudioFileName } from '../src/lib/audio-rows.js';
+import { buildAudioRows, manifestAudioFileName, selectFreshTtsEntries } from '../src/lib/audio-rows.js';
 
 function liveSegment(overrides = {}) {
   return {
@@ -116,4 +116,69 @@ test('unknown statuses stay visible instead of crashing the join', () => {
   assert.equal(built.rows[0].state, 'unknown');
   assert.equal(built.rows[0].rawStatus, 'queued');
   assert.equal(built.ready, 0);
+});
+
+test('manifest entries win over live segments without duplicating rows', () => {
+  const entries = [
+    {
+      segment_id: 'segment-001',
+      timestamp_seconds: 3,
+      text: 'Final wording.',
+      audio_file: 'segments/segment-001.wav',
+      status: 'success',
+      error: null,
+    },
+  ];
+  const built = buildAudioRows({
+    entries,
+    segments: [liveSegment({ utteranceId: 'u-0001', ttsStatus: 'success' })],
+    files: [
+      { name: 'segment-001.wav', scope: 'audio/segments', sizeBytes: 128 },
+      { name: 'u-0001.wav', scope: 'audio/segments', sizeBytes: 64 },
+    ],
+  });
+  assert.equal(built.total, 1);
+  assert.equal(built.rows[0].key, 'segment-001');
+  assert.equal(built.rows[0].state, 'ready');
+});
+
+test('selectFreshTtsEntries gates stale manifests by generation', () => {
+  const entries = [{ segment_id: 'segment-001', status: 'success' }];
+  const doc = { generation_id: 'gen-run-2', entries };
+  // No run started this session: hydration accepts what is persisted.
+  assert.equal(selectFreshTtsEntries(doc, null), entries);
+  assert.equal(selectFreshTtsEntries(doc, undefined), entries);
+  // Current run's manifest: fresh.
+  assert.equal(selectFreshTtsEntries(doc, 'gen-run-2'), entries);
+  // Previous run's manifest: stale, live view instead.
+  assert.equal(selectFreshTtsEntries(doc, 'gen-run-3'), null);
+  assert.equal(selectFreshTtsEntries({ entries }, 'gen-run-3'), null);
+  // Malformed manifests never render.
+  assert.equal(selectFreshTtsEntries(null, null), null);
+  assert.equal(selectFreshTtsEntries({}, null), null);
+  assert.equal(selectFreshTtsEntries({ entries: 'nope' }, null), null);
+});
+
+test('selectFreshTtsEntries rejects stale manifests once a run started', () => {
+  const entries = [{ segment_id: 'segment-001', status: 'success' }];
+  const fresh = { generation_id: 'gen-run-2', entries };
+  const stale = { generation_id: 'gen-run-1', entries };
+  // A new streaming run with no generation reported yet: every
+  // manifest is stale, so the live view renders instead.
+  assert.equal(selectFreshTtsEntries(fresh, null, true), null);
+  assert.equal(selectFreshTtsEntries(fresh, undefined, true), null);
+  // Previous run's manifest once the new run reported: stale.
+  assert.equal(selectFreshTtsEntries(stale, 'gen-run-2', true), null);
+  // Missing or empty manifest generations never match a live run.
+  assert.equal(selectFreshTtsEntries({ entries }, 'gen-run-2', true), null);
+  assert.equal(selectFreshTtsEntries({ generation_id: '', entries }, 'gen-run-2', true), null);
+  // The current run's manifest: fresh.
+  assert.equal(selectFreshTtsEntries(fresh, 'gen-run-2', true), entries);
+  // Hydration and pre-run views still accept what is persisted.
+  assert.equal(selectFreshTtsEntries(fresh, null, false), entries);
+  assert.equal(selectFreshTtsEntries(fresh, null), entries);
+  // Malformed manifests never render, run or not.
+  assert.equal(selectFreshTtsEntries(null, 'gen-run-2', true), null);
+  assert.equal(selectFreshTtsEntries({}, null, true), null);
+  assert.equal(selectFreshTtsEntries({ entries: 'nope' }, 'gen-run-2', true), null);
 });

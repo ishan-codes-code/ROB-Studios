@@ -117,6 +117,17 @@ export function createInitialRunState() {
     // allows a new run after the previous run has settled, so a late
     // exit from an old run can never corrupt a new session.
     settled: true,
+    // Generation id of this run's finalized TTS manifest (from the
+    // `tts` stage_completed detail; null until reported). Lets the
+    // audio view tell the current run's manifest from a stale one.
+    // Reset by 'started' with everything else above.
+    ttsGeneration: null,
+    // Count of runs started in this session (0 until the first
+    // 'started'). Unlike ttsGeneration — which only arrives at TTS
+    // completion — this flips the moment a new run begins, so the
+    // audio view can reject a previous run's manifest while the new
+    // run is still generating. Hydration yields 0 via this factory.
+    runSeq: 0,
   };
 }
 
@@ -138,6 +149,7 @@ export function applyWorkerMessage(state, message) {
       const fresh = createInitialRunState();
       fresh.status = 'processing';
       fresh.settled = false;
+      fresh.runSeq = (state.runSeq ?? 0) + 1;
       fresh.detail = message.message ?? 'Processing video…';
       return fresh;
     }
@@ -162,6 +174,13 @@ export function applyWorkerMessage(state, message) {
         return state;
       }
       const skipped = message.detail?.skipped === true;
+      const generation =
+        stage === 'tts' &&
+        message.detail &&
+        typeof message.detail.generation_id === 'string' &&
+        message.detail.generation_id !== ''
+          ? message.detail.generation_id
+          : null;
       return {
         ...state,
         stages: {
@@ -172,6 +191,7 @@ export function applyWorkerMessage(state, message) {
           },
         },
         currentStage: null,
+        ttsGeneration: generation ?? state.ttsGeneration ?? null,
       };
     }
     case 'adaptive_sample': {

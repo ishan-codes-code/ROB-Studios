@@ -32,7 +32,7 @@ function seedLegacy(dir, { settings = {}, key = 'legacy-key' } = {}) {
 }
 
 function harness(dir) {
-  const created = { credentials: [], profiles: [], presets: [] };
+  const created = { credentials: [] };
   return {
     created,
     safeStorage: storage(),
@@ -44,20 +44,10 @@ function harness(dir) {
       return record;
     },
     markCredentialVerified: (id, model) => ({ id, model }),
-    createGameProfile: (input) => {
-      const profile = { id: `game-${created.profiles.length}`, ...input };
-      created.profiles.push(profile);
-      return profile;
-    },
-    createCommentaryPreset: (input) => {
-      const preset = { id: `preset-${created.presets.length}`, ...input };
-      created.presets.push(preset);
-      return preset;
-    },
   };
 }
 
-test('migrates a Baseten legacy setup with game and prompt context', async (t) => {
+test('migrates a Baseten legacy credential and leaves game/prompt prefs untouched', async (t) => {
   const dir = tempDir(t);
   seedLegacy(dir, {
     settings: {
@@ -71,11 +61,15 @@ test('migrates a Baseten legacy setup with game and prompt context', async (t) =
   assert.equal(result.migrated, true);
   assert.equal(h.created.credentials.length, 1);
   assert.equal(h.created.credentials[0].provider, 'baseten');
-  assert.equal(h.created.profiles.length, 1);
-  assert.equal(h.created.presets.length, 1);
   assert.equal(fs.existsSync(path.join(dir, 'provider-key.enc')), false);
   assert.equal(fs.existsSync(path.join(dir, 'provider-key.enc.migrated')), true);
   assert.ok(result.notice.includes('Baseten'));
+  // Legacy preferences stay in the old settings file; nothing is
+  // written to a game library (the feature no longer exists).
+  const kept = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+  assert.equal(kept.game.context, 'My ranked context.');
+  assert.equal(kept.prompt.tone, 'hype');
+  assert.equal(fs.existsSync(path.join(dir, 'game-library.json')), false);
 });
 
 test('unmappable custom URL migrates nothing and keeps legacy files', async (t) => {

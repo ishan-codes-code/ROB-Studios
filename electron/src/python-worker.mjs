@@ -70,6 +70,12 @@ function createWorkerManager({ spawnFn = spawn } = {}) {
           const issue = describeWorkerMessageIssue(message);
           if (issue === null) {
             onMessage(message);
+          } else if (issue.type === 'api_activity') {
+            // Diagnostics must never fail a run: a malformed activity
+            // line is noted on the log channel and dropped.
+            if (typeof onStderr === 'function') {
+              onStderr('[worker stdout] ignored malformed api_activity line.');
+            }
           } else if (issue.kind === 'invalid-payload') {
             onMessage({
               type: 'error',

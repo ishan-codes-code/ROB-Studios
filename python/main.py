@@ -116,10 +116,12 @@ from ai_commentator.config import (
 from ai_commentator.errors import ObservationError, VisionAPIError, WriterAPIError
 from ai_commentator.prompts import (
     DEFAULT_PACK_ID,
+    GAME_DEFAULT_PACK_IDS,
     PACK_FIELDS,
     PACK_IDS,
     PACK_SCHEMA_VERSION,
     coerce_pack,
+    default_pack_id_for_game,
     effective_game_context,
     get_factory_pack,
     list_factory_packs,
@@ -147,11 +149,25 @@ from ai_commentator.script.generation import (
     script_text_valid,
     validate_script,
 )
+from ai_commentator.script.opening import (
+    OPENING_CLAIM_TYPE,
+    OPENING_TEMPLATE,
+    OPENING_TIMESTAMP,
+    build_opening_claim,
+    build_opening_prompt,
+    current_opening_run_id,
+    opening_available,
+    opening_claim_id,
+    render_opening_template,
+    run_opening,
+    sanitized_metadata,
+)
 from ai_commentator.script.runner import (
     open_live_text_client,
     run_generate_script as _run_generate_script,
 )
 from ai_commentator.streaming import (
+    INTENSITY_LEVELS,
     PRIORITY_HIGH,
     PRIORITY_LOW,
     PRIORITY_NORMAL,
@@ -162,6 +178,7 @@ from ai_commentator.streaming import (
     StreamingPipeline,
     run_script_window,
     utterance_id,
+    utterance_intensity,
     utterance_priority,
     wav_bytes_valid,
 )
@@ -213,8 +230,10 @@ from ai_commentator.vision.batch import (
     process_batch_frame,
 )
 from ai_commentator.vision.client import (
+    analyze_adaptive_batch,
     analyze_adaptive_frame,
     analyze_frame,
+    build_adaptive_batch_prompt,
     build_adaptive_vision_prompt,
     build_image_data_url,
     build_previous_context,
@@ -261,6 +280,7 @@ from ai_commentator.vision.sampling import (
     AdaptiveScheduler,
     format_adaptive_timestamp,
     observation_path_for_timestamp,
+    parse_adaptive_batch_response,
     parse_adaptive_response,
     validate_intervals,
     validate_sampling,
@@ -274,6 +294,7 @@ from ai_commentator.config import (
     PROVIDER_CUSTOM,
     PROVIDER_META,
     SUPPORTED_PROVIDERS,
+    project_opening_metadata,
     provider_runtime_config,
 )
 from ai_commentator.vision.providers import (

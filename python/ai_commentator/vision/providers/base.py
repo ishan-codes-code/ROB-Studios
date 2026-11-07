@@ -95,7 +95,7 @@ class VisionProviderAdapter:
         raise NotImplementedError
 
     # -- verification operations ------------------------------------------
-    def request_text(self, prompt: str) -> str:
+    def request_text(self, prompt: str, purpose: str = "commentary") -> str:
         """Return raw model text for one text-only prompt (no images)."""
         raise NotImplementedError
 

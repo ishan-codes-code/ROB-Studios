@@ -138,14 +138,55 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(resolved["pack_id"], "free-fire")
         self.assertEqual(resolved["customized"], [])
 
+    def test_game_id_selects_pack_when_unselected(self):
+        for game_id, pack_id in (
+            ("free-fire", "free-fire"),
+            ("cod", "cod"),
+            ("bgmi", "bgmi"),
+        ):
+            settings = json.dumps({"game": {"id": game_id}})
+            with pack_env(settings=settings):
+                resolved = engine.resolve_pack()
+            self.assertEqual(resolved["pack_id"], pack_id, game_id)
+
+    def test_explicit_pack_selection_wins_over_game_id(self):
+        settings = json.dumps(
+            {"promptPack": {"packId": "cod", "custom": {}}, "game": {"id": "bgmi"}}
+        )
+        with pack_env(settings=settings):
+            resolved = engine.resolve_pack()
+        self.assertEqual(resolved["pack_id"], "cod")
+
+    def test_env_pack_id_wins_over_game_id(self):
+        settings = json.dumps({"game": {"id": "bgmi"}})
+        with pack_env(pack_id="cod", settings=settings):
+            resolved = engine.resolve_pack()
+        self.assertEqual(resolved["pack_id"], "cod")
+
+    def test_unknown_game_id_falls_back_to_default(self):
+        settings = json.dumps({"game": {"id": "unknown-game"}})
+        with pack_env(settings=settings):
+            resolved = engine.resolve_pack()
+        self.assertEqual(resolved["pack_id"], "free-fire")
+
     def test_effective_game_context_combines_pack_and_profile(self):
         settings = json.dumps({"game": {"context": "User map notes."}})
         with pack_env(pack_id="cod", settings=settings):
             combined = engine.effective_game_context(None)
         self.assertIn("scorestreak", combined.lower())
         self.assertIn("User map notes.", combined)
+        self.assertIn("Game reference (Call of Duty knowledge):", combined)
+        self.assertIn("Match details (this project; context only, never events):", combined)
         with pack_env():
-            self.assertEqual(engine.effective_game_context(None), "")
+            # Factory Free Fire ships static knowledge but no project details.
+            combined = engine.effective_game_context(None)
+            self.assertIn("Game reference (Free Fire knowledge):", combined)
+            self.assertNotIn("Match details", combined)
+
+    def test_effective_game_context_empty_without_either_part(self):
+        pack = {"fields": {"game_context": "", "game_label": "Custom"}}
+        with pack_env():
+            self.assertEqual(engine.effective_game_context(pack), "")
 
 
 class BuilderThreadingTests(unittest.TestCase):
@@ -209,6 +250,167 @@ class PromptPackProbeTests(unittest.TestCase):
             {"free-fire", "cod", "bgmi"},
         )
         self.assertEqual(set(document["fields"]), set(engine.PACK_FIELDS))
+
+
+class GameVocabularyTests(unittest.TestCase):
+    def test_required_terms_present(self):
+        required = {
+            "free-fire": ["Blue Wall", "Booyah", "knocked down", "Clash Squad",
+                          "Med kit", "active or passive skill", "revive"],
+            "bgmi": ["blue zone", "knock", "finish", "airdrop", "flare gun",
+                     "Winner Winner Chicken Dinner", "med kit", "molotov",
+                     "revive"],
+            "cod": ["operator", "Hardpoint", "hill", "dog tag", "armor",
+                    "lethal", "tactical", "revive"],
+        }
+        for pack_id, terms in required.items():
+            joined = " ".join(engine.get_factory_pack(pack_id)["fields"].values())
+            for term in terms:
+                self.assertIn(term, joined, f"{pack_id} should use {term!r}")
+
+    def test_no_cross_game_terminology(self):
+        # Game-specific terms must never leak into another game's pack.
+        # (The shared evidence vocabulary — kills, knocks, damage — is
+        # deliberately identical everywhere and is not tested here.)
+        forbidden = {
+            "free-fire": ["blue zone", "scorestreak", "killstreak", "operator",
+                          "dog tag", "hardpoint", "domination", "flush",
+                          "flare", "airdrop", "chicken dinner", "lethal",
+                          "tactical"],
+            "bgmi": ["gloo", "blue wall", "booyah", "kill secure", "scorestreak",
+                     "killstreak", "operator", "dog tag", "hardpoint",
+                     "domination", "clash squad", "lethal", "tactical"],
+            "cod": ["gloo", "blue wall", "booyah", "kill secure", "blue zone", "red zone",
+                    "flush", "flare", "airdrop", "clash squad",
+                    "chicken dinner", "med kit"],
+        }
+        for pack_id, terms in forbidden.items():
+            joined = " ".join(
+                engine.get_factory_pack(pack_id)["fields"].values()
+            ).lower()
+            for term in terms:
+                self.assertNotIn(term, joined, f"{pack_id} must not use {term!r}")
+
+    def test_knockdown_elimination_distinction_pinned(self):
+        free_fire = " ".join(engine.get_factory_pack("free-fire")["fields"].values())
+        self.assertIn("not eliminated", free_fire)
+        bgmi = " ".join(engine.get_factory_pack("bgmi")["fields"].values())
+        self.assertIn("never confuse", bgmi)
+        cod = " ".join(engine.get_factory_pack("cod")["fields"].values())
+        self.assertIn("never assume", cod)
+
+    def test_terminology_reaches_every_prompt_stage(self):
+        markers = {
+            "free-fire": ("Blue Wall", "Blue Wall", "Blue Wall", "Blue Wall"),
+            "bgmi": ("blue zone", "blue-zone", "blue zone", "blue zone"),
+            "cod": ("operator", "operator", "operator", "operator"),
+        }
+        for pack_id, (vision, adaptive, script, writer) in markers.items():
+            with pack_env(pack_id=pack_id):
+                self.assertIn(vision, engine.build_vision_prompt(0))
+                self.assertIn(adaptive, engine.build_adaptive_vision_prompt(0))
+                self.assertIn(
+                    script, engine.build_script_prompt([sample_claim()], [])
+                )
+                self.assertIn(
+                    writer, engine.build_writer_prompt([sample_claim()], [])
+                )
+
+    def test_blue_wall_never_called_shield(self):
+        fields = engine.get_factory_pack("free-fire")["fields"]
+        for key in ("vision_coverage", "vision_coverage_adaptive", "game_context",
+                    "script_rules", "writer_rules"):
+            self.assertIn("Blue Wall", fields[key], key)
+        joined = " ".join(fields.values())
+        # "shield" appears only inside never-call-it-a-shield prohibitions.
+        import re
+
+        hits = [match.start() for match in re.finditer("shield", joined)]
+        self.assertTrue(hits)
+        for start in hits:
+            window = joined[max(0, start - 40):start]
+            self.assertIn("never", window.lower(),
+                          "shield must only appear in a prohibition")
+
+    def test_weapon_naming_guard_present(self):
+        guards = {
+            "free-fire": "name a weapon only when",
+            "bgmi": "name a weapon only when",
+            "cod": "name one only when",
+        }
+        for pack_id, guard in guards.items():
+            joined = " ".join(
+                engine.get_factory_pack(pack_id)["fields"].values()
+            )
+            self.assertIn(guard, joined, f"{pack_id} should carry a weapon-naming guard")
+
+
+class PresentationExclusionTests(unittest.TestCase):
+    def test_vision_ignores_stream_presentation(self):
+        excluded = ["face cam", "webcam", "streamer camera", "reaction box",
+                    "OBS", "chat", "donation", "overlay", "sponsor banner",
+                    "broadcast graphics", "loading screen", "desktop UI"]
+        for pack_id in ("free-fire", "cod", "bgmi"):
+            fields = engine.get_factory_pack(pack_id)["fields"]
+            for key in ("vision_coverage", "vision_coverage_adaptive"):
+                for term in excluded:
+                    self.assertIn(term, fields[key], f"{pack_id}.{key}")
+
+    def test_hud_evidence_versus_commentary_distinction(self):
+        for pack_id in ("free-fire", "cod", "bgmi"):
+            fields = engine.get_factory_pack(pack_id)["fields"]
+            for key in ("vision_coverage", "vision_coverage_adaptive"):
+                self.assertIn("may support a verified fact internally",
+                              fields[key], f"{pack_id}.{key}")
+                self.assertIn("never report a HUD reading as a standalone",
+                              fields[key], f"{pack_id}.{key}")
+
+    def test_script_writer_never_recite_reference(self):
+        for pack_id in ("free-fire", "cod", "bgmi"):
+            fields = engine.get_factory_pack(pack_id)["fields"]
+            self.assertIn("Never recite the game reference",
+                          fields["script_rules"], pack_id)
+            self.assertIn("never recite the game reference",
+                          fields["writer_rules"], pack_id)
+
+
+class MatchContextTests(unittest.TestCase):
+    CONTEXT = "Map: Bermuda. Category: Ranked. Notes: Semifinal."
+
+    def test_script_prompt_receives_match_context(self):
+        settings = json.dumps({"game": {"context": self.CONTEXT}})
+        with pack_env(pack_id="free-fire", settings=settings):
+            prompt = engine.build_script_prompt([sample_claim()], [])
+        self.assertIn("Game reference (Free Fire knowledge):", prompt)
+        self.assertIn("Match details (this project; context only, never events):", prompt)
+        self.assertIn(self.CONTEXT, prompt)
+
+    def test_writer_prompt_receives_match_context(self):
+        settings = json.dumps({"game": {"context": self.CONTEXT}})
+        with pack_env(pack_id="bgmi", settings=settings):
+            prompt = engine.build_writer_prompt([sample_claim()], [])
+        self.assertIn("Game reference (BGMI knowledge):", prompt)
+        self.assertIn("Match details (this project; context only, never events):", prompt)
+        self.assertIn(self.CONTEXT, prompt)
+
+    def test_vision_prompt_labels_static_and_project_context(self):
+        settings = json.dumps({"game": {"context": self.CONTEXT}})
+        with pack_env(pack_id="cod", settings=settings):
+            prompt = engine.build_vision_prompt(0)
+        self.assertIn("Game reference (Call of Duty knowledge):", prompt)
+        self.assertIn("Match details (this project; context only, never events):", prompt)
+        self.assertIn("evidence still comes only from the image", prompt)
+
+    def test_missing_project_context_stays_unknown(self):
+        with pack_env(pack_id="cod"):
+            script = engine.build_script_prompt([sample_claim()], [])
+            writer = engine.build_writer_prompt([sample_claim()], [])
+            vision = engine.build_vision_prompt(0)
+        for prompt in (script, writer, vision):
+            self.assertNotIn("Match details", prompt)
+            self.assertNotIn("Map:", prompt)
+        # Static game knowledge still flows.
+        self.assertIn("Game reference (Call of Duty knowledge):", script)
 
 
 if __name__ == "__main__":

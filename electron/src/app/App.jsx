@@ -4,19 +4,21 @@ import { Toaster } from "@/components/ui/sonner.jsx";
 import AppLayout from "@/layout/AppLayout.jsx";
 import AppHeader from "@/layout/AppHeader.jsx";
 import Sidebar from "@/layout/Sidebar.jsx";
+import TitleBar from "@/layout/TitleBar.jsx";
 import DashboardSection from "@/app/sections/DashboardSection.jsx";
 import MatchesSection from "@/app/sections/MatchesSection.jsx";
 import CommentarySection from "@/app/sections/CommentarySection.jsx";
 import OnboardingWizard from "@/app/sections/OnboardingWizard.jsx";
 import ApiKeysSection from "@/app/sections/ApiKeysSection.jsx";
-import GameProfilesSection from "@/app/sections/GameProfilesSection.jsx";
-import CommentaryPresetsSection from "@/app/sections/CommentaryPresetsSection.jsx";
 import OverviewSection from "@/app/sections/OverviewSection.jsx";
 import PromptPacksSection from "@/app/sections/PromptPacksSection.jsx";
 import PreferencesSection from "@/app/sections/PreferencesSection.jsx";
 import TtsStudioSection from "@/app/sections/TtsStudioSection.jsx";
 import WorkspaceSection from "@/app/sections/WorkspaceSection.jsx";
 import StudioPlaceholder from "@/app/sections/StudioPlaceholder.jsx";
+import { applySessionMessage, disposeSession, routeSessionTarget } from "@/lib/workspace-sessions.js";
+import { reportRendererEvent } from "@/lib/diagnostics.js";
+import { shouldShowOnboarding } from "@/lib/onboarding.js";
 import { MOTION, EASING } from "@/lib/tokens.js";
 
 const SECTION_VIEWS = {
@@ -26,8 +28,6 @@ const SECTION_VIEWS = {
   audio: StudioPlaceholder,
   overview: OverviewSection,
   "api-keys": ApiKeysSection,
-  "game-profiles": GameProfilesSection,
-  "commentary-presets": CommentaryPresetsSection,
   "prompt-packs": PromptPacksSection,
   "tts-studio": TtsStudioSection,
   preferences: PreferencesSection,
@@ -40,8 +40,6 @@ const SECTION_META = {
   audio: { title: "Audio", context: "Playback lanes are not available yet" },
   overview: { title: "Overview", context: "Configuration status at a glance" },
   "api-keys": { title: "AI Providers", context: "Vision and speech provider configurations" },
-  "game-profiles": { title: "Game Profiles", context: "Match-context records" },
-  "commentary-presets": { title: "Commentary Presets", context: "Commentary personalities and tones" },
   "prompt-packs": { title: "Prompt Packs", context: "Game-specific prompt wording and defaults" },
   "tts-studio": { title: "Voice Providers", context: "Commentary voice configuration and previews" },
   preferences: { title: "General", context: "Application preferences" },
@@ -54,8 +52,9 @@ export default function App() {
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   // First-launch guided setup: takes over the window until completed or
-  // deferred ("Finish later" returns to the dashboard; progress resumes
-  // next launch). Null while the settings check is in flight.
+  // dismissed ("Finish later" persists a dismissal and shows the
+  // dashboard; setup can be replayed from Preferences). Null while the
+  // settings check is in flight.
   const [onboarding, setOnboarding] = useState(null);
   // Sidebar state before the editor auto-collapsed it; restored when
   // leaving the workspace so the toggle stays predictable.
@@ -65,7 +64,7 @@ export default function App() {
     let alive = true;
     window.api?.loadSettings?.().then((result) => {
       if (!alive) return;
-      if (result?.ok && !result.settings?.onboardingCompleted) {
+      if (result?.ok && shouldShowOnboarding(result.settings)) {
         setOnboarding({ settings: result.settings });
       } else {
         setOnboarding(false);
@@ -77,12 +76,18 @@ export default function App() {
   }, []);
 
   const handleOnboardingComplete = useCallback(({ projectId } = {}) => {
+    reportRendererEvent("onboarding.navigation.dashboard", { via: "complete" });
     setOnboarding(false);
     if (projectId) {
       handleOpenProjectRef.current?.(projectId);
     } else {
       setActiveSection("dashboard");
     }
+  }, []);
+
+  const handleOnboardingExit = useCallback(() => {
+    reportRendererEvent("onboarding.navigation.dashboard", { via: "finish-later" });
+    setOnboarding(false);
   }, []);
 
   const handleOpenProject = useCallback((id) => {
@@ -114,15 +119,31 @@ export default function App() {
     setActiveSection(id);
   }, []);
 
+  // Back preserves the workspace session: the editor unmounts (which
+  // releases video/audio resources) but the session keeps receiving
+  // worker events, so reopening restores the exact visible state.
   const handleBackToProjects = useCallback(() => {
-    setWorkspaceId(null);
-    setProjectName(null);
     setActiveSection("dashboard");
     if (savedNavigationCollapsed.current !== null) {
       setNavigationCollapsed(savedNavigationCollapsed.current);
       savedNavigationCollapsed.current = null;
     }
   }, []);
+
+  const handleProjectDeleted = useCallback((id) => {
+    disposeSession(id);
+    // Deleting the open project invalidates the editor workspace:
+    // clear it so no stale state survives for a removed project.
+    if (workspaceId !== null && id === workspaceId) {
+      setWorkspaceId(null);
+      setProjectName(null);
+      setActiveSection("dashboard");
+      if (savedNavigationCollapsed.current !== null) {
+        setNavigationCollapsed(savedNavigationCollapsed.current);
+        savedNavigationCollapsed.current = null;
+      }
+    }
+  }, [workspaceId]);
 
   const handleProjectLoaded = useCallback((project) => {
     setProjectName(project.name);
@@ -132,22 +153,39 @@ export default function App() {
     if (workspaceId !== null) setActiveSection("editor");
   }, [workspaceId]);
 
+  // One worker subscription for the open workspace, owned by the shell
+  // so events keep flowing while the user is on the dashboard. The
+  // editor view only reads its session; it never subscribes itself, so
+  // reopening cannot create duplicate subscriptions.
+  useEffect(() => {
+    if (workspaceId === null || typeof window.api?.onWorkerEvent !== "function") {
+      return undefined;
+    }
+    return window.api.onWorkerEvent((message) => {
+      applySessionMessage(routeSessionTarget(workspaceId, message), message);
+    });
+  }, [workspaceId]);
+
   if (onboarding) {
     return (
-      <>
-        <OnboardingWizard
-          initialSettings={onboarding.settings}
-          onComplete={handleOnboardingComplete}
-          onExit={() => setOnboarding(false)}
-        />
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
+        <TitleBar context="Setup" />
+        <div className="min-h-0 min-w-0 flex-1">
+          <OnboardingWizard
+            initialSettings={onboarding.settings}
+            onComplete={handleOnboardingComplete}
+            onExit={handleOnboardingExit}
+          />
+        </div>
         <Toaster theme="dark" position="bottom-right" />
-      </>
+      </div>
     );
   }
 
   return (
     <>
     <AppLayout
+      titlebar={<TitleBar context={meta.title} />}
       sidebar={
         <Sidebar
           active={showingWorkspace ? "editor" : activeSection}
@@ -189,14 +227,13 @@ export default function App() {
             <div className="h-full min-h-0 overflow-y-auto px-5 py-4">
               <SectionView
                 {...(activeSection === "dashboard"
-                  ? { onOpenProject: handleOpenProject }
+                  ? { onOpenProject: handleOpenProject, onProjectDeleted: handleProjectDeleted, activeProjectId: workspaceId }
                   : {})}
                 {...(activeSection === "audio"
                   ? { section: activeSection }
                   : {})}
                 {...(workspaceId !== null &&
-                (activeSection === "api-keys" || activeSection === "game-profiles"
-                  || activeSection === "commentary-presets" || activeSection === "prompt-packs")
+                (activeSection === "api-keys" || activeSection === "prompt-packs")
                   ? { onBackToEditor: handleBackToEditor }
                   : {})}
                 {...(activeSection === "overview"

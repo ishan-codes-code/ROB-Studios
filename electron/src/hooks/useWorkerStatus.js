@@ -4,8 +4,9 @@ const IDLE_DETAIL = 'No video processed yet.';
 
 /**
  * Shared subscription to the worker bridge. Returns the coarse run
- * status plus the latest human-readable detail line. Second consumer
- * of the `WorkerStatus` subscription pattern (header pill + card).
+ * status plus the latest human-readable detail line. The global
+ * header pill is the only remaining consumer (the dashboard card was
+ * removed in the live-commentary redesign).
  */
 export default function useWorkerStatus() {
   const [status, setStatus] = useState('idle');

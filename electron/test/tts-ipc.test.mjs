@@ -16,6 +16,7 @@ import {
   markCredentialVerified,
 } from '../src/credentials-store.mjs';
 import { createProject } from '../src/project-store.mjs';
+import { getApiActivity } from '../src/project-store/api-activity.mjs';
 import { loadSettings, saveSettings } from '../src/settings-store.mjs';
 
 const CATALOG = {
@@ -261,6 +262,14 @@ test('tts-preview synthesizes with the resolved key and cleans up', async (t) =>
   assert.deepEqual(fs.readdirSync(previewsDir(dir)), []);
   // Project artifacts are untouched by previews.
   assert.equal(fs.existsSync(path.join(dir, 'projects', project.id, 'output', 'audio')), false);
+  // The request is recorded at settings level, never under the project.
+  const settingsActivity = getApiActivity(dir, null);
+  assert.equal(settingsActivity.length, 1);
+  assert.equal(settingsActivity[0].purpose, 'voice-preview');
+  assert.equal(settingsActivity[0].status, 'succeeded');
+  assert.equal(settingsActivity[0].model, 'gemini-3.8-flash-tts');
+  assert.deepEqual(getApiActivity(dir, project.id), []);
+  assert.equal(JSON.stringify(settingsActivity).includes('preview-secret-key'), false);
 });
 
 test('tts-preview validates input and credential state without spawning', async (t) => {
@@ -320,6 +329,11 @@ test('tts-preview failure scrubs key material and removes temp audio', async (t)
   assert.equal(result.error.includes('leaky-preview-key'), false);
   assert.match(result.error, /\[REDACTED\]/);
   assert.equal(fs.existsSync(outPath), false);
+  const settingsActivity = getApiActivity(dir, null);
+  assert.equal(settingsActivity.length, 1);
+  assert.equal(settingsActivity[0].status, 'failed');
+  assert.equal(settingsActivity[0].errorCode, 'preview-failed');
+  assert.equal(JSON.stringify(settingsActivity).includes('leaky-preview-key'), false);
 });
 
 test('preview argv carries config and output path in order', () => {

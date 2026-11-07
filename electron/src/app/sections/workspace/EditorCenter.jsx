@@ -12,7 +12,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog.jsx";
+import ApiActivityPanel from "@/components/ApiActivityPanel.jsx";
 import ArtifactBrowser from "@/components/ArtifactBrowser.jsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import CommentaryTimeline from "./CommentaryTimeline.jsx";
 import VideoPreview from "./VideoPreview.jsx";
 import useVideoExport from "@/hooks/useVideoExport.js";
@@ -107,7 +109,7 @@ function ExportCluster({ projectId, readyCount, view, exportState, onStart, onCa
           !projectId
             ? "Open a project to export."
             : readyCount === 0
-              ? "Generate spoken audio before exporting."
+              ? "Export needs commentary audio — run with a TTS voice configured."
               : "Export video with commentary"
         }
       >
@@ -182,7 +184,7 @@ export default function EditorCenter({
         <Separator orientation="vertical" className="h-4" />
         <Dialog onOpenChange={handleDiagnosticsOpenChange}>
           <DialogTrigger asChild>
-            <Button type="button" size="sm" variant="ghost" title="Inspect frames, observations, and run artifacts">
+            <Button type="button" size="sm" variant="ghost" title="Inspect API activity, frames, observations, and run artifacts">
               <Activity data-icon="inline-start" />
               Diagnostics
             </Button>
@@ -191,12 +193,21 @@ export default function EditorCenter({
             <DialogHeader>
               <DialogTitle>Project diagnostics</DialogTitle>
               <DialogDescription>
-                Frames, observations, match state, events, commentary, and audio artifacts for {project.name}.
+                Live API requests plus frames, observations, match state, events, commentary, and audio artifacts for {project.name}.
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-              <ArtifactBrowser projectId={project.id} refreshSignal={refreshSignal} />
-            </div>
+            <Tabs defaultValue="activity" className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden">
+              <TabsList aria-label="Diagnostics sections" className="w-full shrink-0">
+                <TabsTrigger value="activity" className="flex-1">API Activity</TabsTrigger>
+                <TabsTrigger value="artifacts" className="flex-1">Artifacts</TabsTrigger>
+              </TabsList>
+              <TabsContent value="activity" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto outline-none">
+                <ApiActivityPanel projectId={project.id} />
+              </TabsContent>
+              <TabsContent value="artifacts" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto outline-none">
+                <ArtifactBrowser projectId={project.id} refreshSignal={refreshSignal} />
+              </TabsContent>
+            </Tabs>
           </DialogContent>
         </Dialog>
       </div>

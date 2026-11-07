@@ -106,3 +106,5 @@ Body default is 13px/1.5; headings use `leading-tight`.
   `index.css` (and this document).
 - Dark-only theme: `:root` holds the Studio values; `color-scheme: dark`.
 - Token changes update this document and `index.css` together.
+- The dashboard is strictly monochrome: hierarchy comes from contrast,
+  spacing, typography, and imagery — never chromatic accents.

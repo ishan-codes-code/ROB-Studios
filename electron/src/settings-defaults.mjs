@@ -8,5 +8,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // Guided-setup progress: furthest step reached (0-4) plus the vault
   // credential created inside the wizard, so resuming never duplicates
   // it. Cleared logically once onboardingCompleted flips true.
-  onboarding: { step: 0, credentialId: null },
+  // `dismissed` records an explicit Finish-later exit: the wizard
+  // stays hidden without falsely marking setup complete.
+  onboarding: { step: 0, credentialId: null, dismissed: false },
 });

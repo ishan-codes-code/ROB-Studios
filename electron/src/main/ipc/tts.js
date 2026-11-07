@@ -18,7 +18,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { getProject, updateProject } from '../../project-store.mjs';
+import { getProject, recordCompletedActivity, updateProject } from '../../project-store.mjs';
 import { getCredentialForRun, isCredentialVerifiedForRun } from '../../credentials-store.mjs';
 import { loadSettings, saveSettings } from '../../settings-store.mjs';
 import {
@@ -350,6 +350,7 @@ export function registerTtsIpc({
       }
       sweepStalePreviews(userData());
       tmp = previewTempPath(userData());
+      const previewStartedAt = Date.now();
       const result = await runPreview({
         executable,
         args: buildPreviewArgv(ttsSayScript(root), {
@@ -359,6 +360,23 @@ export function registerTtsIpc({
         spawnFn,
         timeoutMs: previewTimeoutMs,
       });
+      // Settings-level record: previews never touch project artifacts,
+      // so they live outside every project's history.
+      try {
+        recordCompletedActivity(userData(), null, {
+          provider: snapshot.provider ?? 'google-gemini-tts',
+          model: triple.model,
+          purpose: 'voice-preview',
+          status: result?.ok === true ? 'succeeded' : 'failed',
+          startedAt: previewStartedAt,
+          completedAt: Date.now(),
+          errorCode: result?.ok === true ? null : 'preview-failed',
+          errorMessage: result?.ok === true
+            ? null
+            : scrubKey((result?.stderr || 'TTS preview failed.').slice(0, 500), snapshot.apiKey),
+          metadata: { voice: triple.voice, style: triple.voiceDirection },
+        });
+      } catch { /* diagnostics never break preview */ }
       if (!result?.ok) {
         const message = scrubKey(
           (result?.stderr || 'TTS preview failed.').slice(0, 500), snapshot.apiKey,

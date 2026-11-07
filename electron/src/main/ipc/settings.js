@@ -21,23 +21,8 @@ import {
   getProviderBaseUrl,
   validateCustomBaseUrl,
 } from '../../provider-catalog.mjs';
-import {
-  listGameProfiles,
-  listCommentaryPresets,
-  createGameProfile as libraryCreateProfile,
-  updateGameProfile as libraryUpdateProfile,
-  deleteGameProfile as libraryDeleteProfile,
-  createCommentaryPreset as libraryCreatePreset,
-  updateCommentaryPreset as libraryUpdatePreset,
-  duplicateCommentaryPreset as libraryDuplicatePreset,
-  deleteCommentaryPreset as libraryDeletePreset,
-  getGameProfile,
-  getCommentaryPreset,
-  DEFAULT_GAME_PROFILE_ID,
-  DEFAULT_COMMENTARY_PRESET_ID,
-} from '../../game-store.mjs';
 import { migrateLegacyVault } from '../../vault-migration.mjs';
-import { listProjects, getProject, updateProject } from '../../project-store.mjs';
+import { listProjects, getProject, updateProject, recordCompletedActivity } from '../../project-store.mjs';
 import {
   listPromptPacks,
   setPromptField,
@@ -89,8 +74,6 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
         },
         createCredential: (input) => vaultCreate(userDataPath(), safeStorage, input),
         markCredentialVerified: (id, model) => markCredentialVerified(userDataPath(), safeStorage, id, model),
-        createGameProfile: (input) => libraryCreateProfile(userDataPath(), input),
-        createCommentaryPreset: (input) => libraryCreatePreset(userDataPath(), input),
       });
     } catch {
       migration = { migrated: false, notice: 'Automatic migration failed. Create a new API configuration.' };
@@ -103,7 +86,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
     return { credentials: credentialsList, migration };
   }
 
-  function projectReferences(credentialId = null, gameProfileId = null, presetId = null) {
+  function projectReferences(credentialId = null) {
     const names = [];
     let projects = [];
     try {
@@ -113,14 +96,41 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
     }
     for (const project of projects) {
       const config = project.configuration ?? {};
-      if ((credentialId !== null && (config.credentialId === credentialId
-          || config.tts?.credentialId === credentialId))
-        || (gameProfileId !== null && config.gameProfileId === gameProfileId)
-        || (presetId !== null && config.commentaryPresetId === presetId)) {
+      if (credentialId !== null && (config.credentialId === credentialId
+        || config.tts?.credentialId === credentialId)) {
         names.push(project.name);
       }
     }
     return names;
+  }
+
+  function purposeForSetupOperation(setupOperation) {
+    if (setupOperation === 'connection') return 'verify-connection';
+    if (setupOperation === 'verify-vision') return 'verify-vision';
+    if (setupOperation === 'verify-tts-auth') return 'verify-tts';
+    if (setupOperation === 'models') return 'list-models';
+    return 'verify-connection';
+  }
+
+  // Settings-level activity (credential checks, model discovery) runs
+  // in a setup child, not the worker, so the outcome is recorded here
+  // once the subprocess settles. Probe errors are already secret-free
+  // by the setup contract; only bounded fields are persisted.
+  function recordSetupActivity({ provider, model, purpose, startedAt, result }) {
+    try {
+      const ok = result?.ok === true;
+      recordCompletedActivity(userDataPath(), null, {
+        provider,
+        model: typeof model === 'string' && model !== '' ? model : null,
+        purpose,
+        status: ok ? 'succeeded' : 'failed',
+        startedAt,
+        completedAt: Date.now(),
+        httpStatus: typeof result?.status === 'number' ? result.status : null,
+        errorCode: ok ? null : (typeof result?.code === 'string' ? result.code : 'unknown'),
+        errorMessage: ok ? null : (typeof result?.error === 'string' ? result.error : null),
+      });
+    } catch { /* diagnostics never break settings flows */ }
   }
 
   async function runCredentialCheck(id, operation) {
@@ -143,6 +153,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
     const setupOperation = operation === 'verify-vision' && snapshot.record.purpose === 'tts'
       ? 'verify-tts-auth'
       : operation;
+    const checkStartedAt = Date.now();
     let result;
     try {
       result = await spawnSetup({
@@ -161,6 +172,13 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
         code: 'setup',
       };
     }
+    recordSetupActivity({
+      provider: snapshot.provider,
+      model: snapshot.model,
+      purpose: purposeForSetupOperation(setupOperation),
+      startedAt: checkStartedAt,
+      result,
+    });
     const tested = {
       id: snapshot.record.id,
       provider: snapshot.provider,
@@ -216,7 +234,15 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
       const candidate = saveSettings(userData(), { ...saved, ...settings, provider: { ...saved.provider, ...(settings?.provider ?? {}), modelVisionVerified: settings?.provider?.baseUrl === saved.provider.baseUrl && settings?.provider?.model === saved.provider.model ? saved.provider.modelVisionVerified : false } });
       const key = readKey();
       if (!key) throw new Error('Save an API key before testing the provider.');
+      const legacyStartedAt = Date.now();
       const result = await spawnSetup({ operation, provider: candidate.provider, key });
+      recordSetupActivity({
+        provider: candidate.provider?.id ?? 'baseten',
+        model: candidate.provider?.model ?? null,
+        purpose: purposeForSetupOperation(operation),
+        startedAt: legacyStartedAt,
+        result,
+      });
       if (operation === 'verify-vision' && result?.ok === true) {
         const verified = { ...candidate, provider: { ...candidate.provider, modelVisionVerified: true } };
         return { ...result, settings: saveSettings(userData(), verified) };
@@ -320,6 +346,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
           return { ok: false, error: 'API key must be a non-empty string under 4096 characters.', code: 'config' };
         }
       }
+      const discoveryStartedAt = Date.now();
       let result;
       try {
         result = await spawnSetup({
@@ -331,6 +358,13 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
       } catch {
         result = { ok: false, error: 'Model discovery process failed. Try again.', code: 'setup' };
       }
+      recordSetupActivity({
+        provider: 'custom',
+        model: null,
+        purpose: 'list-models',
+        startedAt: discoveryStartedAt,
+        result,
+      });
       if (!result || typeof result !== 'object' || result.ok !== true) {
         return {
           ok: false,
@@ -351,7 +385,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
   ipcMain.handle('credential-remove', async (_event, id) => {
     try {
       if (typeof id !== 'string' || id === '') throw new Error('Invalid credential id.');
-      const usedBy = projectReferences(id, null, null);
+      const usedBy = projectReferences(id);
       if (usedBy.length > 0) {
         return { ok: false, error: 'Settings operation failed.', referencedBy: usedBy };
       }
@@ -423,56 +457,6 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
     } catch (err) { return safe(err); }
   });
 
-  // ---- Games & prompts -------------------------------------------------
-  ipcMain.handle('game-profile-list', async () => {
-    try { return { ok: true, profiles: listGameProfiles(userDataPath()) }; }
-    catch (err) { return safe(err); }
-  });
-  ipcMain.handle('game-profile-create', async (_event, input) => {
-    try { return { ok: true, profile: libraryCreateProfile(userDataPath(), input ?? {}) }; }
-    catch (err) { return safe(err); }
-  });
-  ipcMain.handle('game-profile-update', async (_event, id, patch) => {
-    try { return { ok: true, profile: libraryUpdateProfile(userDataPath(), id, patch ?? {}) }; }
-    catch (err) { return safe(err); }
-  });
-  ipcMain.handle('game-profile-delete', async (_event, id) => {
-    try {
-      if (typeof id !== 'string' || id === '') throw new Error('Invalid configuration id.');
-      const usedBy = projectReferences(null, id, null);
-      if (usedBy.length > 0) {
-        return { ok: false, error: 'Settings operation failed.', referencedBy: usedBy };
-      }
-      return { ok: true, ...libraryDeleteProfile(userDataPath(), id) };
-    } catch (err) { return safe(err); }
-  });
-  ipcMain.handle('preset-list', async (_event, profileId = null) => {
-    try { return { ok: true, presets: listCommentaryPresets(userDataPath(), profileId) }; }
-    catch (err) { return safe(err); }
-  });
-  ipcMain.handle('preset-create', async (_event, input) => {
-    try { return { ok: true, preset: libraryCreatePreset(userDataPath(), input ?? {}) }; }
-    catch (err) { return safe(err); }
-  });
-  ipcMain.handle('preset-update', async (_event, id, patch) => {
-    try { return { ok: true, preset: libraryUpdatePreset(userDataPath(), id, patch ?? {}) }; }
-    catch (err) { return safe(err); }
-  });
-  ipcMain.handle('preset-duplicate', async (_event, id, name = null) => {
-    try { return { ok: true, preset: libraryDuplicatePreset(userDataPath(), id, name) }; }
-    catch (err) { return safe(err); }
-  });
-  ipcMain.handle('preset-delete', async (_event, id) => {
-    try {
-      if (typeof id !== 'string' || id === '') throw new Error('Invalid configuration id.');
-      const usedBy = projectReferences(null, null, id);
-      if (usedBy.length > 0) {
-        return { ok: false, error: 'Settings operation failed.', referencedBy: usedBy };
-      }
-      return { ok: true, ...libraryDeletePreset(userDataPath(), id) };
-    } catch (err) { return safe(err); }
-  });
-
   // ---- Prompt packs --------------------------------------------------
   ipcMain.handle('prompt-pack-list', async () => {
     try {
@@ -508,11 +492,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
       if (typeof projectId !== 'string' || projectId === '') throw new Error('Invalid project id.');
       ensureMigrated();
       const project = getProject(userDataPath(), projectId);
-      const config = project.configuration ?? {
-        credentialId: null,
-        gameProfileId: DEFAULT_GAME_PROFILE_ID,
-        commentaryPresetId: DEFAULT_COMMENTARY_PRESET_ID,
-      };
+      const config = project.configuration ?? { credentialId: null };
       let credential = null;
       let credentialWarning = null;
       if (config.credentialId !== null) {
@@ -534,20 +514,6 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
           credentialWarning = 'The saved API configuration is missing or unreadable. Choose another configuration.';
         }
       }
-      let profile = null;
-      let profileWarning = null;
-      try {
-        profile = getGameProfile(userDataPath(), config.gameProfileId);
-      } catch {
-        profileWarning = 'The saved game profile is missing. Choose another profile.';
-      }
-      let preset = null;
-      let presetWarning = null;
-      try {
-        preset = getCommentaryPreset(userDataPath(), config.commentaryPresetId);
-      } catch {
-        presetWarning = 'The saved commentary preset is missing. Choose another preset.';
-      }
       let packWarning = null;
       if (config.promptPackId !== null && config.promptPackId !== undefined) {
         try {
@@ -564,9 +530,7 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
         ok: true,
         configuration: { ...config },
         credential,
-        profile,
-        preset,
-        warnings: [credentialWarning, profileWarning, presetWarning, packWarning].filter(Boolean),
+        warnings: [credentialWarning, packWarning].filter(Boolean),
       };
     } catch (err) {
       // Development diagnosis: the renderer keeps a generic message, but
@@ -589,8 +553,6 @@ export function registerSettingsIpc({ ipcMain, app, safeStorage, spawnSetup, pac
         const resolved = getCredentialForRun(userDataPath(), safeStorage, configuration.credentialId);
         if (resolved.record.purpose !== 'vision') throw new Error('Choose a Vision API configuration for this project.');
       }
-      if (configuration.gameProfileId !== undefined) getGameProfile(userDataPath(), configuration.gameProfileId);
-      if (configuration.commentaryPresetId !== undefined) getCommentaryPreset(userDataPath(), configuration.commentaryPresetId);
       if (configuration.promptPackId !== undefined && configuration.promptPackId !== null) {
         const factory = await loadFactory();
         if (!factory.packs.some((pack) => pack.packId === configuration.promptPackId)) {

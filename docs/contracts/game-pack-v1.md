@@ -86,9 +86,11 @@ behavior. Python resolves the environment selection last
 (`prompt_pack_selection`), so standalone CLI runs can select a pack with
 `--game-pack` / `AI_COMMENTATOR_PACK_ID`.
 
-The effective vision game context is the pack's `game_context` field
-followed by the user's per-profile context, so current profile settings
-keep working unchanged.
+The effective game context is the pack's `game_context` field
+(labeled static game reference) followed by the project's
+`game.context` (labeled match details), so current project settings
+keep working unchanged. Vision, script, and writer prompts all
+receive it; script/writer prompts previously received none.
 
 ## IPC surface
 

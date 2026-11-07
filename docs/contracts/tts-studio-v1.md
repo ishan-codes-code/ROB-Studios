@@ -117,15 +117,19 @@ caches identical requests to avoid repeat paid calls.
 
 ## Run integration
 
-Renderer run options carry two paid opt-ins (default off):
-`withScript` and `requestTts` (audio requires the script; enforced
-renderer-side, main-side, and worker-side). For project runs with
-`requestTts`, the main process resolves the effective triple plus the
+Renderer run options carry one paid script opt-in (`withScript`,
+default off). Spoken audio is automatic, not an opt-in:
+Audio requires the script or streaming mode and is
+attempted for every such run. For project runs with script output, the
+main process resolves the effective triple plus the
 vault TTS key (`resolveTtsRunConfig`), passes
 `--generate-tts --tts-model/--tts-voice/--tts-voice-direction` (values
 from stored configuration only — renderer-supplied TTS argv is
 stripped), and injects `AI_COMMENTATOR_PROVIDER_API_KEY` into the
-worker environment. Non-project runs cannot request TTS. The worker
+worker environment. Runs without TTS configuration proceed without
+audio and report the skip on the accept response; the worker treats a
+TTS stage failure as best-effort (commentary is kept, the `tts`
+status records the error) instead of failing the run. The worker
 re-validates the triple with `validate_tts_config`, fails fast without
 key or with invalid config, and the `tts-v1` manifest records the
 configuration actually used.

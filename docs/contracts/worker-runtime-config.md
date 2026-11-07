@@ -33,6 +33,15 @@ the selected pack only). Python resolves custom text over the factory
 pack and re-validates both before any paid call; see
 [game-pack-v1.md](game-pack-v1.md).
 
+`AI_COMMENTATOR_SETTINGS_JSON.game` is `{id, context, metadata}`:
+the normalized game id, the composed human-readable context string,
+and the structured `metadata` snapshot (`matchType`, `mode`, `map`,
+`category`, `teams`, `tournament`, `stage`, `additionalContext`;
+missing optionals are null/empty, never invented). The engine uses
+`metadata` to word the once-per-session opening introduction at
+timestamp 0. Readers must treat `metadata` as additive and keep
+working when it is absent (older runs carry `id`/`context` only).
+
 No provider metadata comes from the renderer at run time: the main
 process resolves the project's stored credential ID through the vault
 and injects the pinned catalogue base URL — or, for `custom` runs,

@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/card.jsx";
 import { Separator } from "@/components/ui/separator.jsx";
 import { Spinner } from "@/components/ui/spinner.jsx";
-import { presetsForProfile } from "@/lib/config-display.js";
 import {
   validateEndpointInput,
   validateKeyInput,
@@ -33,11 +32,12 @@ import {
 } from "@/lib/config-validation.js";
 import {
   clampOnboardingStep,
-  commentatorStepReady,
   modelsStepReady,
   onboardingReadiness,
+  persistOnboardingDismissal,
   providerStepReady,
 } from "@/lib/onboarding.js";
+import { reportRendererEvent } from "@/lib/diagnostics.js";
 import { EASING, MOTION } from "@/lib/tokens.js";
 
 const PROVIDER_OPTIONS = [
@@ -46,7 +46,7 @@ const PROVIDER_OPTIONS = [
   { id: "custom", name: "Custom", blurb: "Any OpenAI-compatible endpoint, explicitly verified for vision." },
 ];
 
-const STEP_LABELS = ["Welcome", "Provider", "Model", "Style", "Ready"];
+const STEP_LABELS = ["Welcome", "Provider", "Model", "Ready"];
 
 const inputClassName =
   "h-10 rounded-md border border-input bg-background px-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
@@ -66,13 +66,13 @@ function providerName(id) {
 }
 
 /**
- * First-launch guided setup. Five resumable steps (welcome, provider,
- * model, commentator style, summary) over the existing vault/settings/
- * library IPC — no new backend contracts. Progress persists to
- * settings.onboarding on every transition so an interrupted setup
- * resumes where it stopped without duplicating the saved credential.
- * Completion requires a verified vision credential plus a game profile
- * and commentary preset; TTS stays optional (TTS Studio, later).
+ * First-launch guided setup. Four resumable steps (welcome, provider,
+ * model, summary) over the existing vault/settings IPC — no new
+ * backend contracts. Progress persists to settings.onboarding on every
+ * transition so an interrupted setup resumes where it stopped without
+ * duplicating the saved credential. Completion requires a verified
+ * vision credential; game metadata lives on each project and TTS stays
+ * optional (Voice Providers, later).
  */
 export default function OnboardingWizard({ initialSettings, onComplete, onExit }) {
   const settingsRef = useRef(initialSettings);
@@ -93,11 +93,6 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
   const [model, setModel] = useState("");
   const [connectState, setConnectState] = useState("idle");
   const [verifyState, setVerifyState] = useState("idle");
-  const [profiles, setProfiles] = useState([]);
-  const [presets, setPresets] = useState([]);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [gameProfileId, setGameProfileId] = useState("free-fire-default");
-  const [commentaryPresetId, setCommentaryPresetId] = useState("default-energetic");
   const [busy, setBusy] = useState("");
   const [stepError, setStepError] = useState("");
   const [opError, setOpError] = useState("");
@@ -111,15 +106,17 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
     credentialId: credential?.id ?? null,
     visionVerified,
     model: credential?.model ?? null,
-    gameProfileId,
-    commentaryPresetId,
   });
 
   const persist = useCallback(async (nextStep, credentialId) => {
     const current = settingsRef.current ?? {};
     const result = await window.api.saveSettings({
       ...current,
-      onboarding: { step: clampOnboardingStep(nextStep), credentialId: credentialId ?? null },
+      onboarding: {
+        step: clampOnboardingStep(nextStep),
+        credentialId: credentialId ?? null,
+        dismissed: current.onboarding?.dismissed === true,
+      },
     });
     if (!result?.ok) throw new Error("Could not save setup progress. Check the local data directory and try again.");
     settingsRef.current = result.settings;
@@ -203,26 +200,6 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, credential, provider]);
-
-  useEffect(() => {
-    if (step !== 3 || profiles.length > 0) return;
-    let alive = true;
-    setLibraryLoading(true);
-    Promise.all([window.api.listGameProfiles(), window.api.listPresets(null)]).then(([profileRes, presetRes]) => {
-      if (!alive) return;
-      setProfiles(profileRes?.profiles ?? []);
-      setPresets(presetRes?.presets ?? []);
-    }).catch(() => {
-      // Defaults below keep the step usable; the error surfaces inline.
-      if (alive) setStepError("Could not load game profiles. The built-in defaults remain available.");
-    }).finally(() => {
-      if (alive) setLibraryLoading(false);
-    });
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
 
   const saveConfiguration = useCallback(async () => {
     setBusy("create");
@@ -426,8 +403,6 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
       if (!result?.ok || !result.project) throw new Error(result?.error ?? "Could not create the project.");
       await window.api.setProjectConfig(result.project.id, {
         credentialId: credential.id,
-        gameProfileId,
-        commentaryPresetId,
       }).catch(() => null);
       setCreatedProjectId(result.project.id);
     } catch (err) {
@@ -435,7 +410,33 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
     } finally {
       setBusy("");
     }
-  }, [commentaryPresetId, credential, gameProfileId, projectName, projectPath]);
+  }, [credential, projectName, projectPath]);
+
+  // Finish-later exit: the dismissal persists before navigation
+  // counts as successful, so a reload or restart lands on the
+  // dashboard instead of reopening the wizard. A failed save keeps
+  // the user on the wizard with an error. Dismissal never marks the
+  // provider or model configured — verification state is untouched.
+  const exitSetup = useCallback(async () => {
+    if (busy) return;
+    setBusy("exit");
+    setStepError("");
+    reportRendererEvent("onboarding.finish_later.clicked", { step });
+    reportRendererEvent("onboarding.completion.persist.started", { step });
+    try {
+      const saved = await persistOnboardingDismissal(
+        window.api, settingsRef.current, step, credential?.id ?? null,
+      );
+      settingsRef.current = saved ?? settingsRef.current;
+      reportRendererEvent("onboarding.completion.persist.finished", { step, ok: true });
+      onExit?.();
+    } catch (err) {
+      reportRendererEvent("onboarding.completion.persist.finished", { step, ok: false });
+      setStepError(err?.message ?? "Could not save setup progress.");
+    } finally {
+      setBusy("");
+    }
+  }, [busy, credential?.id, onExit, step]);
 
   const complete = useCallback(async (openProject) => {
     setBusy("complete");
@@ -445,7 +446,7 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
       const result = await window.api.saveSettings({
         ...current,
         onboardingCompleted: true,
-        onboarding: { step: 4, credentialId: credential?.id ?? null },
+        onboarding: { step: 3, credentialId: credential?.id ?? null },
       });
       if (!result?.ok) throw new Error("Could not complete setup.");
       onComplete?.({ projectId: openProject ? createdProjectId : null });
@@ -457,12 +458,6 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
   }, [createdProjectId, credential?.id, onComplete]);
 
   const filteredModels = models.filter((entry) => entry.id.toLowerCase().includes(modelSearch.trim().toLowerCase()));
-  const visiblePresets = presetsForProfile(presets, gameProfileId);
-  const selectedProfile = profiles.find((entry) => entry.id === gameProfileId) ?? null;
-  const selectedPreset = presets.find((entry) => entry.id === commentaryPresetId)
-    ?? (commentaryPresetId === "default-energetic"
-      ? { id: "default-energetic", name: "Default — Energetic", tone: "energetic", language: "English" }
-      : null);
 
   const providerFormValid = provider !== "custom"
     ? validateName(name, "Configuration name") === null && validateKeyInput(key) === null
@@ -474,15 +469,16 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
       return (
         <div className="flex flex-col gap-4">
           <p className="text-[13px] leading-relaxed text-muted-foreground">
-            Commentary Studio turns match recordings into AI broadcast commentary. Setup takes
-            about two minutes: connect a vision provider, verify it can see images, then pick
-            a game style. Voice narration stays optional.
+            ROB — the Real-time Observer & Broadcaster — turns match recordings into
+            evidence-grounded broadcast commentary. Setup takes about two minutes: connect
+            a vision provider, verify it can see images, then create your first project.
+            Voice narration stays optional.
           </p>
           <ul className="flex flex-col gap-2.5">
             {[
               ["Connect a provider", "Meta, Baseten, or your own OpenAI-compatible endpoint."],
               ["Verify vision", "One explicit image check — support is proven, never assumed."],
-              ["Pick a style", "Game profile and commentary preset. Change them per project later."],
+              ["Create a project", "Pick a match video; game details live on the project."],
             ].map(([title, hint]) => (
               <li key={title} className="flex items-start gap-2.5">
                 <Check className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -764,64 +760,12 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
         </div>
       );
     }
-    if (step === 3) {
-      return (
-        <div className="flex flex-col gap-4">
-          {libraryLoading ? (
-            <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
-              <Spinner /> Loading styles…
-            </p>
-          ) : null}
-          <Field label="Game profile" hint={selectedProfile?.context || "Match context the commentary reacts to."}>
-            <select
-              className={inputClassName}
-              value={gameProfileId}
-              disabled={!!busy}
-              onChange={(event) => {
-                const next = event.target.value;
-                setGameProfileId(next);
-                if (!presetsForProfile(presets, next).some((entry) => entry.id === commentaryPresetId)) {
-                  setCommentaryPresetId("default-energetic");
-                }
-              }}
-            >
-              {(profiles.length > 0 ? profiles : [{ id: "free-fire-default", name: "Free Fire — Default", builtIn: true }]).map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name}</option>
-              ))}
-            </select>
-          </Field>
-          <Field
-            label="Commentary preset"
-            hint={selectedPreset ? `Tone: ${selectedPreset.tone || "default"} · Language: ${selectedPreset.language || "default"}` : "Personality and tone for generated lines."}
-          >
-            <select
-              className={inputClassName}
-              value={commentaryPresetId}
-              disabled={!!busy}
-              onChange={(event) => setCommentaryPresetId(event.target.value)}
-            >
-              {(visiblePresets.length > 0 ? visiblePresets : [{ id: "default-energetic", name: "Default — Energetic" }]).map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name}</option>
-              ))}
-            </select>
-          </Field>
-          <p className="text-[12px] leading-relaxed text-muted-foreground">
-            Style guides wording only — observation checks and evidence rules stay enforced.
-            Spoken narration is optional and configured later in the TTS Studio.
-          </p>
-        </div>
-      );
-    }
-    const profileName = selectedProfile?.name ?? "Free Fire — Default";
-    const presetName = selectedPreset?.name ?? "Default — Energetic";
     return (
       <div className="flex flex-col gap-4">
         <dl className="flex flex-col gap-2.5 rounded-md border border-border bg-muted/40 px-3 py-3">
           {[
             ["AI provider", `${providerName(credential?.provider)} · ${credential?.model ?? "—"}`],
             ["Vision", visionVerified ? "Verified for this key and model" : "Not verified"],
-            ["Game", profileName],
-            ["Commentary style", presetName],
           ].map(([term, value]) => (
             <div key={term} className="flex min-w-0 items-baseline justify-between gap-3">
               <dt className="shrink-0 text-[12px] text-muted-foreground">{term}</dt>
@@ -878,10 +822,9 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
   const canContinue = step === 0
     || (step === 1 && (credential ? true : providerFormValid) && secureStorage)
     || (step === 2 && modelsStepReady({ model: credential?.model ?? null, visionVerified }))
-    || (step === 3 && commentatorStepReady({ gameProfileId, commentaryPresetId }))
-    || step === 4;
+    || step === 3;
 
-  const continueLabel = step === 0 ? "Get started" : step === 4 ? null : "Continue";
+  const continueLabel = step === 0 ? "Get started" : step === 3 ? null : "Continue";
 
   return (
     <div className="flex h-full min-h-0 flex-col items-center overflow-y-auto bg-background px-4 py-8">
@@ -891,7 +834,7 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
             <AudioLines className="size-4" aria-hidden />
           </span>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">Commentary Studio</p>
+            <p className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">ROB Studio</p>
             <p className="text-[11px] text-muted-foreground">Guided setup · progress saves automatically</p>
           </div>
         </div>
@@ -924,13 +867,12 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
         <Card>
           <CardHeader>
             <CardTitle>
-              {step === 0 ? "Prepare your broadcast" : step === 1 ? "Connect an AI provider" : step === 2 ? "Choose and verify a model" : step === 3 ? "Set the commentator style" : "Ready to broadcast"}
+              {step === 0 ? "Prepare your broadcast" : step === 1 ? "Connect an AI provider" : step === 2 ? "Choose and verify a model" : "Ready to broadcast"}
             </CardTitle>
             <CardDescription>
-              {step === 0 ? "Three quick decisions before your first project."
+              {step === 0 ? "Two quick decisions before your first project."
                 : step === 1 ? "Credentials stay encrypted on this device."
                 : step === 2 ? "Image support is proven with a live check, never assumed."
-                : step === 3 ? "Per-project styles can change later."
                 : "Review the setup, optionally create a project, then start."}
             </CardDescription>
           </CardHeader>
@@ -960,14 +902,14 @@ export default function OnboardingWizard({ initialSettings, onComplete, onExit }
                   <ArrowLeft data-icon="inline-start" /> Back
                 </Button>
               ) : (
-                <Button size="sm" variant="ghost" onClick={onExit}>
+                <Button size="sm" variant="ghost" disabled={!!busy || adopting} onClick={exitSetup}>
                   Finish later
                 </Button>
               )}
             </div>
             <div className="flex gap-2">
-              {step > 0 && step < 4 ? (
-                <Button size="sm" variant="ghost" onClick={onExit}>
+              {step > 0 && step < 3 ? (
+                <Button size="sm" variant="ghost" disabled={!!busy || adopting} onClick={exitSetup}>
                   Finish later
                 </Button>
               ) : null}

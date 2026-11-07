@@ -27,15 +27,6 @@ contextBridge.exposeInMainWorld('api', {
   setCredentialEndpoint: (id, baseUrl) => ipcRenderer.invoke('credential-set-endpoint', id, baseUrl),
   discoverCustomModels: (input) => ipcRenderer.invoke('custom-models', input ?? {}),
   providerModels: (providerId) => ipcRenderer.invoke('provider-models', providerId),
-  listGameProfiles: () => ipcRenderer.invoke('game-profile-list'),
-  createGameProfile: (input) => ipcRenderer.invoke('game-profile-create', input),
-  updateGameProfile: (id, patch) => ipcRenderer.invoke('game-profile-update', id, patch),
-  deleteGameProfile: (id) => ipcRenderer.invoke('game-profile-delete', id),
-  listPresets: (profileId) => ipcRenderer.invoke('preset-list', profileId ?? null),
-  createPreset: (input) => ipcRenderer.invoke('preset-create', input),
-  updatePreset: (id, patch) => ipcRenderer.invoke('preset-update', id, patch),
-  duplicatePreset: (id, name) => ipcRenderer.invoke('preset-duplicate', id, name ?? null),
-  deletePreset: (id) => ipcRenderer.invoke('preset-delete', id),
   listPromptPacks: () => ipcRenderer.invoke('prompt-pack-list'),
   setPromptField: (packId, field, text) => ipcRenderer.invoke('prompt-pack-set', packId, field, text),
   resetPromptPack: (packId) => ipcRenderer.invoke('prompt-pack-reset', packId),
@@ -45,17 +36,23 @@ contextBridge.exposeInMainWorld('api', {
   getTtsConfig: (projectId) => ipcRenderer.invoke('tts-config-get', projectId ?? null),
   setTtsConfig: (input) => ipcRenderer.invoke('tts-config-set', input),
   previewTts: (input) => ipcRenderer.invoke('tts-preview', input),
+  listVoiceConfigs: () => ipcRenderer.invoke('voice-config-list'),
+  createVoiceConfig: (input) => ipcRenderer.invoke('voice-config-create', input),
+  updateVoiceConfig: (id, patch) => ipcRenderer.invoke('voice-config-update', id, patch),
+  deleteVoiceConfig: (id) => ipcRenderer.invoke('voice-config-delete', id),
   providerSetup: (operation, settings) => ipcRenderer.invoke('provider-setup', operation, settings),
   selectVideo: () => ipcRenderer.invoke('select-video'),
   listProjects: () => ipcRenderer.invoke('list-projects'),
-  createProject: (name, sourcePath) =>
-    ipcRenderer.invoke('create-project', name, sourcePath),
+  createProject: (name, sourcePath, game) =>
+    ipcRenderer.invoke('create-project', name, sourcePath, game ?? null),
   openProject: (id) => ipcRenderer.invoke('open-project', id),
   updateProject: (id, patch) => ipcRenderer.invoke('update-project', id, patch),
   deleteProject: (id) => ipcRenderer.invoke('delete-project', id),
   listArtifacts: (id) => ipcRenderer.invoke('list-artifacts', id),
   readArtifact: (id, kind, name) =>
     ipcRenderer.invoke('read-artifact', id, kind, name),
+  getApiActivity: (id) => ipcRenderer.invoke('get-api-activity', id ?? null),
+  reportRendererEvent: (name, meta) => ipcRenderer.invoke('diagnostics-report', name, meta ?? {}),
   onWorkerEvent: (callback) => {
     if (typeof callback !== 'function') {
       throw new TypeError('callback must be a function.');

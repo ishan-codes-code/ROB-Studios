@@ -17,6 +17,7 @@ from ..config import (
     WRITER_MAX_HISTORY_LINES,
     stylistic_prompt_suffix,
 )
+from ..api_activity import ApiRequestTracker, usage_of
 from ..errors import ObservationError, WriterAPIError
 from ..events.detection import _feed_name_tokens
 from ..vision.observations import _reject_extra, parse_observation
@@ -139,11 +140,14 @@ def build_writer_prompt(claims: list, history_texts: list, pack=None) -> str:
     spoken lines, and may omit claims it cannot word safely.
     Wording comes from the game prompt pack; the JSON shape stays here.
     """
-    from ..prompts import coerce_pack
+    from ..prompts import coerce_pack, effective_game_context
 
-    fields = coerce_pack(pack)["fields"]
+    resolved = coerce_pack(pack)
+    fields = resolved["fields"]
+    match_context = effective_game_context(resolved)
     parts = [
         fields["writer_persona"] + " ",
+        (match_context + " " if match_context else ""),
         fields["writer_rules"] + " ",
         "Respond with ONLY a single JSON object, no markdown fences, no ",
         "commentary, matching this shape: ",
@@ -192,7 +196,8 @@ def _live_text_client(provider, model, api_key):
     return OpenAI(api_key=api_key, base_url=BASETEN_BASE_URL)
 
 
-def request_writer_text(client, prompt: str, api_key: str | None = None) -> str:
+def request_writer_text(client, prompt: str, api_key: str | None = None,
+                        purpose: str = "commentary") -> str:
     """Request one JSON wording document; return the raw model text.
 
     A single text-only completion (no images). Provider failures raise
@@ -200,7 +205,18 @@ def request_writer_text(client, prompt: str, api_key: str | None = None) -> str:
     ObservationError. Both drive deterministic fallback, never a crash.
     """
     if hasattr(client, "request_text"):
+        if purpose != "commentary":
+            import inspect as _inspect
+
+            try:
+                params = _inspect.signature(client.request_text).parameters
+            except (TypeError, ValueError):
+                params = {}
+            if "purpose" in params:
+                return client.request_text(prompt, purpose=purpose)
         return client.request_text(prompt)
+    tracker = ApiRequestTracker("baseten", purpose, model=BASETEN_MODEL)
+    tracker.start()
     try:
         response = client.chat.completions.create(
             model=BASETEN_MODEL,
@@ -214,7 +230,17 @@ def request_writer_text(client, prompt: str, api_key: str | None = None) -> str:
             detail = f"{detail} Cause: {exc.__cause__}"
         if api_key:
             detail = detail.replace(api_key, "[REDACTED]")
+        tracker.fail(error_code="request_error", message=detail,
+                     http_status=status_code)
         raise WriterAPIError(f"Baseten API {status}: {detail}") from None
+    except Exception as exc:
+        detail = str(exc)
+        if api_key:
+            detail = detail.replace(api_key, "[REDACTED]")
+        tracker.fail(error_code="request_error", message=detail)
+        raise
+    in_tokens, out_tokens = usage_of(response)
+    tracker.succeed(input_tokens=in_tokens, output_tokens=out_tokens)
     choices = getattr(response, "choices", None) or []
     message = getattr(choices[0], "message", None) if choices else None
     text = getattr(message, "content", None)

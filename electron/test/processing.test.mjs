@@ -366,12 +366,13 @@ test('TTS run passes resolved config argv and injects the vault key only', async
   const started = await s.handlers['process-video'](
     {}, project.sourceVideo.path,
     {
-      projectId: project.id, adaptive: true, withScript: true, requestTts: true,
+      projectId: project.id, adaptive: true, withScript: true,
       // Renderer-supplied TTS values must never reach the worker.
       generateTts: false, ttsVoice: 'Evil', ttsModel: 'evil-model', ttsVoiceDirection: 'evil',
     },
   );
   assert.equal(started.ok, true);
+  assert.deepEqual(started.tts, { enabled: true, reason: null });
   const { argv, env } = s.getStart();
   assert.ok(argv.includes('--with-script'));
   assert.ok(argv.includes('--generate-tts'));
@@ -395,22 +396,25 @@ test('streaming run passes the streaming flag', async (t) => {
   const { argv, env } = s.getStart();
   assert.ok(argv.includes('--streaming'));
   assert.ok(argv.includes('--adaptive'));
-  assert.equal(argv.includes('--generate-tts'), false);
-  assert.equal('AI_COMMENTATOR_PROVIDER_API_KEY' in env, false);
+  // Configured TTS resolves automatically for streaming runs.
+  assert.ok(argv.includes('--generate-tts'));
+  assert.equal(env.AI_COMMENTATOR_PROVIDER_API_KEY, 'tts-run-key');
+  assert.deepEqual(started.tts, { enabled: true, reason: null });
 });
 
-test('streaming run unlocks TTS without the sequential script flag', async (t) => {
+test('streaming run resolves TTS without renderer input', async (t) => {
   const s = setup(t, { ttsCatalog: TTS_CATALOG });
   const project = seedTtsProject(s.userData, { voice: 'Fenrir' });
   const started = await s.handlers['process-video'](
     {}, project.sourceVideo.path,
-    { projectId: project.id, adaptive: true, streaming: true, requestTts: true },
+    { projectId: project.id, adaptive: true, streaming: true },
   );
   assert.equal(started.ok, true);
   const { argv, env } = s.getStart();
   assert.ok(argv.includes('--streaming'));
   assert.ok(argv.includes('--generate-tts'));
   assert.equal(env.AI_COMMENTATOR_PROVIDER_API_KEY, 'tts-run-key');
+  assert.deepEqual(started.tts, { enabled: true, reason: null });
 });
 
 test('plain runs carry no TTS key or flags', async (t) => {
@@ -420,29 +424,38 @@ test('plain runs carry no TTS key or flags', async (t) => {
     {}, project.sourceVideo.path, { projectId: project.id, adaptive: true },
   );
   assert.equal(started.ok, true);
+  assert.deepEqual(started.tts, { enabled: false, reason: null });
   const { argv, env } = s.getStart();
   assert.equal(argv.includes('--generate-tts'), false);
   assert.equal('AI_COMMENTATOR_PROVIDER_API_KEY' in env, false);
 });
 
-test('TTS run without the script or credential fails before spawning', async (t) => {
+test('runs without TTS configuration proceed without audio', async (t) => {
   const s = setup(t, { ttsCatalog: TTS_CATALOG });
   const project = seedTtsProject(s.userData);
   const noScript = await s.handlers['process-video'](
-    {}, project.sourceVideo.path, { projectId: project.id, adaptive: true, requestTts: true },
+    {}, project.sourceVideo.path, { projectId: project.id, adaptive: true },
   );
-  assert.equal(noScript.ok, false);
-  assert.match(noScript.error, /final casting script/);
-  assert.equal(s.getStart(), null);
+  assert.equal(noScript.ok, true);
+  assert.deepEqual(noScript.tts, { enabled: false, reason: null });
+  const { argv } = s.getStart();
+  assert.equal(argv.includes('--generate-tts'), false);
+});
 
+test('unconfigured TTS resolves to a reported skip, not a failure', async (t) => {
+  const s = setup(t, { ttsCatalog: TTS_CATALOG });
+  const project = seedTtsProject(s.userData);
   updateProject(s.userData, project.id, { configuration: { tts: { credentialId: null } } });
   const noCredential = await s.handlers['process-video'](
     {}, project.sourceVideo.path,
-    { projectId: project.id, adaptive: true, withScript: true, requestTts: true },
+    { projectId: project.id, adaptive: true, withScript: true },
   );
-  assert.equal(noCredential.ok, false);
-  assert.match(noCredential.error, /no TTS credential selected/);
-  assert.equal(s.getStart(), null);
+  assert.equal(noCredential.ok, true);
+  assert.equal(noCredential.tts.enabled, false);
+  assert.match(noCredential.tts.reason, /no TTS credential selected/);
+  const { argv, env } = s.getStart();
+  assert.equal(argv.includes('--generate-tts'), false);
+  assert.equal('AI_COMMENTATOR_PROVIDER_API_KEY' in env, false);
 });
 
 test('TTS run with dev-bypass memory credentials injects keys via env only', async (t) => {
@@ -469,7 +482,7 @@ test('TTS run with dev-bypass memory credentials injects keys via env only', asy
   });
   const started = await s.handlers['process-video'](
     {}, project.sourceVideo.path,
-    { projectId: project.id, adaptive: true, withScript: true, requestTts: true },
+    { projectId: project.id, adaptive: true, withScript: true },
   );
   assert.equal(started.ok, true);
   const { argv, env } = s.getStart();

@@ -1,13 +1,13 @@
 # UI Roadmap
 
-Staged frontend plan for the AI Commentator Electron renderer.
+Staged frontend plan for the ROB Studio Electron renderer.
 Foundation milestone first; no stage starts before its dependencies.
 Anything not listed here is out of scope until a roadmap update says
 otherwise.
 
-## Stage 0 — Foundation and Commentary Studio shell (implemented)
+## Stage 0 — Foundation and ROB Studio shell (implemented)
 
-- [x] Dependencies: `motion`, `lucide-react`, `@fontsource/inter`,
+- [x] Dependencies: `motion`, `lucide-react`, `@fontsource/sora`,
   `@fontsource/geist-mono`, shadcn runtime deps (`cn`, `radix-ui`,
   `class-variance-authority`).
 - [x] shadcn manual setup for the Forge/Vite layout: `components.json`

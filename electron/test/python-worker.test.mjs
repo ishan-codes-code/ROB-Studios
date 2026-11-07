@@ -103,6 +103,26 @@ test('tts segments forward when valid and diagnose precisely when not', async ()
   assert.equal(outcome.code, 0);
 });
 
+test('api_activity forwards when valid and never fails the run when not', async () => {
+  const manager = createWorkerManager();
+  const print = (obj) => `console.log(JSON.stringify(${obj}));`;
+  const validStarted =
+    '{type:"api_activity",run_id:"run-1",activity:{id:"req-1",event:"started",provider:"baseten",purpose:"vision",model:"m",startedAt:1700000000000,frameCount:1,metadata:{}}}';
+  const badPayload =
+    '{type:"api_activity",run_id:"run-1",activity:{id:"req-2",event:"started",purpose:"vision",startedAt:1700000000000,frameCount:1}}';
+  const { outcome, messages, logs } = await runToExit(manager, [
+    '-e',
+    print(validStarted) + print(badPayload),
+  ]);
+  // The valid event forwards verbatim; the malformed one is noted on
+  // the log channel and dropped — diagnostics never become run errors.
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].type, 'api_activity');
+  assert.equal(messages[0].activity.id, 'req-1');
+  assert.match(logs.join(''), /ignored malformed api_activity/);
+  assert.equal(outcome.code, 0);
+});
+
 test('second start while busy is refused without spawning', async () => {
   const manager = createWorkerManager();
   let exited = null;

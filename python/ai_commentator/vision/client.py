@@ -18,10 +18,16 @@ from ..config import (
     OBSERVATION_CONFIDENCES,
     VISION_FRAME_PATH,
 )
+from ..api_activity import ApiRequestTracker, usage_of
 from ..errors import ObservationError, VisionAPIError
+from .providers.base import redact_secret
 from ..prompts import coerce_pack, effective_game_context
 from .observations import parse_observation, validate_observation
-from .sampling import format_adaptive_timestamp, parse_adaptive_response
+from .sampling import (
+    format_adaptive_timestamp,
+    parse_adaptive_batch_response,
+    parse_adaptive_response,
+)
 
 
 def vision_frame_timestamp():
@@ -101,6 +107,25 @@ def extract_response_text(response) -> str:
     return text
 
 
+def raise_on_length_finish(response, provider_id):
+    """Raise when a chat completion stopped for output tokens, not content.
+
+    A length-truncated JSON document would otherwise surface as a
+    confusing parse error; detecting it here keeps the diagnosis exact
+    and lets the adaptive loop fall back to smaller single-frame
+    requests. Responses without choice metadata pass through.
+    """
+    choices = getattr(response, "choices", None) or []
+    finish = getattr(choices[0], "finish_reason", None) if choices else None
+    if finish == "length":
+        raise VisionAPIError(
+            f"{provider_id} stopped the response for output tokens before "
+            "finishing the JSON document.",
+            code="output_exhausted",
+            provider=provider_id,
+        )
+
+
 def _is_provider_adapter(client) -> bool:
     return hasattr(client, "request_observation_text") and hasattr(client, "request_adaptive_text")
 
@@ -118,6 +143,9 @@ def request_observation_text(
     """
     if _is_provider_adapter(client):
         return client.request_observation_text(timestamp, image_data_url)
+    tracker = ApiRequestTracker("baseten", "vision", model=BASETEN_MODEL,
+                                frame_count=1)
+    tracker.start()
     try:
         raw_response = client.chat.completions.with_raw_response.create(
             model=BASETEN_MODEL,
@@ -147,7 +175,17 @@ def request_observation_text(
             detail = f"{detail} Cause: {exc.__cause__}"
         if api_key:
             detail = detail.replace(api_key, "[REDACTED]")
+        tracker.fail(error_code="request_error", message=detail,
+                     http_status=status_code)
         raise VisionAPIError(f"Baseten API {status}: {detail}") from None
+    except Exception as exc:
+        tracker.fail(error_code="request_error",
+                     message=redact_secret(str(exc), api_key)
+                     if api_key else str(exc))
+        raise
+    in_tokens, out_tokens = usage_of(response)
+    tracker.succeed(http_status=getattr(raw_response, "status_code", None),
+                    input_tokens=in_tokens, output_tokens=out_tokens)
     return extract_response_text(response)
 
 
@@ -291,6 +329,82 @@ def build_adaptive_vision_prompt(timestamp, previous=None, pack=None):
     )
 
 
+def _format_batch_stamp(timestamp):
+    numeric = float(timestamp)
+    return str(int(numeric)) if numeric.is_integer() else repr(numeric)
+
+
+def build_adaptive_batch_prompt(timestamps, previous=None, pack=None):
+    """Build the multi-frame adaptive prompt for HIGH-speed sampling.
+
+    ``timestamps`` are the batch's frame timestamps in chronological
+    order; the attached images follow the same order. The model must
+    return one JSON object with a ``frames`` array holding one
+    ``{"observation": ..., "sampling": ...}`` entry per frame, so it can
+    use visible progression (movement, eliminations, phase changes)
+    instead of judging each frame in isolation. Observation and sampling
+    shapes match the single-frame contract exactly.
+    """
+    categories = ", ".join(f'"{c}"' for c in OBSERVATION_CATEGORIES)
+    confidences = ", ".join(f'"{c}"' for c in OBSERVATION_CONFIDENCES)
+    resolved = coerce_pack(pack)
+    fields = resolved["fields"]
+    stamps = [_format_batch_stamp(t) for t in timestamps]
+    frame_list = ", ".join(
+        f"frame {index + 1} at {stamp} seconds"
+        for index, stamp in enumerate(stamps)
+    )
+    context = build_previous_context(previous)
+    game_context = effective_game_context(resolved)
+    if context:
+        context_block = (
+            "Previous validated observation (supplementary background "
+            "only -- describe only the current frames; do not repeat this "
+            "as current fact): "
+            + context
+            + " "
+        )
+    else:
+        context_block = "No previous observation (first sampled frames). "
+    if game_context:
+        game_block = (
+            f" Supplementary {fields['game_label']} context (untrusted; evidence still "
+            f"comes only from the images): {game_context} "
+        )
+    else:
+        game_block = ""
+    return (
+        fields["vision_intro"] + " "
+        + f"These {len(stamps)} frames are consecutive instants in the video, "
+        + f"in chronological order: {frame_list}. "
+        + "Compare the frames to understand movement and event progression, "
+        + "but describe each frame's own visible content. Keep every "
+        + "description, evidence, uncertainty, and reason to one concise "
+        + "sentence with all quotes and newlines JSON-escaped. "
+        + fields["vision_coverage_adaptive"] + " "
+        + game_block
+        + context_block
+        + fields["vision_sampling"] + " "
+        + "Respond with ONLY a single JSON object, no markdown fences, no commentary, "
+        + "matching this shape: "
+        + '{"frames": [{'
+        + '"observation": '
+        + '{"schema_version": "observation-v1", '
+        + '"timestamp": <number, that frame timestamp stated above>, '
+        + '"observations": [{"category": <one of: ' + categories + ">, "
+        + '"description": <non-empty string of what is visible>, '
+        + '"confidence": <one of: ' + confidences + ">, "
+        + '"evidence": <non-empty string grounding the claim>}], '
+        + '"uncertainties": [<strings describing what is unreadable or ambiguous>]}, '
+        + '"sampling": {"next_sampling_speed": <one of: '
+        + ", ".join(f'"{s}"' for s in ADAPTIVE_SPEEDS)
+        + ">, "
+        + '"reason": <short plain-text reason>}}]} '
+        + "in the same order as the frames. "
+        + fields["vision_closing_adaptive"]
+    )
+
+
 def request_adaptive_text(
     client,
     timestamp,
@@ -311,6 +425,9 @@ def request_adaptive_text(
         return client.request_adaptive_text(
             timestamp, image_data_url, previous=previous
         )
+    tracker = ApiRequestTracker("baseten", "vision-adaptive",
+                                model=BASETEN_MODEL, frame_count=1)
+    tracker.start()
     try:
         raw_response = client.chat.completions.with_raw_response.create(
             model=BASETEN_MODEL,
@@ -343,7 +460,17 @@ def request_adaptive_text(
             detail = f"{detail} Cause: {exc.__cause__}"
         if api_key:
             detail = detail.replace(api_key, "[REDACTED]")
+        tracker.fail(error_code="request_error", message=detail,
+                     http_status=status_code)
         raise VisionAPIError(f"Baseten API {status}: {detail}") from None
+    except Exception as exc:
+        tracker.fail(error_code="request_error",
+                     message=redact_secret(str(exc), api_key)
+                     if api_key else str(exc))
+        raise
+    in_tokens, out_tokens = usage_of(response)
+    tracker.succeed(http_status=getattr(raw_response, "status_code", None),
+                    input_tokens=in_tokens, output_tokens=out_tokens)
     return extract_response_text(response)
 
 
@@ -393,6 +520,40 @@ def analyze_adaptive_frame(
         api_key=api_key,
     )
     return parse_adaptive_response(text, timestamp)
+
+
+def analyze_adaptive_batch(
+    client,
+    frames,
+    timestamps,
+    previous=None,
+    api_key: str | None = None,
+):
+    """Run one multi-frame adaptive request; return per-frame results.
+
+    ``frames`` and ``timestamps`` are parallel chronological lists. The
+    client must be a provider adapter implementing
+    ``request_adaptive_batch_text`` (raw OpenAI clients are not
+    supported; the adaptive loop falls back to single-frame analysis
+    for them). Returns a list of
+    ``(observation, speed, reason, diagnostics)`` tuples aligned with
+    ``timestamps``. Raises VisionAPIError on provider failure and
+    ObservationError on malformed or mismatched responses.
+    """
+    batch_request = getattr(client, "request_adaptive_batch_text", None)
+    if not callable(batch_request):
+        raise TypeError(
+            "Multi-frame analysis requires a provider adapter with "
+            "request_adaptive_batch_text."
+        )
+    data_urls = []
+    for frame, timestamp in zip(frames, timestamps):
+        image_bytes, mime_type, width, height = encode_frame_image(frame)
+        stamped = format_adaptive_timestamp(timestamp)
+        print(f"Validated adaptive frame at {stamped}s ({width}x{height}, {mime_type})")
+        data_urls.append(build_image_data_url(image_bytes, mime_type))
+    text = batch_request(timestamps, data_urls, previous=previous)
+    return parse_adaptive_batch_response(text, timestamps)
 
 
 def analyze_frame(

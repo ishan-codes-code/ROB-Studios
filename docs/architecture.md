@@ -73,8 +73,8 @@ described later in this document:
 - **Configuration (M5/M6):** `src/settings-store.mjs` keeps validated
   non-secret app preferences under `userData`; `src/provider-catalog.mjs`
   pins the two supported providers; `src/credentials-store.mjs` owns the
-  encrypted multi-credential vault; `src/game-store.mjs` owns Free Fire
-  profiles and commentary presets; `src/vault-migration.mjs` migrates
+  encrypted multi-credential vault; project-owned game metadata lives in each `project.json`
+  (`project-store/metadata.mjs` validates it, migrates legacy references on read); `src/vault-migration.mjs` migrates
   legacy M5 state once. `src/main/ipc/settings.js` owns all
   configuration IPC; `src/main/run-config.mjs` resolves a project's
   references into the per-run worker snapshot (provider, model, key,
@@ -204,6 +204,6 @@ stages are paid and conditional); TTS, playback, and OBS remain planned.
 - Electron security boundary: the renderer reaches the main process only
   through the audited `preload.js` bridge (`processVideo`,
   `cancelProcessing`, `requestStop`, worker, project/artifact,
-  settings, credential, game-library, and project-config IPC);
+  settings, credential, and project-config IPC);
   API keys and
   interpreter paths never cross into the renderer.

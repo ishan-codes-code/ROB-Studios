@@ -10,6 +10,7 @@ import {
   createLineParser,
   describeWorkerMessageIssue,
   isValidAdaptiveSample,
+  isValidApiActivity,
   isValidScriptSegment,
   isValidTtsSegment,
   isValidWorkerMessage,
@@ -226,6 +227,61 @@ test('tts_segment accepts outcomes and rejects malformed payloads', () => {
   assert.equal(isValidTtsSegment(validTtsSegment({ status: 'queued' })), false);
   assert.equal(isValidTtsSegment(validTtsSegment({ error: 42 })), false);
   assert.equal(isValidWorkerMessage(validTtsSegment({ status: 'nope' })), false);
+});
+
+function validApiActivity(activity = {}) {
+  return {
+    type: 'api_activity',
+    run_id: 'run-1',
+    activity: {
+      id: 'req-1',
+      event: 'started',
+      provider: 'baseten',
+      purpose: 'vision-batch',
+      model: 'm',
+      startedAt: 1700000000000,
+      frameCount: 3,
+      metadata: {},
+      ...activity,
+    },
+  };
+}
+
+function validApiTerminal(activity = {}) {
+  return validApiActivity({
+    event: 'terminal',
+    status: 'succeeded',
+    completedAt: 1700000005000,
+    durationMs: 5000,
+    httpStatus: 200,
+    inputTokens: 10,
+    outputTokens: 5,
+    ...activity,
+  });
+}
+
+test('api_activity accepts started and terminal events, rejects malformed ones', () => {
+  assert.equal(isValidApiActivity(validApiActivity()), true);
+  assert.equal(isValidApiActivity(validApiTerminal()), true);
+  assert.equal(isValidApiActivity(validApiTerminal({ status: 'failed', errorCode: 'auth', errorMessage: 'bad key' })), true);
+  assert.equal(isValidWorkerMessage(validApiActivity()), true);
+  assert.equal(describeWorkerMessageIssue(validApiTerminal()), null);
+  assert.equal(isValidApiActivity(validApiActivity({ id: '' })), false);
+  assert.equal(isValidApiActivity(validApiActivity({ event: 'progress' })), false);
+  assert.equal(isValidApiActivity(validApiActivity({ provider: '' })), false);
+  assert.equal(isValidApiActivity(validApiActivity({ startedAt: 'now' })), false);
+  assert.equal(isValidApiActivity(validApiActivity({ frameCount: -1 })), false);
+  assert.equal(isValidApiActivity(validApiActivity({ metadata: { image_data_url: 42 } })), false);
+  assert.equal(isValidApiActivity(validApiTerminal({ status: 'done' })), false);
+  assert.equal(isValidApiActivity(validApiTerminal({ httpStatus: 'ok' })), false);
+  assert.deepEqual(describeWorkerMessageIssue(validApiActivity({ provider: '' })), {
+    kind: 'invalid-payload',
+    type: 'api_activity',
+  });
+  assert.deepEqual(describeWorkerMessageIssue({ ...validApiActivity(), run_id: '' }), {
+    kind: 'invalid-payload',
+    type: 'api_activity',
+  });
 });
 
 test('describeWorkerMessageIssue separates unknown types from bad payloads', () => {

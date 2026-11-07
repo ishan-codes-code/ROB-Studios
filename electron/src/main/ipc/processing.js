@@ -1,9 +1,10 @@
 import path from 'node:path';
-import { getProjectOutputDir, getProject as getStoredProject, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
+import { flushApiActivity, getProjectOutputDir, getProject as getStoredProject, isProjectDeletionLocked, settleProjectRun as settleStoredRun } from '../../project-store.mjs';
 import { buildWorkerArgv, isVisionConfigured, resolvePythonExecutable, resolveWorkerScript, validateVideoInput } from '../../worker-protocol.mjs';
 import { resolveProjectRunConfig, resolveTtsRunConfig, stripHostSecrets } from '../run-config.mjs';
 import { TTS_API_KEY_ENV_VAR } from '../../tts-config.mjs';
 import { loadSettings } from '../../settings-store.mjs';
+import { recordDiagnosticsEvent } from '../diagnostics-log.mjs';
 
 export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, workerManager, state, repoRoot, sendWorkerEvent, getMainWindow, ttsCatalogLoader = null, packsLoader = null }) {
   // True once the active run emitted its terminal `stopped` message.
@@ -49,6 +50,11 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
     const opts = options && typeof options === 'object' ? options : {};
     if (workerManager.isBusy()) {
       return { ok: false, error: 'A video is already being processed.' };
+    }
+    // A project being deleted cannot start a run: quarantine may
+    // remove its source files mid-spawn.
+    if (typeof opts.projectId === 'string' && isProjectDeletionLocked(opts.projectId)) {
+      return { ok: false, error: 'Project is being deleted.' };
     }
     // Project-bound runs ignore renderer-supplied paths: the source
     // video and output directory resolve from stored project metadata,
@@ -118,39 +124,45 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
         error: 'Adaptive sampling needs an API key. Open AI Providers to configure a provider.',
       };
     }
-    // TTS runs resolve here, never from renderer values: the renderer only
-    // opts in with `requestTts`. Worker argv and the TTS key below derive
-    // exclusively from the vault plus stored configuration.
+    // Spoken audio is automatic: every script/streaming run attempts TTS
+    // resolution, and runs without audio when it is not configured. The
+    // outcome rides the accept response so the renderer can report it;
+    // missing TTS never fails the run. Worker argv and the TTS key below
+    // derive exclusively from the vault plus stored configuration.
     delete opts.generateTts;
     delete opts.ttsModel;
     delete opts.ttsVoice;
     delete opts.ttsVoiceDirection;
+    delete opts.requestTts;
     let ttsRun = null;
-    if (opts.requestTts === true) {
+    let ttsStatus = { enabled: false, reason: null };
+    if (opts.withScript === true || opts.streaming === true) {
       if (runConfig === null) {
-        return { ok: false, error: 'Commentary audio needs a project with TTS configuration. Open the TTS Studio to configure it.' };
+        ttsStatus = { enabled: false, reason: 'Commentary audio needs a project with TTS configuration. Open the TTS Studio to configure it.' };
+      } else if (!ttsCatalogLoader) {
+        ttsStatus = { enabled: false, reason: 'TTS catalogue is unavailable.' };
+      } else {
+        let catalog = null;
+        try {
+          catalog = await ttsCatalogLoader.load();
+        } catch (err) {
+          ttsStatus = { enabled: false, reason: err?.message ?? 'TTS catalogue is unavailable.' };
+        }
+        if (catalog !== null) {
+          try {
+            ttsRun = resolveTtsRunConfig(app.getPath('userData'), safeStorage, opts.projectId, catalog);
+          } catch (err) {
+            ttsStatus = { enabled: false, reason: err?.message ?? 'The TTS configuration could not be resolved.' };
+          }
+        }
       }
-      if (opts.withScript !== true && opts.streaming !== true) {
-        return { ok: false, error: 'Commentary audio requires the final casting script. Enable both options.' };
+      if (ttsRun !== null) {
+        opts.generateTts = true;
+        opts.ttsModel = ttsRun.config.model;
+        opts.ttsVoice = ttsRun.config.voice;
+        opts.ttsVoiceDirection = ttsRun.config.voiceDirection;
+        ttsStatus = { enabled: true, reason: null };
       }
-      if (!ttsCatalogLoader) {
-        return { ok: false, error: 'TTS catalogue is unavailable.' };
-      }
-      let catalog;
-      try {
-        catalog = await ttsCatalogLoader.load();
-      } catch (err) {
-        return { ok: false, error: err?.message ?? 'TTS catalogue is unavailable.' };
-      }
-      try {
-        ttsRun = resolveTtsRunConfig(app.getPath('userData'), safeStorage, opts.projectId, catalog);
-      } catch (err) {
-        return { ok: false, error: err?.message ?? 'The TTS configuration could not be resolved.' };
-      }
-      opts.generateTts = true;
-      opts.ttsModel = ttsRun.config.model;
-      opts.ttsVoice = ttsRun.config.voice;
-      opts.ttsVoiceDirection = ttsRun.config.voiceDirection;
     }
     let argv;
     try {
@@ -181,7 +193,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       if (runConfig.provider === 'custom') {
         workerEnv.AI_COMMENTATOR_BASE_URL = runConfig.baseUrl;
       }
-      // The TTS key is injected only for runs that requested audio, and
+      // The TTS key is injected only for runs with resolved audio, and
       // only from the resolved vault credential — never renderer input.
       if (ttsRun !== null) {
         workerEnv[TTS_API_KEY_ENV_VAR] = ttsRun.apiKey;
@@ -208,6 +220,11 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       workerEnv.AI_COMMENTATOR_SETTINGS_JSON = JSON.stringify(userSettings);
     }
     }
+    try {
+      recordDiagnosticsEvent(app.getPath('userData'), { type: 'worker.start' });
+    } catch {
+      // Diagnostics never break a run (the recorder is no-throw).
+    }
     const startedJob = workerManager.start({
       executable,
       argv,
@@ -222,6 +239,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       onExit: ({ code, signal, cancelled, spawnError }) => {
         const finishedProjectId = state.activeProjectId;
         state.activeProjectId = null;
+        try { flushApiActivity(app.getPath('userData'), { force: true }); } catch { /* best effort */ }
         if (spawnError) {
           sendWorkerEvent({
             type: 'error',
@@ -254,7 +272,7 @@ export function registerProcessingIpc({ ipcMain, app, dialog, fs, safeStorage, w
       return { ok: false, error: 'A video is already being processed.' };
     }
     state.activeProjectId = typeof opts.projectId === 'string' ? opts.projectId : null;
-    return { ok: true, pid: startedJob.pid };
+    return { ok: true, pid: startedJob.pid, tts: ttsStatus };
   });
   
   ipcMain.handle('vision-status', async () => {

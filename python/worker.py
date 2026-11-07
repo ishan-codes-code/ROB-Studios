@@ -18,29 +18,73 @@ import os
 import signal
 import sys
 import threading
+import time
 import traceback
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import main as engine  # noqa: E402
+from ai_commentator import api_activity  # noqa: E402
 
 SUPPORTED_VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv", ".webm")
 
 REAL_STDOUT = sys.stdout
 _EMIT_LOCK = threading.Lock()
 
+# Unique per worker process: the main process already tags the project,
+# so run_id only needs to distinguish runs within it.
+RUN_ID = f"run-{os.getpid()}-{int(time.time() * 1000)}"
+
 
 def emit(message: dict) -> None:
     """Write one protocol message as a single JSON line on stdout.
 
     Locked: streaming stages report from worker threads, and NDJSON
-    lines must never interleave.
+    lines must never interleave. Buffered API activity is flushed
+    after every protocol message so diagnostics stream in real time.
     """
     line = json.dumps(message, ensure_ascii=False) + "\n"
     with _EMIT_LOCK:
         REAL_STDOUT.write(line)
         REAL_STDOUT.flush()
+    try:
+        drain_api_activity()
+    except Exception:
+        # Diagnostics must never break the pipeline.
+        pass
+
+
+def drain_api_activity() -> int:
+    """Emit buffered API activity as ``api_activity`` NDJSON messages.
+
+    Returns the number of messages written. Started events and their
+    terminal events are separate protocol messages sharing the request
+    ``id``; the main process pairs them for persistence.
+    """
+    try:
+        events = api_activity.drain_events()
+    except Exception:
+        return 0
+    written = 0
+    for event in events:
+        try:
+            if (not isinstance(event, dict)
+                    or not isinstance(event.get("id"), str)
+                    or event.get("event") not in ("started", "terminal")):
+                raise ValueError("malformed activity event")
+            message = {"type": "api_activity", "run_id": RUN_ID,
+                       "activity": event}
+            line = json.dumps(message, ensure_ascii=False) + "\n"
+        except (TypeError, ValueError) as exc:
+            print(f"API activity report skipped: {exc}", file=sys.stderr)
+            continue
+        with _EMIT_LOCK:
+            REAL_STDOUT.write(line)
+            REAL_STDOUT.flush()
+        written += 1
+    return written
 
 
 def emit_error(stage: str, message: str) -> None:
@@ -272,10 +316,11 @@ def emit_tts_segment(record: dict) -> None:
 def run_adaptive_stage(args, video: Path, obs_dir: Path, on_iteration) -> dict:
     """Run the adaptive vision loop; return the engine result dict.
 
-    Shared by the sequential and streaming paths: one captured frame at
-    a time from the video, one observation + sampling decision per
-    frame, cooperative stop via the stdin control channel. No extracted
-    JPEG set is written beforehand.
+    Shared by the sequential and streaming paths: frames are captured
+    from the video (batched into one request per iteration at HIGH
+    speed), one observation + sampling decision persisted per frame.
+    Cooperative stop via the stdin control channel. No extracted JPEG set
+    is written beforehand.
     """
     stop_token = engine.StopToken()
     previous_handler = install_stop_handler(stop_token)
@@ -340,6 +385,34 @@ def read_json_summary(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def tts_stage_detail(tts_doc: dict, tts_status: str) -> dict:
+    """Build the observed `stage_completed` detail for the tts stage.
+
+    Counts come from the finalized manifest the stage wrote; the
+    manifest's `generation_id` rides along (when present) so the
+    renderer can tell the current run's manifest from a stale one.
+    """
+    tts_entries = tts_doc.get("entries", [])
+    if not isinstance(tts_entries, list):
+        tts_entries = []
+    detail = {
+        "status": tts_status,
+        "segments": len(tts_entries),
+        "succeeded": sum(
+            1 for e in tts_entries
+            if isinstance(e, dict) and e.get("status") == "success"
+        ),
+        "failed": sum(
+            1 for e in tts_entries
+            if isinstance(e, dict) and e.get("status") == "error"
+        ),
+    }
+    generation_id = tts_doc.get("generation_id")
+    if isinstance(generation_id, str) and generation_id:
+        detail["generation_id"] = generation_id
+    return detail
 
 
 class StageTracker:
@@ -663,31 +736,19 @@ def run_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
                 voice_direction=tts_direction,
             )
         if code != 0:
-            emit_error(
-                "tts",
-                "Commentary audio generation failed; see worker stderr.",
+            # Spoken audio is best-effort: a TTS failure must not discard
+            # completed text commentary. The tts stage completes with its
+            # recorded error status and the run still reports results.
+            print(
+                "Warning: commentary audio generation failed; keeping text "
+                "commentary without audio.",
+                file=sys.stderr,
             )
-            return 1, {}
         tts_doc = read_json_summary(tts_path) or {}
         tts_status = str(tts_doc.get("status", "unknown"))
-        tts_entries = tts_doc.get("entries", [])
-        if not isinstance(tts_entries, list):
-            tts_entries = []
-        complete(
-            "tts",
-            {
-                "status": tts_status,
-                "segments": len(tts_entries),
-                "succeeded": sum(
-                    1 for e in tts_entries
-                    if isinstance(e, dict) and e.get("status") == "success"
-                ),
-                "failed": sum(
-                    1 for e in tts_entries
-                    if isinstance(e, dict) and e.get("status") == "error"
-                ),
-            },
-        )
+        if code != 0 and tts_status == "unknown":
+            tts_status = "error"
+        complete("tts", tts_stage_detail(tts_doc, tts_status))
 
     data = {
         "video": str(video),
@@ -961,24 +1022,7 @@ def run_streaming_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
     )
     if want_tts:
         tts_doc = read_json_summary(tts_path) or {}
-        tts_entries = tts_doc.get("entries", [])
-        if not isinstance(tts_entries, list):
-            tts_entries = []
-        tracker.complete(
-            "tts",
-            {
-                "status": tts_status,
-                "segments": len(tts_entries),
-                "succeeded": sum(
-                    1 for e in tts_entries
-                    if isinstance(e, dict) and e.get("status") == "success"
-                ),
-                "failed": sum(
-                    1 for e in tts_entries
-                    if isinstance(e, dict) and e.get("status") == "error"
-                ),
-            },
-        )
+        tracker.complete("tts", tts_stage_detail(tts_doc, tts_status))
     tail_code, events, lines = tail_stages(best_effort=False)
     if tail_code != 0:
         return 1, {}
@@ -1014,6 +1058,10 @@ def run_streaming_pipeline(args: argparse.Namespace) -> tuple[int, dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Per-process run id (non-secret): scopes the session opening's
+    # claim id so previous-run history never suppresses a new run's
+    # introduction. Never printed; stdout stays NDJSON-clean.
+    os.environ.setdefault("AI_COMMENTATOR_RUN_ID", uuid.uuid4().hex)
     args = build_parser().parse_args(argv)
     problem = validate_video(Path(args.video))
     if not getattr(args, "adaptive", False):

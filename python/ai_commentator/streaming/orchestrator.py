@@ -30,6 +30,7 @@ from ..script.generation import (
     script_segment_id,
     validate_script,
 )
+from ..script.opening import run_opening
 from ..storage import write_bytes_atomic, write_json_atomic
 from ..tts.config import TTS_MANIFEST_FILENAME, TTS_SEGMENTS_DIRNAME, generation_identity
 from ..tts.manifest import audio_relpath, build_tts_manifest, validate_tts_manifest
@@ -38,6 +39,7 @@ from .queues import (
     DEFAULT_OBSERVATION_QUEUE_SIZE,
     DEFAULT_SEGMENT_QUEUE_SIZE,
     PRIORITY_HIGH,
+    PRIORITY_NORMAL,
     ObservationQueue,
     PrioritySegmentQueue,
     _Closed,
@@ -232,6 +234,7 @@ class StreamingPipeline:
         history: list = (prior_commentary_texts + prior_texts)[-SCRIPT_MAX_HISTORY_LINES:]
         observations: list = []
         pending = 0
+        opening_emitted = False
         while True:
             item = self._obs_queue.get()
             if item is None:
@@ -240,11 +243,91 @@ class StreamingPipeline:
             observations.append((timestamp, source, validated))
             self._sources.append(source)
             pending += 1
+            if not opening_emitted:
+                opening_emitted = True
+                self._run_opening(history, seen)
             if pending >= self._window_min or speed == "HIGH":
                 self._run_window(observations, history, seen)
                 pending = 0
         if pending > 0:
             self._run_window(observations, history, seen)
+
+    def _run_opening(self, history: list, seen: set) -> None:
+        """Word the once-per-session opening introduction, if configured.
+
+        Runs on the first observation so the opening leads the session;
+        ``seen`` (seeded from any prior script) suppresses repeats.
+        """
+        utterance, omitted, claim = run_opening(
+            self._script_client, self._pack, seen, list(history)
+        )
+        if claim is not None:
+            self._claims_by_id[claim["claim_id"]] = claim
+        if omitted is not None:
+            self._ledger.add_omitted([omitted])
+        if utterance is None:
+            return
+        seen.add(utterance["source_claim_ids"][0])
+        self._register_utterance(dict(utterance, priority=PRIORITY_HIGH), history)
+
+    def _register_utterance(self, utterance: dict, history: list) -> bool:
+        """Ledger, report, and queue one worded utterance.
+
+        Returns False when the segment queue is already closed (callers
+        stop registering); reporting failures never propagate.
+        """
+        uid = utterance_id(self._utterance_seq)
+        self._utterance_seq += 1
+        record = {
+            "utterance_id": uid,
+            "timestamp": utterance["timestamp"],
+            "text": utterance["text"],
+            "source_claim_ids": list(utterance["source_claim_ids"]),
+            "priority": utterance["priority"],
+            "script_status": "worded",
+            "tts_status": "pending" if self._tts_config is not None else "not-requested",
+            "audio_file": None,
+            "tts_error": None,
+        }
+        self._ledger.append_utterance(record)
+        history.append(utterance["text"])
+        del history[:-SCRIPT_MAX_HISTORY_LINES]
+        self._report(
+            self._on_script_segment,
+            {
+                "utterance_id": uid,
+                "timestamp_seconds": utterance["timestamp"],
+                "text": utterance["text"],
+                "source_claim_ids": list(utterance["source_claim_ids"]),
+                "priority": utterance["priority"],
+                "status": "worded",
+            },
+        )
+        if self._tts_config is None:
+            return True
+        # Gameplay utterances pre-empt queued general commentary still
+        # waiting for synthesis (HIGH drops NORMAL and LOW, NORMAL
+        # drops LOW); in-flight audio is never recalled.
+        if utterance["priority"] in (PRIORITY_HIGH, PRIORITY_NORMAL):
+            for dropped in self._seg_queue.supersede(utterance["priority"]):
+                marked = self._ledger.mark_superseded(dropped["utterance_id"])
+                if marked is not None:
+                    self._report(
+                        self._on_script_segment,
+                        {
+                            "utterance_id": marked["utterance_id"],
+                            "timestamp_seconds": marked["timestamp"],
+                            "text": marked["text"],
+                            "source_claim_ids": list(marked["source_claim_ids"]),
+                            "priority": marked["priority"],
+                            "status": "superseded",
+                        },
+                    )
+        try:
+            self._seg_queue.put(utterance["priority"], record)
+        except _Closed:
+            return False
+        return True
 
     def _run_window(self, observations: list, history: list, seen: set) -> None:
         utterances, omitted, fresh, error = run_script_window(
@@ -257,56 +340,8 @@ class StreamingPipeline:
             self._ledger.add_error(error)
             print(f"Streaming script window: {error}", file=sys.stderr)
         for utterance in utterances:
-            uid = utterance_id(self._utterance_seq)
-            self._utterance_seq += 1
-            record = {
-                "utterance_id": uid,
-                "timestamp": utterance["timestamp"],
-                "text": utterance["text"],
-                "source_claim_ids": list(utterance["source_claim_ids"]),
-                "priority": utterance["priority"],
-                "script_status": "worded",
-                "tts_status": "pending" if self._tts_config is not None else "not-requested",
-                "audio_file": None,
-                "tts_error": None,
-            }
-            self._ledger.append_utterance(record)
-            history.append(utterance["text"])
-            del history[:-SCRIPT_MAX_HISTORY_LINES]
-            self._report(
-                self._on_script_segment,
-                {
-                    "utterance_id": uid,
-                    "timestamp_seconds": utterance["timestamp"],
-                    "text": utterance["text"],
-                    "source_claim_ids": list(utterance["source_claim_ids"]),
-                    "priority": utterance["priority"],
-                    "status": "worded",
-                },
-            )
-            if self._tts_config is not None:
-                # High-priority utterances pre-empt lower-priority ones
-                # still waiting for synthesis; in-flight audio is never
-                # recalled.
-                if utterance["priority"] == PRIORITY_HIGH:
-                    for dropped in self._seg_queue.supersede(PRIORITY_HIGH):
-                        marked = self._ledger.mark_superseded(dropped["utterance_id"])
-                        if marked is not None:
-                            self._report(
-                                self._on_script_segment,
-                                {
-                                    "utterance_id": marked["utterance_id"],
-                                    "timestamp_seconds": marked["timestamp"],
-                                    "text": marked["text"],
-                                    "source_claim_ids": list(marked["source_claim_ids"]),
-                                    "priority": marked["priority"],
-                                    "status": "superseded",
-                                },
-                            )
-                try:
-                    self._seg_queue.put(utterance["priority"], record)
-                except _Closed:
-                    return
+            if not self._register_utterance(utterance, history):
+                return
 
     # -- TTS consumer ------------------------------------------------------
 

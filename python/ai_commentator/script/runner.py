@@ -26,6 +26,7 @@ from ..storage import write_json_atomic
 from ..vision.client import ensure_observation_timestamp
 from ..vision.frames import discover_observation_files, warn_about_legacy_observations
 from ..vision.observations import parse_observation, validate_observation
+from ..streaming.windows import utterance_intensity
 from .generation import (
     _script_norm,
     build_script_prompt,
@@ -35,6 +36,7 @@ from .generation import (
     script_text_valid,
     validate_script,
 )
+from .opening import opening_available, run_opening
 
 
 def _resolve_live_credentials():
@@ -73,6 +75,31 @@ def open_live_text_client():
     """
     provider, model, api_key = _resolve_live_credentials()
     return _live_text_client(provider, model, api_key), api_key
+
+
+def _opening_history(opening_utterance):
+    """The opening line as continuity history (or nothing)."""
+    if opening_utterance is None:
+        return []
+    return [opening_utterance["text"]]
+
+
+def _word_opening(client, prior_claims, history_texts, claims_by_id, omitted,
+                  api_key=None):
+    """Word the session opening and register its claim.
+
+    Returns the opening utterance (or None); the claim lands in
+    ``claims_by_id`` for provenance and any suppression lands in
+    ``omitted``. Without project configuration this is a silent no-op.
+    """
+    utterance, entry, claim = run_opening(
+        client, None, prior_claims, history_texts, api_key=api_key
+    )
+    if entry is not None:
+        omitted.append(entry)
+    if claim is not None:
+        claims_by_id[claim["claim_id"]] = claim
+    return utterance
 
 
 def run_generate_script(
@@ -257,6 +284,66 @@ def run_generate_script(
         return 0
 
     if not fresh_claims:
+        opening_utterance = None
+        if opening_available():
+            # Zero gameplay claims but a project to introduce: word the
+            # opening on its own instead of staying silent. The injected
+            # client wins; otherwise a live client is opened when a key
+            # exists, else the keyless template path (no paid call).
+            if client is not None:
+                opening_utterance = _word_opening(
+                    client, prior_claims, history_texts, claims_by_id,
+                    omitted,
+                )
+            else:
+                try:
+                    provider, model, api_key = _resolve_live_credentials()
+                except RuntimeError:
+                    opening_utterance = _word_opening(
+                        None, prior_claims, history_texts, claims_by_id,
+                        omitted,
+                    )
+                else:
+                    live_cm = _live_text_client(provider, model, api_key)
+                    with live_cm as live_client:
+                        opening_utterance = _word_opening(
+                            live_client, prior_claims, history_texts,
+                            claims_by_id, omitted, api_key=api_key,
+                        )
+        if opening_utterance is not None:
+            segments = [
+                {
+                    "segment_id": script_segment_id(0),
+                    "timestamp_seconds": opening_utterance["timestamp"],
+                    "text": opening_utterance["text"],
+                    "source_claim_ids": sorted(
+                        opening_utterance["source_claim_ids"]
+                    ),
+                }
+            ]
+            document = {
+                "schema_version": SCRIPT_SCHEMA_VERSION,
+                "status": "success",
+                "generated_from": generated_from,
+                "segments": segments,
+                "omitted": omitted,
+                "error": None,
+            }
+            code = write_document(document)
+            if code == 0:
+                print(
+                    f"Script finished: {len(files)} discovered, "
+                    f"{len(accepted)} accepted, 1 segment(s), "
+                    f"{len(omitted)} omitted."
+                )
+                for segment in segments:
+                    print(
+                        f"  segment: [{segment['timestamp_seconds']}s] "
+                        f"{segment['text'][:100]}"
+                    )
+                print(f"Script snapshot: {out_path}")
+                print("Script status: success (opening only).")
+            return code
         document = {
             "schema_version": SCRIPT_SCHEMA_VERSION,
             "status": "silence",
@@ -288,16 +375,32 @@ def run_generate_script(
             }
         )
     prompt_claims = list(model_claims)
-    prompt = build_script_prompt(prompt_claims, history_texts)
     prompt_by_id = {claim["claim_id"]: claim for claim in prompt_claims}
+    opening_utterance = None
     try:
         if client is None:
             provider, model, api_key = _resolve_live_credentials()
             live_cm = _live_text_client(provider, model, api_key)
             with live_cm as live_client:
-                raw = request_writer_text(live_client, prompt, api_key=api_key)
+                opening_utterance = _word_opening(
+                    live_client, prior_claims, history_texts, claims_by_id,
+                    omitted, api_key=api_key,
+                )
+                prompt = build_script_prompt(
+                    prompt_claims, history_texts + _opening_history(opening_utterance),
+                    intensity=utterance_intensity(prompt_claims),
+                )
+                raw = request_writer_text(live_client, prompt, api_key=api_key,
+                                          purpose="script")
         else:
-            raw = request_writer_text(client, prompt)
+            opening_utterance = _word_opening(
+                client, prior_claims, history_texts, claims_by_id, omitted
+            )
+            prompt = build_script_prompt(
+                prompt_claims, history_texts + _opening_history(opening_utterance),
+                intensity=utterance_intensity(prompt_claims),
+            )
+            raw = request_writer_text(client, prompt, purpose="script")
         parsed = parse_script_segments(raw, prompt_by_id)
     except (WriterAPIError, ObservationError) as exc:
         message = str(exc)
@@ -346,6 +449,14 @@ def run_generate_script(
             continue
         timestamp = max(claim["timestamp"] for claim in cited)
         built.append((timestamp, sorted(ids), wording.strip()))
+    if opening_utterance is not None:
+        built.append(
+            (
+                opening_utterance["timestamp"],
+                sorted(opening_utterance["source_claim_ids"]),
+                opening_utterance["text"],
+            )
+        )
     built.sort(key=lambda item: (item[0], item[1]))
     segments = []
     for position, (timestamp, ids, wording) in enumerate(built):

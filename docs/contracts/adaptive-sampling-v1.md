@@ -5,7 +5,9 @@ M4.1). One captured frame costs at most one vision request: the model
 returns a validated `observation-v1` observation **plus** a separate
 sampling decision, and the scheduler maps that decision to the next
 capture timestamp. No optical-flow or frame-difference heuristics, no
-multi-frame batching, no concurrent requests.
+concurrent requests. While the sampling speed is HIGH, one request may
+carry a small batch of consecutive frames (see "Multi-frame batches");
+persisted artifacts keep the exact single-frame shapes below.
 
 ## Model response wrapper
 
@@ -56,6 +58,28 @@ Validated separately by `validate_sampling`, which never raises:
 If the wrapper is malformed or the observation half is invalid, nothing
 is written and the run terminates as failed (no retries, no repair
 calls).
+
+## Multi-frame batches
+
+When the previous iteration's sampling speed is HIGH and the provider
+adapter supports it, one iteration captures up to
+`ADAPTIVE_HIGH_BATCH_FRAMES` (3) consecutive frames spaced across one
+HIGH interval and analyzes them in a single request. The model must
+return one JSON object with exactly a `frames` array holding one
+`{"observation", "sampling"}` entry per frame, in chronological order;
+each observation validates as `observation-v1` against its own
+timestamp and each sampling decision validates as above. A wrong frame
+count, a timestamp mismatch, or an invalid observation fails the whole
+run (`response-invalid`) with prior iterations kept. Every frame still
+persists its own `frame_<timestamp>.json`, records its own manifest
+iteration, and reports its own `adaptive_sample`; the manifest counts
+one request per batch. A malformed or truncated batch response falls back to single-frame
+analysis when the remaining request budget permits (bounded, exact
+request accounting); otherwise the run fails as before. NORMAL and
+LOW always use the single-frame
+wrapper. No contract version bump: persisted observation, manifest,
+and downstream schemas are unchanged — only the transient model
+request/response shape gains this variant.
 
 ## Scheduler
 

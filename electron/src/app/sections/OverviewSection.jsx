@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
-  Gamepad2,
   KeyRound,
-  MessageSquareText,
   Mic,
   ScrollText,
 } from "lucide-react";
@@ -48,24 +46,13 @@ function OverviewRow({ icon: Icon, title, detail, badge, sectionId, onNavigate, 
  */
 export default function OverviewSection({ onNavigate }) {
   const { credentials, loading: vaultLoading, error: vaultError } = useCredentials();
-  const [library, setLibrary] = useState({ profiles: 0, presets: 0 });
-  const [libraryLoading, setLibraryLoading] = useState(true);
   const [tts, setTts] = useState({ credentialName: null, voice: null, model: null });
   const [ttsLoading, setTtsLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([
-      window.api.listGameProfiles().catch(() => null),
-      window.api.listPresets(null).catch(() => null),
-      window.api.getTtsConfig(null).catch(() => null),
-    ]).then(([profileRes, presetRes, ttsRes]) => {
+    window.api.getTtsConfig(null).catch(() => null).then((ttsRes) => {
       if (!alive) return;
-      setLibrary({
-        profiles: profileRes?.profiles?.length ?? 0,
-        presets: presetRes?.presets?.length ?? 0,
-      });
-      setLibraryLoading(false);
       const config = ttsRes?.resolved ?? ttsRes?.config ?? null;
       setTts({
         credentialName: ttsRes?.credential?.name ?? null,
@@ -75,7 +62,6 @@ export default function OverviewSection({ onNavigate }) {
       setTtsLoading(false);
     }).catch(() => {
       if (!alive) return;
-      setLibraryLoading(false);
       setTtsLoading(false);
     });
     return () => {
@@ -88,15 +74,15 @@ export default function OverviewSection({ onNavigate }) {
   const ttsCount = credentials.filter((entry) => entry.purpose === "tts").length;
   const ttsVerified = credentials.some((entry) => entry.purpose === "tts" && entry.verification?.status === "verified");
 
-  const loading = vaultLoading || libraryLoading || ttsLoading;
+  const loading = vaultLoading || ttsLoading;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-8">
       <div className="min-w-0">
         <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">Overview</h1>
         <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
-          Configuration status at a glance. Paid runs need a verified vision provider; voice,
-          styles, and prompt wording are layered on top.
+          Configuration status at a glance. Paid runs need a verified vision provider; voice
+          and prompt wording are layered on top.
         </p>
       </div>
 
@@ -133,22 +119,6 @@ export default function OverviewSection({ onNavigate }) {
                 sectionId="api-keys"
                 onNavigate={onNavigate}
                 actionLabel={vision.verifiedCount > 0 ? "Manage" : "Set up"}
-              />
-              <OverviewRow
-                icon={Gamepad2}
-                title="Game profiles"
-                detail={`${library.profiles} profile${library.profiles === 1 ? "" : "s"}`}
-                sectionId="game-profiles"
-                onNavigate={onNavigate}
-                actionLabel="Manage"
-              />
-              <OverviewRow
-                icon={MessageSquareText}
-                title="Commentary presets"
-                detail={`${library.presets} preset${library.presets === 1 ? "" : "s"}`}
-                sectionId="commentary-presets"
-                onNavigate={onNavigate}
-                actionLabel="Manage"
               />
               <OverviewRow
                 icon={Mic}

@@ -24,11 +24,10 @@ test('adaptive options default to unlimited vision requests', () => {
     adaptiveMaxFrames: null,
     withScript: false,
     streaming: true,
-    requestTts: false,
   });
   assert.deepEqual(
     buildProcessOptions(RUN_MODES.ADAPTIVE, { adaptiveMaxFrames: 5 }),
-    { adaptive: true, adaptiveMaxFrames: 5, withScript: false, streaming: true, requestTts: false },
+    { adaptive: true, adaptiveMaxFrames: 5, withScript: false, streaming: true },
   );
   // Fractions floor; the hard cap holds; nothing silently becomes a
   // numeric default — invalid input normalizes to unlimited (null).
@@ -67,29 +66,23 @@ test('invalid bounds are detectable so the UI can reject them', () => {
   }
 });
 
-test('streaming is the standard experience; audio needs no script toggle', () => {
+test('streaming is the standard experience; audio needs no opt-in', () => {
   const plain = buildProcessOptions(RUN_MODES.ADAPTIVE, {});
   assert.equal(plain.streaming, true);
   assert.equal(plain.withScript, false);
-  assert.equal(plain.requestTts, false);
-  // One checkbox: audio passes through whenever checked (streaming
-  // always words the script underneath; the main process re-checks).
-  const audio = buildProcessOptions(RUN_MODES.ADAPTIVE, { requestTts: true });
-  assert.equal(audio.streaming, true);
-  assert.equal(audio.withScript, false);
-  assert.equal(audio.requestTts, true);
+  // Spoken audio is automatic in the main process: no renderer field.
+  assert.equal('requestTts' in plain, false);
+  const stale = buildProcessOptions(RUN_MODES.ADAPTIVE, { requestTts: true });
+  assert.equal('requestTts' in stale, false);
 });
 
 test('explicit sequential fallback stays available internally', () => {
   const sequential = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: false });
   assert.equal(sequential.streaming, false);
-  assert.equal(sequential.requestTts, false);
-  const sequentialScript = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: false, withScript: true, requestTts: true });
+  assert.equal('requestTts' in sequential, false);
+  const sequentialScript = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: false, withScript: true });
   assert.equal(sequentialScript.withScript, true);
-  assert.equal(sequentialScript.requestTts, true);
-  // Audio without the script or streaming is coerced off.
-  const audioAlone = buildProcessOptions(RUN_MODES.ADAPTIVE, { streaming: false, requestTts: true });
-  assert.equal(audioAlone.requestTts, false);
+  assert.equal(sequentialScript.streaming, false);
 });
 
 test('clamp keeps bounds inside the engine hard cap', () => {

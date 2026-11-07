@@ -226,6 +226,22 @@ test('cancel with no job resolves false and busy start is refused', async (t) =>
   await cancelPromise;
 });
 
+test('the active export reports its project id for the deletion guard', async (t) => {
+  const spawn = makeSpawn();
+  const manager = createExportManager({ spawnFn: spawn.spawnFn });
+  assert.equal(manager.activeProjectId(), null);
+  const outputPath = tempOutput(t);
+  fs.writeFileSync(outputPath, Buffer.alloc(16));
+  const { started } = await startThroughProbe(t, manager, spawn, outputPath, { projectId: 'proj-1' });
+  assert.equal(started.started, true);
+  assert.equal(manager.isBusy(), true);
+  assert.equal(manager.activeProjectId(), 'proj-1');
+  spawn.children[1].emit('close', 0);
+  await tick();
+  assert.equal(manager.isBusy(), false);
+  assert.equal(manager.activeProjectId(), null);
+});
+
 test('spawn throw reports a spawn failure and frees the manager', async () => {
   const manager = createExportManager({
     spawnFn: () => {

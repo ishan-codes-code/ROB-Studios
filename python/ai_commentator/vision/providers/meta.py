@@ -28,6 +28,8 @@ import json
 import urllib.error
 import urllib.request
 
+from ...api_activity import ApiRequestTracker, fail_from_error, usage_of
+from ...config import ADAPTIVE_BATCH_MAX_TOKENS
 from ...errors import ObservationError, VisionAPIError
 from .base import (
     VisionProviderAdapter,
@@ -227,14 +229,33 @@ class MetaAdapter(VisionProviderAdapter):
 
     def _send_prompt(self, prompt: str, image_data_url: str,
                      max_tokens: int | None = None,
-                     reasoning_effort: str | None = None) -> str:
-        _, body = _post_json(
-            self.responses_url,
-            self._observation_payload(prompt, image_data_url, max_tokens,
-                                      reasoning_effort),
-            self.api_key,
-            self.timeout,
-        )
+                     reasoning_effort: str | None = None,
+                     purpose: str = "vision",
+                     frame_count: int = 1) -> str:
+        tracker = ApiRequestTracker(PROVIDER_ID, purpose, model=self.model,
+                                    frame_count=frame_count)
+        tracker.start()
+        try:
+            status, body = _post_json(
+                self.responses_url,
+                self._observation_payload(prompt, image_data_url, max_tokens,
+                                          reasoning_effort),
+                self.api_key,
+                self.timeout,
+            )
+        except VisionAPIError as exc:
+            fail_from_error(tracker, exc)
+            raise
+        except ObservationError as exc:
+            tracker.fail(error_code="bad_response", message=str(exc))
+            raise
+        except Exception as exc:
+            tracker.fail(error_code="request_error",
+                         message=redact_secret(str(exc), self.api_key))
+            raise
+        in_tokens, out_tokens = usage_of(body)
+        tracker.succeed(http_status=status, input_tokens=in_tokens,
+                        output_tokens=out_tokens)
         return extract_output_text(body)
 
     # -- interface ---------------------------------------------------------
@@ -254,6 +275,71 @@ class MetaAdapter(VisionProviderAdapter):
                 provider="meta",
             ) from None
 
+    def request_adaptive_batch_text(self, timestamps, image_data_urls,
+                                    previous=None) -> str:
+        """Request one multi-frame adaptive document for HIGH-speed sampling.
+
+        ``timestamps`` and ``image_data_urls`` are parallel chronological
+        lists; images are attached in order after the batch prompt. The
+        request carries an explicit output budget for the batched JSON;
+        budget exhaustion surfaces through the standard incomplete
+        check in extract_output_text.
+        """
+        from .. import client as client_module
+
+        content = [
+            {"type": "input_text",
+             "text": client_module.build_adaptive_batch_prompt(
+                 list(timestamps), previous)},
+        ]
+        for image_data_url in image_data_urls:
+            content.append(
+                {"type": "input_image", "image_url": image_data_url}
+            )
+        payload: dict = {
+            "model": self.model,
+            "input": [{"type": "message", "role": "user",
+                       "content": []}],
+            "stream": False,
+            "max_output_tokens": ADAPTIVE_BATCH_MAX_TOKENS,
+        }
+        payload["input"][0]["content"] = content
+        tracker = ApiRequestTracker(PROVIDER_ID, "vision-batch",
+                                    model=self.model,
+                                    frame_count=len(image_data_urls))
+        tracker.start()
+        try:
+            status, body = _post_json(
+                self.responses_url, payload, self.api_key, self.timeout
+            )
+        except VisionAPIError as exc:
+            fail_from_error(tracker, exc)
+            raise
+        except ObservationError as exc:
+            tracker.fail(error_code="bad_response", message=str(exc))
+            raise
+        except Exception as exc:
+            wrapped = VisionAPIError(
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
+            )
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
+        in_tokens, out_tokens = usage_of(body)
+        tracker.succeed(http_status=status, input_tokens=in_tokens,
+                        output_tokens=out_tokens)
+        try:
+            return extract_output_text(body)
+        except (VisionAPIError, ObservationError):
+            raise
+        except Exception as exc:
+            raise VisionAPIError(
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
+            ) from None
+
     def request_adaptive_text(self, timestamp, image_data_url: str,
                               previous=None) -> str:
         from .. import client as client_module
@@ -262,6 +348,7 @@ class MetaAdapter(VisionProviderAdapter):
             return self._send_prompt(
                 client_module.build_adaptive_vision_prompt(timestamp, previous),
                 image_data_url,
+                purpose="vision-adaptive",
             )
         except (VisionAPIError, ObservationError):
             raise
@@ -272,7 +359,7 @@ class MetaAdapter(VisionProviderAdapter):
                 provider="meta",
             ) from None
 
-    def request_text(self, prompt: str) -> str:
+    def request_text(self, prompt: str, purpose: str = "commentary") -> str:
         """Return raw model text for one text-only prompt (writer/script)."""
         payload: dict = {
             "model": self.model,
@@ -282,11 +369,31 @@ class MetaAdapter(VisionProviderAdapter):
             ],
             "stream": False,
         }
+        tracker = ApiRequestTracker(PROVIDER_ID, purpose, model=self.model)
+        tracker.start()
         try:
-            _, body = _post_json(
+            status, body = _post_json(
                 self.responses_url, payload, self.api_key,
                 min(self.timeout, 60.0),
             )
+        except VisionAPIError as exc:
+            fail_from_error(tracker, exc)
+            raise
+        except ObservationError as exc:
+            tracker.fail(error_code="bad_response", message=str(exc))
+            raise
+        except Exception as exc:
+            wrapped = VisionAPIError(
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
+            )
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
+        in_tokens, out_tokens = usage_of(body)
+        tracker.succeed(http_status=status, input_tokens=in_tokens,
+                        output_tokens=out_tokens)
+        try:
             return extract_output_text(body)
         except (VisionAPIError, ObservationError):
             raise
