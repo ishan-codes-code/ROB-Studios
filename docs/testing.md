@@ -158,7 +158,7 @@ PYTHONPATH=python .venv/bin/python -c \
 ```
 
 Analyses up to 5 frames spread across the clip (default when `--limit` is
-omitted), saving one validated `observation-v1` JSON per frame in
+omitted), saving one validated `observation-v2` JSON per frame in
 `output/observations/`. Frames with an already-validated observation are
 skipped unless `--force` is given. Append `--jobs J` (1–4, default 1) to
 bound concurrent vision requests; reporting stays in selected-frame order
@@ -211,7 +211,8 @@ observations), and atomically writes `output/events/events.json` (see
 rejected / emitted counts plus contested timestamps and the output path;
 exits non-zero when nothing was accepted or anything was rejected.
 Re-running over unchanged inputs produces a byte-identical file. Supported
-events (transcribed kill-feed entry, team-scoped elim-counter increase)
+events (transcribed kill-feed entry, team-scoped elim-counter increase,
+elim streak, kill-feed cluster)
 emit as `candidate`s with full provenance; everything else — missing
 nameplates, ambiguous HUD numbers, timers, persistent banners,
 low-confidence triggers, contested evidence — is suppressed. Never makes

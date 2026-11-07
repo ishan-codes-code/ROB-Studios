@@ -849,17 +849,50 @@ class SequenceProvenanceTests(unittest.TestCase):
             validate_commentary(doc)
 
     def test_sequence_confidence_ceiling(self):
-        # Mirrors the enforced rule for all templates: a line weaker
-        # than its cited sources is rejected.
+        # The enforced rule for all templates: a line stronger than
+        # its weakest cited source is rejected; a weaker line passes.
+        medium_feed_b = dict(SEQ_FEED_B, confidence="medium")
         with tempfile.TemporaryDirectory() as tmp:
-            docs = {0: obs_doc(0, [SEQ_FEED_A]), 3: obs_doc(3, [SEQ_FEED_B])}
+            docs = {
+                0: obs_doc(0, [SEQ_FEED_A]),
+                3: obs_doc(3, [medium_feed_b]),
+            }
             doc, bundle = self.run_tree(tmp, docs)
         validate_commentary(doc, bundle)
         line = [entry for entry in doc["lines"]
                 if entry["template"] == "event_sequence"][0]
-        line["confidence"] = "low"
+        self.assertEqual(line["confidence"], "medium")
+        line["confidence"] = "high"
         with self.assertRaises(ObservationError):
             validate_commentary(doc, bundle)
+        line["confidence"] = "low"
+        validate_commentary(doc, bundle)
+
+    def test_event_claim_capped_at_weakest_cited_fact(self):
+        # The AG4 fact is re-sighted weaker after the pair fired: the
+        # echo claim inherits the weakest cited confidence, never the
+        # event's own stronger label.
+        weak_again = dict(SEQ_ELIM_4, confidence="medium")
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = {
+                0: obs_doc(0, [SEQ_ELIM_4]),
+                3: obs_doc(3, [SEQ_ELIM_6]),
+                6: obs_doc(6, [weak_again]),
+            }
+            accepted = [
+                (ts, f"frame_{ts:05d}.json", docs[ts]) for ts in sorted(docs)
+            ]
+            state = build_match_state(list(accepted))
+            events, _ = detect_events(list(accepted), state)
+            event = [e for e in events["events"]
+                     if e["rule"] == "elim_count_increased/v1"][0]
+            self.assertEqual(event["confidence"], "high")
+            claims, _ = gate_commentary_claims(list(accepted), state, events)
+        echoes = [c for c in claims
+                  if c["type"] == "event_echo"
+                  and c["rule"] == "elim_count_increased"]
+        self.assertEqual(len(echoes), 1)
+        self.assertEqual(echoes[0]["confidence"], "medium")
 
     def test_sequence_token_subset(self):
         with tempfile.TemporaryDirectory() as tmp:

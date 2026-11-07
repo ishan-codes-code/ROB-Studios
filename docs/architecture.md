@@ -111,7 +111,9 @@ tracking → evidence-aware commentary generation → final casting script
 → text-to-speech → local playback, and eventually OBS audio integration.
 
 The first six stages run through the worker today (vision and script
-stages are paid and conditional); TTS, playback, and OBS remain planned.
+stages are paid and conditional), as does TTS (opt-in paid stage);
+local audio playback exists in the desktop app, while OBS integration
+remains planned.
 
 ## Components
 
@@ -136,9 +138,10 @@ stages are paid and conditional); TTS, playback, and OBS remain planned.
   shape, error mapping) behind a clear boundary so the provider can change
   without touching pipeline logic.
 - **Status:** implemented for the single test frame and the multi-frame
-  batch (structured `observation-v2` JSON via Baseten, v1 still accepted);
-  live multi-frame
-  use verified on 5 frames. Reused unchanged by the worker.
+  batch (prompts request `observation-v2` JSON via Baseten, v1 still
+  accepted); the 5 stored live observations are v1, and live v2 field
+  population is unverified (no paid v2 calls made). Reused unchanged
+  by the worker.
 
 ### 3. Structured observation validation
 
@@ -177,7 +180,9 @@ stages are paid and conditional); TTS, playback, and OBS remain planned.
 ### 6. Text-to-speech
 
 - **Responsibility:** convert commentary text to speech audio.
-- **Status:** planned. Its input contract is `script-v1`
+- **Status:** implemented (opt-in worker `tts` stage and `--generate-tts`
+  producing `tts-v1` manifests plus per-segment WAVs; Gemini TTS,
+  mocked in tests). Its input contract is `script-v1`
   (see [contracts/script-v1.md](contracts/script-v1.md)); each segment's
   `text` is directly consumable with no further rewriting stage.
 
@@ -185,9 +190,10 @@ stages are paid and conditional); TTS, playback, and OBS remain planned.
 
 - **Responsibility:** play or route commentary audio locally first, then
   integrate with OBS output for live use.
-- **Status:** planned. The Electron shell, the worker protocol, and a
-  minimal worker-status view exist; the video-selection UI and dashboard
-  do not.
+- **Status:** partially implemented. The Electron shell, the worker
+  protocol, video selection (`selectVideo`), a project dashboard,
+  TTS Studio, and local audio playback exist; OBS audio routing
+  does not.
 
 ## Boundaries
 

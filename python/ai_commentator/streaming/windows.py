@@ -146,6 +146,12 @@ def run_script_window(
         raw = request_writer_text(client, prompt, api_key=api_key)
         parsed = parse_script_segments(raw, prompt_by_id)
     except (WriterAPIError, ObservationError) as exc:
+        # The claims were marked seen before the model call but were
+        # never worded: release them so a later window can still word
+        # them (mirrors the over-claim-limit release above).
+        seen_claim_ids.difference_update(
+            claim["claim_id"] for claim in prompt_claims
+        )
         omitted.append(
             {
                 "rule": "model-output",

@@ -220,6 +220,20 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
                      f"event '{event['id']}' confidence "
                      f"'{event['confidence']}' is below the floor.")
             continue
+        # The claim inherits the weakest confidence over everything it
+        # rests on: the event's own multi-source inference plus every
+        # cited state fact (whose confidence is its latest sighting and
+        # may have moved since the event fired). It is never stronger
+        # than any cited source.
+        claim_confidence = max(
+            [event["confidence"]]
+            + [
+                facts_by_id[source["fact_id"]]["confidence"]
+                for source in event["sources"]
+                if source["fact_id"] in facts_by_id
+            ],
+            key=OBSERVATION_CONFIDENCES.index,
+        )
         emit(
             {
                 "template": (
@@ -234,7 +248,7 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
                 "event_id": event["id"],
                 "rule": rule_base,
                 "evidence": list(event["evidence"]),
-                "confidence": event["confidence"],
+                "confidence": claim_confidence,
                 "qualification": qualifier,
             }
         )

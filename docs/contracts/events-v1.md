@@ -1,7 +1,8 @@
 # Contract: evidence-grounded events v1 (`events-v1`)
 
 Versioned schema for gameplay events detected offline from validated
-`observation-v1` JSON files and their `match-state-v1` snapshot (roadmap
+`observation-v1`/`observation-v2` JSON files and their `match-state-v1`
+snapshot (roadmap
 milestone 5). Produced by the `--detect-events` path into
 `output/events/events.json`; the detector performs no vision calls, no text
 interpretation beyond explicit pattern matching, and no Free Fire reasoning.
@@ -39,7 +40,7 @@ Each event object has exactly these fields:
 | `rule` | non-empty string | Rule name and version that fired (e.g. `kill_feed_entry/v1`) |
 | `sources` | non-empty array of source refs, sorted | Every accepted observation the event rests on |
 | `evidence` | non-empty array of non-empty strings | Precise quoted text satisfying the rule |
-| `confidence` | `high`/`medium`/`low` | The triggering observation's model confidence label — a label, not proof |
+| `confidence` | `high`/`medium`/`low` | The weakest of the contributing observations' model confidence labels — a label, not proof |
 | `detail` | non-empty string | Why the evidence satisfies the rule, in plain words |
 
 Each source ref has exactly these fields: `timestamp` (number),
@@ -89,6 +90,9 @@ timestamps with a strictly greater integer. All of the following must hold:
   team label (the preceding one wins ties), and the two readings share the
   identical team (exact string match — similar names are never merged).
   Dots inside `TAG.NAME` tokens do not end sentences.
+- Comparisons are per-team: each reading is checked against the
+  previous reading for the same team, so another team's interleaved
+  counter neither joins nor blocks the pair.
 - The later reading's integer is strictly greater than the earlier one's.
 
 Timestamp: the later reading's timestamp. The event cites both observations
@@ -111,13 +115,15 @@ placeholder, not a product decision). All of the following must hold:
   (an `Elim <integer>` counter and a team label in the same sentence,
   attributed to the nearest team label, preceding wins ties).
 - Timestamps and counters both strictly increase along the chain;
-  equal readings, decreases, and scope changes break the chain into
-  maximal runs, each evaluated independently.
+  within one team's readings, equal readings and decreases break
+  the chain into maximal runs, each evaluated independently.
+  Readings scoped to other teams form their own chains and neither
+  join nor break this team's chain.
 - The chain's span (last timestamp minus first) fits the window.
 
 Timestamp: the last reading's timestamp. The event cites every
 reading (with state fact ids) and quotes every counter sentence;
-confidence is the last reading's label. It claims only that the
+confidence is the weakest of the chained readings' labels. It claims only that the
 counter rose through the quoted steps — never who was eliminated, by
 whom, or by what means. Pairwise `elim_count_increased` events still
 fire for each increasing step alongside the streak.
@@ -139,9 +145,14 @@ name-token sets. All of the following must hold:
 
 Timestamp: the last entry's timestamp. The event cites every entry
 (with state fact ids) and quotes every description and evidence
-string; confidence is the last entry's label. Killer and victim roles
-are **not** assigned. A lone feed entry, overlapping name sets, and
-spans beyond the window never cluster.
+string; confidence is the weakest of the entries' labels. The event
+claims only a candidate grouping: disjoint names are necessary but
+not sufficient proof of distinct entries (re-sightings with
+transcription variance group the same way), so whether the entries
+are distinct or repeated sightings of the same entry is explicitly
+not established. Killer and victim roles are **not** assigned. A
+lone feed entry, overlapping name sets, and spans beyond the window
+never cluster.
 
 Significance between event types is deterministic but computed, not
 stored: `feed_cluster` > `elim_streak` > `elim_count_increased` >
@@ -169,9 +180,9 @@ rendering time. No stored significance field exists.
 ## Identity and deduplication
 
 An event id is `evt-` plus the first 12 hex characters of the SHA-256 of
-the canonical string
-`type|timestamp|status|rule|sources|evidence|detail|confidence`
-(JSON with sorted keys and compact separators). The same inputs therefore
+the canonical JSON object (sorted keys, compact separators) over
+`type`, `timestamp`, `status`, `rule`, `sources`, `evidence`, `detail`,
+and `confidence`. The same inputs therefore
 always yield the same ids, and repeated detection of the same trigger
 collapses to one event: within a run, two triggers producing the same id
 emit once; across runs, identical inputs produce byte-identical output
@@ -191,7 +202,7 @@ reproduces the same `events.json`.
 
 ## Validation and malformed input
 
-Every observation is parsed, `observation-v1`-validated, and
+Every observation is parsed, `observation-v1`/`observation-v2`-validated, and
 timestamp-checked before detection; the state snapshot is
 `match-state-v1`-validated; the emitted document is `events-v1`-validated
 before its atomic write. A malformed observation or an invalid state is

@@ -347,6 +347,29 @@ class ElimCountRuleTests(unittest.TestCase):
             [event["timestamp"] for event in document["events"]], [48, 96]
         )
 
+    def test_increase_pairs_across_other_team_reading(self):
+        # Another team's interleaved counter neither joins nor blocks
+        # this team's comparison: AG 4->6 still fires.
+        document = detect(
+            obs_doc(0, [ELIM_AG_4]),
+            obs_doc(48, [ELIM_SBUL_5]),
+            obs_doc(96, [ELIM_AG_6]),
+        )
+        self.assertEqual(len(document["events"]), 1)
+        event = document["events"][0]
+        self.assertEqual(event["type"], "elim_count_increased")
+        self.assertEqual(event["timestamp"], 96)
+        self.assertIn("4->6", event["detail"])
+        self.assertIn("Team AG ", event["detail"])
+
+    def test_pair_confidence_is_weakest_reading(self):
+        # A high-confidence later reading must not inflate the pair
+        # over the medium reading it rests on.
+        medium = (ELIM_AG_4[0], ELIM_AG_4[1], "medium", ELIM_AG_4[3])
+        document = detect(obs_doc(0, [medium]), obs_doc(48, [ELIM_AG_5]))
+        self.assertEqual(len(document["events"]), 1)
+        self.assertEqual(document["events"][0]["confidence"], "medium")
+
 
 class NoInferenceTests(unittest.TestCase):
     def test_missing_nameplate_is_not_elimination(self):
@@ -661,6 +684,20 @@ ELIM_AGX_5 = (
     "high",
     "Team AGX panel header Elim 5.",
 )
+ELIM_SBUL_6 = (
+    "hud",
+    "Bottom-left team panel for team SBUL showing member SBUL.BUNNY, "
+    "plus header 'Elim 6'.",
+    "high",
+    "Team SBUL panel header Elim 6.",
+)
+ELIM_SBUL_7 = (
+    "hud",
+    "Bottom-left team panel for team SBUL showing member SBUL.BUNNY, "
+    "plus header 'Elim 7'.",
+    "high",
+    "Team SBUL panel header Elim 7.",
+)
 KILL_FEED_B = (
     "hud",
     "Top-right kill feed shows two more fresh entries.",
@@ -744,11 +781,46 @@ class ElimStreakRuleTests(unittest.TestCase):
         self.assertNotIn("elim_streak", types)
         self.assertEqual(types, ["elim_count_increased"])
 
+    def test_interleaved_team_streaks_fire_independently(self):
+        # Each scope forms its own chain: the interleaved counters
+        # neither join nor break the other team's streak.
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (1, ELIM_SBUL_5), (3, ELIM_AG_5),
+            (4, ELIM_SBUL_6), (6, ELIM_AG_6), (7, ELIM_SBUL_7),
+        ))
+        streaks = [e for e in document["events"] if e["type"] == "elim_streak"]
+        self.assertEqual(len(streaks), 2)
+        self.assertEqual(sorted(e["timestamp"] for e in streaks), [6, 7])
+        details = sorted(e["detail"] for e in streaks)
+        self.assertTrue(
+            any("Team AG " in text and "4->5->6" in text for text in details)
+        )
+        self.assertTrue(
+            any("Team SBUL " in text and "5->6->7" in text for text in details)
+        )
+
+    def test_streak_confidence_is_weakest_reading(self):
+        medium = (ELIM_AG_5[0], ELIM_AG_5[1], "medium", ELIM_AG_5[3])
+        document = detect(*streak_docs(
+            (0, ELIM_AG_4), (3, medium), (6, ELIM_AG_6)
+        ))
+        streaks = [e for e in document["events"] if e["type"] == "elim_streak"]
+        self.assertEqual(len(streaks), 1)
+        self.assertEqual(streaks[0]["confidence"], "medium")
+
     def test_similar_team_names_not_merged(self):
         document = detect(*streak_docs(
             (0, ELIM_AG_4), (3, ELIM_AGX_5), (6, ELIM_AG_6)
         ))
-        self.assertEqual(document["events"], [])
+        # Same-team readings still pair across the other scope's
+        # interleaved counter, but AG and AGX never link: exactly one
+        # event, the AG 4->6 increase.
+        self.assertEqual(len(document["events"]), 1)
+        event = document["events"][0]
+        self.assertEqual(event["type"], "elim_count_increased")
+        self.assertEqual(event["timestamp"], 6)
+        self.assertIn("4->6", event["detail"])
+        self.assertIn("Team AG ", event["detail"])
 
     def test_span_beyond_window_has_no_streak(self):
         document = detect(*streak_docs(
@@ -804,6 +876,28 @@ class FeedClusterRuleTests(unittest.TestCase):
         self.assertEqual(
             [e["type"] for e in document["events"]], ["kill_feed_entry"]
         )
+
+    def test_cluster_detail_hedges_distinctness(self):
+        # Disjoint names only group a candidate cluster: the detail
+        # must not claim distinct entries, since re-sightings with
+        # transcription variance group the same way.
+        document = detect(obs_doc(0, [KILL_FEED, KILL_FEED_B]))
+        clusters = [e for e in document["events"]
+                    if e["type"] == "feed_cluster"]
+        self.assertEqual(len(clusters), 1)
+        self.assertNotIn("distinct kill feed", clusters[0]["detail"])
+        self.assertIn("repeated sightings", clusters[0]["detail"])
+        self.assertIn("not established", clusters[0]["detail"])
+
+    def test_cluster_confidence_is_weakest_entry(self):
+        # A high-confidence last entry must not inflate the cluster
+        # over the medium entry it rests on.
+        medium = (KILL_FEED[0], KILL_FEED[1], "medium", KILL_FEED[3])
+        document = detect(obs_doc(0, [medium]), obs_doc(3, [KILL_FEED_B]))
+        clusters = [e for e in document["events"]
+                    if e["type"] == "feed_cluster"]
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0]["confidence"], "medium")
 
     def test_overlapping_names_have_no_cluster(self):
         document = detect(

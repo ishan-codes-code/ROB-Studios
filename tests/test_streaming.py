@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import main as engine
 import worker
+from ai_commentator.streaming.queues import _Closed
 from test_commentary import obs_doc, obs_item
 
 ENV_A = "Arid desert mesas under bright light."
@@ -151,6 +152,22 @@ class QueueTests(unittest.TestCase):
         q.close()
         self.assertEqual(q.get(), "x")
         self.assertIsNone(q.get())
+
+    def test_observation_queue_halt_raises_without_draining(self):
+        q = engine.ObservationQueue(maxsize=4)
+        q.put_observation("x")
+        q.put_observation("y")
+        q.halt()
+        with self.assertRaises(_Closed):
+            q.get()
+
+    def test_priority_queue_halt_raises_without_draining(self):
+        q = engine.PrioritySegmentQueue(maxsize=4)
+        q.put(engine.PRIORITY_LOW, {"utterance_id": "u-0001"})
+        q.put(engine.PRIORITY_HIGH, {"utterance_id": "u-0002"})
+        q.halt()
+        with self.assertRaises(_Closed):
+            q.get()
 
     def test_priority_queue_orders_and_supersedes(self):
         q = engine.PrioritySegmentQueue(maxsize=8)
@@ -319,6 +336,25 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(
                 pipeline._seg_queue.get()["utterance_id"], "u-0002"
             )
+
+    def test_halted_pipeline_makes_no_script_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script_client = FakeTextClient()
+            pipeline = self.make_pipeline(
+                tmp, script_client, window_min_observations=1
+            )
+            # Observations queue up, then the run is halted before any
+            # consumer starts: no window may spend a model call whose
+            # utterances would be discarded.
+            pipeline.submit_observation(*scene_obs(0, ENV_A), "NORMAL")
+            pipeline.submit_observation(*scene_obs(3, ENV_B), "NORMAL")
+            pipeline.halt()
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                pipeline.start()
+                result = pipeline.wait()
+            self.assertEqual(script_client.calls, [])
+            self.assertEqual(result["script_status"], "skipped")
 
     def test_end_to_end_script_and_tts_with_final_layout(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -994,6 +1030,36 @@ class SequenceWindowTests(unittest.TestCase):
         # Re-gated older claims collapse via already-emitted.
         self.assertTrue(any(e["rule"] == "already-emitted"
                             for e in omitted_all))
+
+    def test_failed_window_releases_claims_for_later_windows(self):
+        seen: set = set()
+        failing = FakeTextClient(fail_calls=(0,))
+        prefix = streak_obs()
+        utterances, _omitted, fresh, error = engine.run_script_window(
+            list(prefix), [], seen, failing
+        )
+        self.assertEqual(utterances, [])
+        self.assertIsNotNone(error)
+        self.assertTrue(fresh)
+        released = {claim["claim_id"] for claim in fresh}
+        self.assertTrue(released.isdisjoint(seen))
+        # The next window words the same claims instead of
+        # suppressing them as already-emitted.
+        good = FakeTextClient()
+        utterances, omitted, _fresh, error = engine.run_script_window(
+            list(prefix), [], seen, good
+        )
+        self.assertIsNone(error)
+        self.assertTrue(utterances)
+        self.assertFalse(
+            any(entry["rule"] == "already-emitted" for entry in omitted)
+        )
+        worded = {
+            claim_id
+            for utterance in utterances
+            for claim_id in utterance["source_claim_ids"]
+        }
+        self.assertTrue(released & worded)
 
     def test_sequence_priority_is_high_like_echo(self):
         claim = {"type": "event_echo", "template": "event_sequence",

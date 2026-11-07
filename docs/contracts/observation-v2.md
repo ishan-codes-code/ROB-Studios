@@ -102,9 +102,9 @@ quoted text, so no new claim enters through the structured keys.
   `--rebuild-state` before detection, commentary, or script runs
   (the standard stale-snapshot refusal, never a silent mix).
 - Match state is unchanged (`match-state-v1`): facts still file
-  under the exact `(category, description)` pair, and structured
-  evidence is read directly from validated observations by
-  detection, never re-stated in state.
+  under the exact `(category, description)` pair. The structured
+  keys are validated at ingest and echoed into vision context, but
+  no detection rule reads them in v1; nothing is re-stated in state.
 - Vision prompts request `observation-v2` with the optional keys;
   the previous-observation context carries them in bounded form.
   Consumers must tolerate absent keys (v1 files and v1-shaped v2

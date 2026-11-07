@@ -1,7 +1,8 @@
 # Contract: evidence-grounded commentary v1 (`commentary-v1`)
 
 Versioned schema for concise commentary lines generated offline from
-validated `observation-v1` JSON files, their `match-state-v1` snapshot, and
+validated `observation-v1`/`observation-v2` JSON files, their
+`match-state-v1` snapshot, and
 their `events-v1` candidates (roadmap milestone 7). Produced by the
 `--generate-commentary` path into `output/commentary/commentary.json`;
 consumed in the future by TTS (milestone 8). The generator performs no
@@ -48,7 +49,7 @@ Each line object has exactly these fields:
 |---|---|---|
 | `schema_version` | string | Always `"commentary-v1"` (each line is self-describing) |
 | `id` | non-empty string | Run-unique line id (`cmt-` + 12 hex chars, derived like event ids) |
-| `claim_id` | non-empty string | Stable claim identity (`clm-` + 12 hex chars over canonical type, evidence, source ids, and latest evidence timestamp — identical evidence re-emits nothing; new-timestamp evidence is a new claim) |
+| `claim_id` | non-empty string | Stable claim identity (`clm-` + 12 hex chars over canonical type, template, evidence, source ids, and latest evidence timestamp — identical evidence re-emits nothing; new-timestamp evidence is a new claim) |
 | `timestamp` | number | Latest supporting evidence timestamp — never wall-clock time |
 | `seq` | non-negative integer | Position within its timestamp, assigned in emission order |
 | `type` | `scene`, `development`, or `event_echo` | Claim kind (see "Templates") |

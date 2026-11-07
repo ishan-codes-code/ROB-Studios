@@ -267,39 +267,56 @@ def _elim_readings(description: str) -> list:
     return readings
 
 
+def _weaker_confidence(confidences: list) -> str:
+    """Weakest (minimum-strength) label over contributing confidences.
+
+    ``OBSERVATION_CONFIDENCES`` is strongest-first, so the weakest
+    label has the highest index. A multi-source event is only as
+    strong as its weakest contributing reading.
+    """
+    return max(confidences, key=OBSERVATION_CONFIDENCES.index)
+
+
 def _streak_chains(readings: list, window: float) -> list:
-    """Maximal strictly-increasing same-team Elim chains in a window.
+    """Maximal strictly-increasing per-team Elim chains in a window.
 
     ``readings`` are ``_elim_readings`` entries sorted by (timestamp,
-    source). A chain extends while timestamps and counters both
-    strictly increase within one team scope; a scope change, repeat,
-    or decrease starts a new chain. Only chains of at least three
-    readings whose total span fits ``window`` seconds are returned
-    (at least two strictly-increasing steps of the same counter).
+    source). Each team scope forms its own chain sequence: a chain
+    extends while timestamps and counters both strictly increase; a
+    repeat, a decrease, or an equal timestamp starts a new chain.
+    Readings scoped to other teams neither join nor break a team's
+    chain. Only chains of at least three readings whose total span
+    fits ``window`` seconds are returned (at least two
+    strictly-increasing steps of the same counter). Scopes iterate
+    in sorted order so the result is deterministic.
     """
-    chains = []
-    current: list = []
+    by_scope: dict = {}
     for entry in readings:
-        if (
-            current
-            and entry["scope"] == current[-1]["scope"]
-            and entry["timestamp"] > current[-1]["timestamp"]
-            and entry["count"] > current[-1]["count"]
-        ):
-            current.append(entry)
-        else:
+        by_scope.setdefault(entry["scope"], []).append(entry)
+    chains = []
+    for scope in sorted(by_scope):
+        current: list = []
+        for entry in by_scope[scope]:
             if (
-                len(current) >= 3
-                and current[-1]["timestamp"] - current[0]["timestamp"]
-                <= window
+                current
+                and entry["timestamp"] > current[-1]["timestamp"]
+                and entry["count"] > current[-1]["count"]
             ):
-                chains.append(current)
-            current = [entry]
-    if (
-        len(current) >= 3
-        and current[-1]["timestamp"] - current[0]["timestamp"] <= window
-    ):
-        chains.append(current)
+                current.append(entry)
+            else:
+                if (
+                    len(current) >= 3
+                    and current[-1]["timestamp"] - current[0]["timestamp"]
+                    <= window
+                ):
+                    chains.append(current)
+                current = [entry]
+        if (
+            len(current) >= 3
+            and current[-1]["timestamp"] - current[0]["timestamp"]
+            <= window
+        ):
+            chains.append(current)
     return chains
 
 
@@ -336,7 +353,11 @@ def _feed_clusters(candidates: list, window: float) -> list:
     In timestamp order, an entry joins the open cluster when its span
     from the cluster start fits ``window`` and every name token is new
     to the cluster; otherwise the cluster closes and a new one opens.
-    Only clusters of at least two entries are returned.
+    Only clusters of at least two entries are returned. Disjoint
+    names are necessary but not sufficient proof of distinct feed
+    entries (re-sightings with transcription variance also join), so
+    a cluster is a candidate grouping, never a certified set of
+    distinct entries; the emitted detail says so explicitly.
     """
     clusters = []
     current: list = []
@@ -510,18 +531,22 @@ def detect_events(observations: list, state: dict) -> tuple[dict, dict]:
                     }
                 )
     readings.sort(key=lambda entry: (entry["timestamp"], entry["source"]))
-    for index in range(1, len(readings)):
-        earlier = readings[index - 1]
-        later = readings[index]
-        if later["timestamp"] <= earlier["timestamp"]:
+    # Compare within each team scope: a reading is checked against the
+    # previous reading for the SAME team, so another team's interleaved
+    # counter neither joins nor blocks this team's comparison.
+    last_by_scope: dict = {}
+    for reading in readings:
+        earlier = last_by_scope.get(reading["scope"])
+        last_by_scope[reading["scope"]] = reading
+        if earlier is None:
             continue
-        if later["scope"] != earlier["scope"]:
+        if reading["timestamp"] <= earlier["timestamp"]:
             continue
-        if later["count"] <= earlier["count"]:
+        if reading["count"] <= earlier["count"]:
             continue
         emit(
             "elim_count_increased",
-            later["timestamp"],
+            reading["timestamp"],
             "elim_count_increased/v1",
             [
                 {
@@ -530,16 +555,16 @@ def detect_events(observations: list, state: dict) -> tuple[dict, dict]:
                     "fact_id": earlier["fact_id"],
                 },
                 {
-                    "timestamp": later["timestamp"],
-                    "file": later["source"],
-                    "fact_id": later["fact_id"],
+                    "timestamp": reading["timestamp"],
+                    "file": reading["source"],
+                    "fact_id": reading["fact_id"],
                 },
             ],
-            [earlier["sentence"], later["sentence"]],
-            later["confidence"],
-            f"Team {later['scope']} elim counter increased "
-            f"{earlier['count']}->{later['count']} between "
-            f"{earlier['timestamp']}s and {later['timestamp']}s; both readings "
+            [earlier["sentence"], reading["sentence"]],
+            _weaker_confidence([earlier["confidence"], reading["confidence"]]),
+            f"Team {reading['scope']} elim counter increased "
+            f"{earlier['count']}->{reading['count']} between "
+            f"{earlier['timestamp']}s and {reading['timestamp']}s; both readings "
             f"explicitly scope the counter to the same team. Who was "
             f"eliminated, by whom, and by what means are not established.",
         )
@@ -559,7 +584,7 @@ def detect_events(observations: list, state: dict) -> tuple[dict, dict]:
                 for entry in chain
             ],
             [entry["sentence"] for entry in chain],
-            last["confidence"],
+            _weaker_confidence([entry["confidence"] for entry in chain]),
             f"Team {last['scope']} elim counter rose through {steps} "
             f"across {len(chain)} readings between {first['timestamp']}s "
             f"and {last['timestamp']}s; every step is explicitly scoped "
@@ -598,11 +623,14 @@ def detect_events(observations: list, state: dict) -> tuple[dict, dict]:
                 "feed_cluster/v1",
                 sources,
                 evidence,
-                last["item"]["confidence"],
+                _weaker_confidence(
+                    [entry["item"]["confidence"] for entry in cluster]
+                ),
                 f"HUD observations at {first['timestamp']}s and "
-                f"{last['timestamp']}s transcribe distinct kill feed "
-                f"entries ({', '.join(names)}); killer/victim roles are "
-                f"not established.",
+                f"{last['timestamp']}s transcribe kill feed entries naming "
+                f"{', '.join(names)}; whether these are distinct entries "
+                f"or repeated sightings of the same entry is not "
+                f"established, and killer/victim roles are not established.",
             )
     document = {
         "schema_version": EVENT_SCHEMA_VERSION,

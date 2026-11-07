@@ -73,9 +73,15 @@ class ObservationQueue:
         self.put_observation(None)
 
     def get(self):
-        """Return the next item, or None at end of stream; raise _Closed."""
+        """Return the next item, or None at end of stream; raise _Closed.
+
+        A halted pipeline raises immediately even when items are still
+        queued: halt means abnormal shutdown (the worker never
+        finalizes after it), so draining would spend paid script
+        calls on windows whose utterances are discarded.
+        """
         while True:
-            if self._halt.is_set() and self._queue.empty():
+            if self._halt.is_set():
                 raise _Closed()
             try:
                 return self._queue.get(timeout=_QUEUE_POLL_S)
@@ -144,14 +150,19 @@ class PrioritySegmentQueue:
             self._condition.notify_all()
 
     def get(self):
-        """Return the most urgent utterance, or None at end of stream."""
+        """Return the most urgent utterance, or None at end of stream.
+
+        A halted pipeline raises immediately even when utterances are
+        still queued: halt means abnormal shutdown, so draining would
+        spend paid synthesis on audio the cancelled run discards.
+        """
         with self._condition:
             while True:
+                if self._halt:
+                    raise _Closed()
                 if self._heap:
                     return heapq.heappop(self._heap)[2]
-                if self._closed or self._halt:
-                    if self._halt and not self._closed:
-                        raise _Closed()
+                if self._closed:
                     return None
                 self._condition.wait(timeout=_QUEUE_POLL_S)
 

@@ -3,7 +3,8 @@
 Versioned schema for the TTS-ready final commentary script (roadmap
 milestone 9a: evidence-grounded LLM script generation). Produced by the
 `--generate-script` path into `output/script/script.json` from validated
-`observation-v1` files, their `match-state-v1` snapshot, and their
+`observation-v1`/`observation-v2` files, their `match-state-v1` snapshot,
+and their
 `events-v1` candidates. Consumed in the future by TTS; TTS itself is out
 of scope and this contract carries no audio fields.
 

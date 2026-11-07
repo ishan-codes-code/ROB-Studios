@@ -3,7 +3,7 @@
 ## Temporal gameplay event intelligence (uncommitted)
 
 Additive multi-observation patterns on branch
-`session-2-gameplay-intelligence`: `observation-v2` (v1 core plus
+`feature/commentary-refinements`: `observation-v2` (v1 core plus
 optional verbatim-only `subjects`/`action`/`spatial`, per-version
 strict validation, mixed-directory support), two new detection
 rules (`elim_streak`: 3+ same-team strictly-increasing Elim
@@ -22,12 +22,28 @@ roadmap 5.1. Known limits: window thresholds are tuning
 placeholders; live v2 field population unverified (no paid
 calls); v1-vs-v2 rewrites force `--rebuild-state` by design.
 
-Verification: 58 new offline fixture tests across schema,
-detection, commentary, writer, script, and streaming suites;
-full Python suite 704 tests with only the 3 pre-existing
+Audit-fix refinements (same branch, uncommitted): per-team-scope
+elim pairing and streak chains (another team's interleaved counter
+neither joins nor blocks a team's chain); feed clusters worded as
+candidate groupings (disjoint names do not prove distinct entries);
+multi-source confidence is the weakest contributing label at
+detection, capped at the weakest cited fact at gating, and the
+validator enforces the contract direction (a line is never stronger
+than any cited source); streaming halt stops paid windows and
+synthesis without draining, and failed windows release unworded
+claims for later windows. No schema bump: same shapes, enums, and
+consumers; `events-v1.md` wording updated explicitly for the
+corrected derivations.
+
+Verification: 69 new offline fixture tests across schema,
+detection, commentary, writer, script, and streaming suites
+(58 temporal + 11 audit-fix, each failing pre-fix);
+full Python suite 715 tests with only the 3 pre-existing
 full-run failures (Windows `con` path, api_activity leak,
 opening already-emitted — all reproduce on the clean tree).
-Electron suite not run (no Electron changes).
+Electron suite (no Electron changes): 610/617 pass with a writable
+temp dir; 7 pre-existing failures in untouched areas
+(TTS preview, export, toast, ffmpeg, media, branding).
 
 ## Finish-later dismissal + crash-forensics lifecycle (uncommitted)
 

@@ -32,8 +32,8 @@ acceptance criteria, and what is explicitly out of scope.
   documented.
 - **Out of scope:** tracking state across frames, commentary.
 - **Status:** complete. `--vision-batch` with spread selection, per-frame
-  validation, and failure reporting is implemented (219 unit tests pass in
-  Docker, including the milestone-6 concurrency and client-lifecycle
+  validation, and failure reporting is implemented (219 unit tests pass
+  natively, including the milestone-6 concurrency and client-lifecycle
   suites, the milestone-7 commentary suite, and the milestone-8 writer
   suite). The 5 stored live
   observations (timestamps 0, 48, 96, 147, 195)
@@ -83,7 +83,7 @@ acceptance criteria, and what is explicitly out of scope.
 - **Out of scope:** confirmed statuses, role assignment, identity
   merging, intent/off-screen/outcome inference, new pipeline
   stages, model/provider changes.
-- **Status:** complete on branch `session-2-gameplay-intelligence`
+- **Status:** complete on branch `feature/commentary-refinements`
   (uncommitted). Additive only: no `events`/`commentary`/`script`
   schema bump, no state/worker/TTS/Electron change; 58 new offline
   fixture tests, full Python suite green apart from 3 pre-existing
@@ -155,7 +155,7 @@ acceptance criteria, and what is explicitly out of scope.
 - **Status:** complete. Sampling kept at the existing 3-second extraction
   interval (no stride or intensity classifier added — recorded video needs
   no live-stream queue). `--jobs` (default 1, hard max 4) bounds concurrent
-  vision requests on the batch path; 219 unit tests pass in Docker,
+  vision requests on the batch path; 219 unit tests pass natively,
   including barrier-rendezvous in-flight caps and reverse-completion-order
   identity, and a synthetic mocked benchmark (jobs=1: 1.51s vs jobs=4:
   0.61s for 5 fake requests, identical outputs) documents the bound choice.
@@ -270,7 +270,7 @@ acceptance criteria, and what is explicitly out of scope.
   editor Configure tab).
 - **Dependencies:** M5 settings/credentials; milestone 11 native
   Electron/Python integration.
-- **Status:** implementation complete on the current branch (uncommitted).
+- **Status:** implementation complete.
   Python suite 381 tests OK and Electron suite 138 tests pass offline;
   renderer production build succeeds. Provider connection and image
   verification have not been live-tested (mocked tests only; no paid

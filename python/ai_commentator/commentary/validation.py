@@ -341,7 +341,7 @@ def _verify_commentary_provenance(data: dict, bundle: dict) -> None:
                     f"{where} names '{token}' outside its cited evidence."
                 )
         order = ("high", "medium", "low")
-        if order.index(line["confidence"]) > min(
+        if order.index(line["confidence"]) < max(
             order.index(confidence) for confidence in source_confidences
         ):
             raise ObservationError(
