@@ -76,8 +76,9 @@ and no other wording path; a line naming any other template is invalid.
 
 - Precondition: exactly one fact with state status `current`, category
   `environment` or `character`, latest-sighting confidence `high` or
-  `medium`, not from a contested timestamp, and no uncertainty string in
-  any source file naming a quoted token of the claim.
+  `medium`, not from a contested timestamp, no uncertainty string in
+  any source file naming a quoted token of the claim, and passing the
+  broadcast-significance gate (see "Gating rules").
 - Allowed claim: restate that fact's description at its latest timestamp.
 - Text shape: `"At {timestamp}s, visible: {description}"` with
   `{description}` verbatim.
@@ -86,7 +87,8 @@ and no other wording path; a line naming any other template is invalid.
 
 - Precondition: exactly one fact with state status `current`, category
   `hud`, confidence `high` or `medium`, same contest/uncertainty
-  conditions as `scene_visible`.
+  conditions as `scene_visible`, and passing the
+  broadcast-significance gate.
 - Allowed claim: quote the HUD reading exactly as described, attaching no
   meaning to the numbers.
 - Text shape: `"HUD reads: {description}"` with `{description}` verbatim.
@@ -96,7 +98,8 @@ and no other wording path; a line naming any other template is invalid.
 - Precondition: a `new_fact` / `update` change at the latest processed
   timestamp whose fact satisfies the category/confidence/contest rules of
   `scene_visible` (hud-sourced facts keep the same verbatim-description
-  shape, which attaches no meaning to the numbers).
+  shape, which attaches no meaning to the numbers) and passes the
+  broadcast-significance gate.
 - Allowed claim: restate the changed fact's description verbatim.
 - Text shapes: `"New development: {description}"` /
   `"Update: {description}"`.
@@ -104,35 +107,43 @@ and no other wording path; a line naming any other template is invalid.
 ### `event_echo`
 
 - Precondition: an `events-v1` event with status `candidate` whose every
-  cited fact is non-conflicted in state.
+  cited fact is non-conflicted in state. Echoes always clear the
+  significance gate: their rule evidence is the gameplay link.
 - Allowed claim: quote the event's evidence and state that it is
   unconfirmed.
 - Text shape: `"{evidence quote} — unconfirmed: {qualifier}"` where
   `{qualifier}` is fixed per rule (`kill_feed_entry`: `"killer and victim
   roles are not established"`; `elim_count_increased`: `"who was
-  eliminated, by whom, and by what means are not established"`).
+  eliminated, by whom, and by what means are not established"`;
+  `knockdown_observed`: `"elimination is not established; a down player
+  can be revived"`; `revive_observed`: `"who revived whom is not
+  established"`; `blue_wall_use`: `"who placed it and when are not
+  established"`; `zone_pressure`: `"who is affected is not
+  established"`).
   The qualifier slot has no variable path: the renderer holds no other
   wording for this template.
 
 ### `event_sequence`
 
 - Precondition: an `events-v1` event with status `candidate` from a
-  temporal rule (`elim_streak`, `feed_cluster`) whose every cited
-  fact is non-conflicted in state.
+  temporal rule (`elim_streak`, `feed_cluster`, `combat_engagement`)
+  whose every cited fact is non-conflicted in state.
 - Allowed claim: quote the event's evidence (every reading or entry
   in the sequence) and state that it is unconfirmed.
 - Text shape: `"Sequence: {evidence quotes} — unconfirmed:
   {qualifier}"` where `{qualifier}` is fixed per rule
   (`elim_streak`: `"who was eliminated, by whom, and by what means
   are not established"`; `feed_cluster`: `"killer and victim roles
-  are not established"`). The line type stays `event_echo`, so the
-  qualifier, uncertainty, and validator rules for echoes apply
-  unchanged; only the template key differs.
+  are not established"`; `combat_engagement`: `"participants,
+  outcome, and cause are not established"`). The line type stays
+  `event_echo`, so the qualifier, uncertainty, and validator rules
+  for echoes apply unchanged; only the template key differs.
 
 Event echoes (both templates) gate and render in significance order
-(`feed_cluster` > `elim_streak` > `elim_count_increased` >
-`kill_feed_entry`, tie-broken by timestamp then identity) after
-developments and scene wording.
+(`feed_cluster` > `elim_streak` > `combat_engagement` >
+`knockdown_observed` > `elim_count_increased` > `kill_feed_entry` >
+`revive_observed` > `blue_wall_use` > `zone_pressure`, tie-broken by
+timestamp then identity) after developments and scene wording.
 
 ## Gating rules
 
@@ -157,11 +168,28 @@ Rules are evaluated in order; the first failure for a candidate emits one
   HUD numbers never yield interpretations.
 - `no-elimination-from-absence`: missing nameplates, vanished figures,
   and timer/number changes are not events, kills, or eliminations.
+- `no-broadcast-significance`: a scene or development claim is spoken
+  only when it is worth broadcasting. Confidence is not significance:
+  a high-confidence description of grass is still grass. Worthy means
+  the claim carries gameplay wording (combat, knockdown, revive, Blue
+  Wall, grenade, smoke, vehicle, zone, elimination, or movement
+  signals from `gameplay-v1`), a linked entity track moved or
+  reappeared across observations, or an event cites the fact
+  (environment explaining a development). Standalone scenery, generic
+  player sightings, unchanged descriptions, and HUD trivia are
+  suppressed with this rule; event echoes always pass it.
 - `already-emitted`: a `claim_id` present in a usable prior file with
   unchanged evidence is suppressed (a new evidence timestamp is a new
   `claim_id` by construction and re-emits).
 - `no-justified-wording`: anything with no applicable template above is
   suppressed rather than paraphrased.
+
+Every gated claim additionally carries internal `gameplay` context
+(`tags`, `entities`, `entity_moved`, `event_linked`) derived from
+`gameplay-v1`. It is never persisted on lines and never enters the
+claim id; it travels with the claim so the script validator can ground
+analytical wording in structured evidence instead of re-guessing from
+text.
 
 ## Validation
 

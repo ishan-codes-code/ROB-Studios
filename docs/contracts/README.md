@@ -34,9 +34,15 @@ Defined contracts:
   rebuilt from validated observations (roadmap milestone 4): fact identity,
   provenance, statuses, update semantics, determinism, and what the
   tracker explicitly does not infer.
+- [gameplay-v1.md](gameplay-v1.md) — the deterministic interpretation
+  layer between validated observations and gameplay reasoning:
+  per-entry observed/inferred signals (the first consumer of the
+  `observation-v2` structured keys), cautious cross-frame entity
+  tracks, and the observation/interpretation/confirmed-event
+  separation. In-memory only, never persisted.
 - [events-v1.md](events-v1.md) — evidence-grounded gameplay events detected
   offline from stored observations and match state (roadmap milestone 5):
-  event identity, candidate-only statuses, the four firing rules with their
+  event identity, candidate-only statuses, the nine firing rules with their
   evidence requirements, suppression rules, determinism, and replay
   provenance.
 - [commentary-v1.md](commentary-v1.md) — concise commentary lines generated

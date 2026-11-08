@@ -34,7 +34,7 @@ Each event object has exactly these fields:
 |---|---|---|
 | `schema_version` | string | Always `"events-v1"` (each event is self-describing) |
 | `id` | non-empty string | Deterministic id (`evt-` + 12 hex chars) derived from the event's canonical content |
-| `type` | non-empty string | Rule name that fired (v1: `kill_feed_entry`, `elim_count_increased`, `elim_streak`, or `feed_cluster`) |
+| `type` | non-empty string | Rule name that fired (v1: `kill_feed_entry`, `elim_count_increased`, `elim_streak`, `feed_cluster`, `combat_engagement`, `knockdown_observed`, `revive_observed`, `blue_wall_use`, or `zone_pressure`) |
 | `timestamp` | number | Timestamp semantics per rule (see "Rules" below): the triggering observation's timestamp |
 | `status` | `candidate` | v1 emits candidates only — supported, never certified (see "Statuses" below) |
 | `rule` | non-empty string | Rule name and version that fired (e.g. `kill_feed_entry/v1`) |
@@ -154,28 +154,108 @@ not established. Killer and victim roles are **not** assigned. A
 lone feed entry, overlapping name sets, and spans beyond the window
 never cluster.
 
+### `combat_engagement` (rule `combat_engagement/v1`)
+
+Fires when combat activity is observed at two or more distinct
+timestamps whose span fits `EVENT_ENGAGEMENT_WINDOW_S` seconds
+(initial value 15; a tuning placeholder). A sighting is a `combat`
+observation with confidence `high` or `medium`, or a `character`
+observation with `high`/`medium` confidence and explicit combat
+wording; generic character visibility without combat wording is not a
+sighting. Sightings cluster greedily in timestamp order (a sighting
+joins the open cluster when its span from the cluster start fits the
+window, otherwise the cluster closes and a new one opens); only
+clusters spanning at least two distinct timestamps emit.
+
+Timestamp: the last sighting's timestamp. The event cites every
+sighting (with state fact ids) and quotes every description and
+evidence string; confidence is the weakest of the sightings' labels.
+It claims only that combat activity was observed across those
+sightings — never who fought whom, who won, or why it started. One
+frame of combat wording is a sighting, never an engagement.
+
+### `knockdown_observed` (rule `knockdown_observed/v1`)
+
+Fires when one `character` or `combat` observation with confidence
+`high` or `medium` explicitly words a player knocked down (knockdown
+wording per `gameplay-v1`, e.g. knocked, downed, crawling) without
+elimination wording. The rule fires at the first sighting of its exact
+wording; a re-sighting (a down player who stays down) is not a new
+event.
+
+Timestamp: the wording observation's timestamp. The event claims only
+that a player was observed down — elimination is explicitly not
+established, and a down player can be revived. A prone figure without
+knockdown wording is not a knockdown.
+
+### `revive_observed` (rule `revive_observed/v1`)
+
+Fires when one `character` or `combat` observation with confidence
+`high` or `medium` explicitly words a revive. First-sighting
+semantics, as for `knockdown_observed`: re-sightings are not new
+events.
+
+Timestamp: the wording observation's timestamp. The event claims only
+that revive wording was observed — who revived whom is not
+established. A reappearing player without revive wording is
+reappearance, never a revive.
+
+### `blue_wall_use` (rule `blue_wall_use/v1`)
+
+Fires when one `environment`, `character`, or `combat` observation
+with confidence `high` or `medium` explicitly words Blue Wall cover
+(`blue wall` or the `gloo wall` item alias; a bare `shield` never
+matches). First-sighting semantics: re-sightings are not new events.
+
+Timestamp: the wording observation's timestamp. The event claims only
+that Blue Wall cover was observed — who placed it and when are not
+established. A Blue Wall is cover, never a conventional shield.
+
+### `zone_pressure` (rule `zone_pressure/v1`)
+
+Fires when one `environment`, `character`, `hud`, or `combat`
+observation with confidence `high` or `medium` explicitly words zone
+developments (zone wording per `gameplay-v1`, e.g. safe zone,
+shrinking, zone circle). First-sighting semantics: a persistent banner
+fires once at its first sighting and re-sightings are not new events.
+
+Timestamp: the wording observation's timestamp. The event claims only
+that zone wording was observed — who is affected is not established.
+Bare timer readings and uninterpreted counters still yield nothing.
+
 Significance between event types is deterministic but computed, not
-stored: `feed_cluster` > `elim_streak` > `elim_count_increased` >
-`kill_feed_entry`, tie-broken by (timestamp, id) at gating and
-rendering time. No stored significance field exists.
+stored: `feed_cluster` > `elim_streak` > `combat_engagement` >
+`knockdown_observed` > `elim_count_increased` > `kill_feed_entry` >
+`revive_observed` > `blue_wall_use` > `zone_pressure`, tie-broken by
+(timestamp, id) at gating and rendering time. No stored significance
+field exists.
 
 ## Suppressed claims (never events in v1)
 
 - A missing nameplate does not establish an elimination, knock, or wipe.
 - A newly seen player or nameplate does not establish movement or arrival.
 - A changed HUD number or timer whose meaning is not established by quoted
-  evidence does not establish anything (timers, alive-counts, and zone
-  counters included).
+  evidence does not establish anything (timers, alive-counts, and
+  uninterpreted counters included; explicit zone wording such as "Safe
+  Zone is now shrinking" is a `zone_pressure` candidate, not a number
+  reading).
 - A persistent HUD element (tournament branding, a standing banner, a
   minimap) re-observed across frames is filed as re-sightings, never as
-  repeated events.
+  repeated events. Single-sighting gameplay rules fire once at the first
+  sighting of their exact wording.
 - Low-confidence trigger claims are suppressed: rules require `high` or
   `medium` source confidence.
 - Conflicted facts (first seen at a contested timestamp) and contested
   timestamps (divergent documents for one timestamp) are skipped entirely —
   never resolved in favor of the newest or most confident document.
-- Intentions, off-screen fights, knockdowns, kills, team eliminations, and
-  match outcomes are never inferred.
+- Elimination wording outside kill-feed and elimination-counter evidence
+  (a bare "eliminated" in a character description) is not an elimination
+  event: confirmation stays with feed and counter evidence.
+- A reappearing player without revive wording is reappearance, never a
+  revive; an occluded (out-of-view) entity is never an elimination.
+- One frame of combat wording is a sighting, never an engagement.
+- Intentions, off-screen fights, kills, team eliminations, and match
+  outcomes are never inferred.
 
 ## Identity and deduplication
 

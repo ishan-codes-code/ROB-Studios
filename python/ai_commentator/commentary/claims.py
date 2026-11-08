@@ -4,6 +4,7 @@ import math
 import re
 
 from ..config import (
+    BROADCAST_GAMEPLAY_TAGS,
     COMMENTARY_GATE_RULES,
     COMMENTARY_PRIOR_STATUSES,
     COMMENTARY_QUALIFIERS,
@@ -21,6 +22,11 @@ from ..config import (
 )
 from ..errors import ObservationError
 from ..events.detection import _feed_name_tokens
+from ..state.gameplay import (
+    build_gameplay_state,
+    entity_track_for_label,
+    fact_signal_tags,
+)
 from ..state.match_state import fact_key
 from ..vision.observations import _reject_extra, _require_non_empty_string
 
@@ -105,6 +111,64 @@ def _event_significance(event: dict) -> int:
     return len(EVENT_SIGNIFICANCE_RANK)
 
 
+def claim_gameplay_context(
+    fact_ids: list,
+    facts_by_id: dict,
+    gameplay: dict,
+    event_fact_ids: set,
+) -> dict:
+    """Structured gameplay context for the facts behind one claim.
+
+    Returns ``{"tags", "entities", "entity_moved", "event_linked"}``:
+    merged observed signal tags, linked entity labels, whether any
+    linked entity track moved or reappeared, and whether any cited fact
+    is cited by an event. Internal only — never persisted on lines — but
+    load-bearing: the significance gate and the script validator both
+    read it instead of re-guessing from wording.
+    """
+    tags: set[str] = set()
+    entities: set[str] = set()
+    entity_moved = False
+    for fact_id in fact_ids:
+        fact = facts_by_id.get(fact_id)
+        if fact is None:
+            continue
+        signals = fact_signal_tags(
+            gameplay, fact["category"], fact["description"]
+        )
+        tags.update(signals["observed"])
+        for entity in signals["entities"]:
+            entities.add(entity["label"])
+            track = entity_track_for_label(gameplay, entity["label"])
+            if track is not None and (
+                track["movement"] is not None or track["status"] == "reappeared"
+            ):
+                entity_moved = True
+    return {
+        "tags": sorted(tags),
+        "entities": sorted(entities),
+        "entity_moved": entity_moved,
+        "event_linked": any(fact_id in event_fact_ids for fact_id in fact_ids),
+    }
+
+
+def claim_broadcast_worthy(context: dict) -> bool:
+    """Whether a scene/development claim deserves a spoken line.
+
+    Confidence is not significance: a high-confidence description of
+    grass is still grass. Worthy means the claim carries gameplay
+    wording (combat, knocks, cover, zone, movement, ...), a linked
+    entity changed across observations, or an event cites the fact
+    (environment explaining a development). Everything else is accurate
+    but not newsworthy.
+    """
+    if any(tag in BROADCAST_GAMEPLAY_TAGS for tag in context["tags"]):
+        return True
+    if context["entity_moved"]:
+        return True
+    return context["event_linked"]
+
+
 def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
     """Evaluate gating rules over validated inputs; return (claims, suppressed).
 
@@ -122,6 +186,12 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
     latest = state["latest_timestamp"]
     contested = {
         conflict["timestamp"] for conflict in state.get("conflicts", [])
+    }
+    gameplay = build_gameplay_state(accepted, state)
+    event_fact_ids = {
+        source["fact_id"]
+        for event in events.get("events", [])
+        for source in event.get("sources", [])
     }
 
     def emit(claim):
@@ -154,8 +224,22 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
         )
         if suppression is not None:
             suppress(*suppression)
-        else:
-            emit(claim)
+            continue
+        context = claim_gameplay_context(
+            claim["source_ids"], facts_by_id, gameplay, event_fact_ids
+        )
+        claim["gameplay"] = context
+        if not claim_broadcast_worthy(context):
+            suppress(
+                "no-broadcast-significance",
+                subject,
+                f"fact '{fact['id']}' is standalone description without a "
+                f"gameplay link (no combat/knock/cover/zone/movement "
+                f"wording, no entity change, no event cite); accurate but "
+                f"not worth a spoken line.",
+            )
+            continue
+        emit(claim)
     latest_changes = [
         change for change in state.get("changes", [])
         if change["timestamp"] == latest
@@ -184,6 +268,19 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
         claim = dict(claim)
         claim["template"] = template
         claim["type"] = "development"
+        context = claim_gameplay_context(
+            claim["source_ids"], facts_by_id, gameplay, event_fact_ids
+        )
+        claim["gameplay"] = context
+        if not claim_broadcast_worthy(context):
+            suppress(
+                "no-broadcast-significance",
+                subject,
+                f"change at {change['timestamp']}s ({change['kind']}) is "
+                f"standalone description without a gameplay link; accurate "
+                f"but not worth a spoken line.",
+            )
+            continue
         emit(claim)
     ranked = sorted(
         events.get("events", []),
@@ -234,6 +331,7 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
             ],
             key=OBSERVATION_CONFIDENCES.index,
         )
+        echo_source_ids = [source["fact_id"] for source in event["sources"]]
         emit(
             {
                 "template": (
@@ -244,12 +342,18 @@ def gate_commentary_claims(accepted: list, state: dict, events: dict) -> tuple:
                 "type": "event_echo",
                 "timestamp": event["timestamp"],
                 "sources": list(event["sources"]),
-                "source_ids": [source["fact_id"] for source in event["sources"]],
+                "source_ids": echo_source_ids,
                 "event_id": event["id"],
                 "rule": rule_base,
                 "evidence": list(event["evidence"]),
                 "confidence": claim_confidence,
                 "qualification": qualifier,
+                # Event echoes always clear the significance gate (their
+                # rule evidence is the gameplay link); the context still
+                # travels with the claim for the script validator.
+                "gameplay": claim_gameplay_context(
+                    echo_source_ids, facts_by_id, gameplay, event_fact_ids
+                ),
             }
         )
     developed = {

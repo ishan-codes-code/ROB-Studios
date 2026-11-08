@@ -26,10 +26,15 @@ import worker
 from ai_commentator.streaming.queues import _Closed
 from test_commentary import obs_doc, obs_item
 
-ENV_A = "Arid desert mesas under bright light."
-ENV_B = "Green containers near a rocky ledge."
+# Gameplay-bearing fixtures (vehicle movement / rotation): worthy under
+# the broadcast-significance gate while triggering no event rule.
+ENV_A = "A bike speeding past the rocky ledge."
+ENV_B = "Squad rotating across the container yard."
 FAKE_WAV = b"RIFF\x24\x00\x00\x00WAVEfmt payload-bytes-here"
-SAFE_WORDING = "Possible movement in the view, unconfirmed."
+# Stem-free fake wording: valid against any evidence under the script
+# validator (no kill/outcome/action/zone/engagement/movement claims),
+# with the uncertainty marker echoes require.
+SAFE_WORDING = "Activity is visible in the view, unconfirmed."
 
 
 class FakeTextClient:

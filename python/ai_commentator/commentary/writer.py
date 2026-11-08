@@ -151,7 +151,8 @@ def prioritize_writer_claims(claims: list) -> tuple:
     return ordered[:WRITER_MAX_CLAIMS], ordered[WRITER_MAX_CLAIMS:]
 
 
-def build_writer_prompt(claims: list, history_texts: list, pack=None) -> str:
+def build_writer_prompt(claims: list, history_texts: list, pack=None,
+                        narrative: str | None = None) -> str:
     """Build the bounded prompt for the commentary-writer model.
 
     The model sees only gated claims (with their verbatim evidence,
@@ -160,6 +161,9 @@ def build_writer_prompt(claims: list, history_texts: list, pack=None) -> str:
     or full history. It must answer with JSON mapping claim ids to
     spoken lines, and may omit claims it cannot word safely.
     Wording comes from the game prompt pack; the JSON shape stays here.
+    ``narrative`` is optional bounded match context (verified situation,
+    not citable evidence): it helps the model connect developments
+    without loosening the verbatim-quote validation.
     """
     from ..prompts import coerce_pack, effective_game_context
 
@@ -170,11 +174,20 @@ def build_writer_prompt(claims: list, history_texts: list, pack=None) -> str:
         fields["writer_persona"] + " ",
         (match_context + " " if match_context else ""),
         fields["writer_rules"] + " ",
-        "Respond with ONLY a single JSON object, no markdown fences, no ",
-        "commentary, matching this shape: ",
-        '{"lines": [{"claim_id": <one of the ids below>, ',
-        '"text": <the spoken line>}]}. ',
     ]
+    if narrative:
+        parts.append(
+            "Match narrative (verified context only; every line must "
+            f"still quote its claim evidence verbatim): {narrative} "
+        )
+    parts.extend(
+        [
+            "Respond with ONLY a single JSON object, no markdown fences, no ",
+            "commentary, matching this shape: ",
+            '{"lines": [{"claim_id": <one of the ids below>, ',
+            '"text": <the spoken line>}]}. ',
+        ]
+    )
     for claim in claims:
         evidence = " / ".join(claim["evidence"])[:WRITER_MAX_EVIDENCE_CHARS]
         parts.append(
@@ -381,7 +394,8 @@ def claim_id_of(claim: dict) -> str:
     )
 
 
-def run_writer_path(claims: list, history_texts: list, client) -> list:
+def run_writer_path(claims: list, history_texts: list, client,
+                    narrative: str | None = None) -> list:
     """Word gated claims with the model, falling back safely; return lines.
 
     Prioritized claims go to one text-only model call; the rest keep
@@ -395,7 +409,7 @@ def run_writer_path(claims: list, history_texts: list, client) -> list:
     """
     model_claims, _overflow = prioritize_writer_claims(claims)
     prompt_claims = [dict(claim, claim_id=claim_id_of(claim)) for claim in model_claims]
-    prompt = build_writer_prompt(prompt_claims, history_texts)
+    prompt = build_writer_prompt(prompt_claims, history_texts, narrative=narrative)
     texts: dict = {}
     if client is None:
         provider, model, api_key = _resolve_live_credentials()

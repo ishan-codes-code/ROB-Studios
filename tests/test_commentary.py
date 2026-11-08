@@ -87,8 +87,11 @@ def sha256_of(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-ENV_A = "Arid desert mesas under bright light."
-ENV_B = "Green containers near a rocky ledge."
+# Gameplay-bearing scene fixtures (vehicle movement / rotation): worthy
+# under the broadcast-significance gate, but triggering no event rule,
+# so template-mechanics tests stay focused on wording, not echoes.
+ENV_A = "A bike speeding past the rocky ledge."
+ENV_B = "Squad rotating across the container yard."
 
 
 class SceneLineTests(unittest.TestCase):
@@ -132,13 +135,14 @@ class SceneLineTests(unittest.TestCase):
         self.assertIn("valid-inputs", doc["rules_evaluated"])
 
     def test_hud_reading_quotes_without_meaning(self):
+        hud_text = "Compass shows the squad rotating east."
         with tempfile.TemporaryDirectory() as tmp:
             obs_dir, st, ev, out = write_tree(
                 tmp,
                 {
                     0: obs_doc(
                         0,
-                        [obs_item("hud", "Timer 08:30 with 34 alive.")],
+                        [obs_item("hud", hud_text)],
                     ),
                 },
             )
@@ -156,12 +160,11 @@ class SceneLineTests(unittest.TestCase):
         self.assertEqual(len(doc["lines"]), 1)
         line = doc["lines"][0]
         self.assertEqual(line["type"], "development")
-        self.assertEqual(
-            line["text"], "New development: Timer 08:30 with 34 alive."
-        )
+        self.assertEqual(line["text"], f"New development: {hud_text}")
 
     def test_persisting_reading_uses_hud_template(self):
-        hud = obs_item("hud", "Timer 08:30 with 34 alive.")
+        hud_text = "Compass shows the squad rotating east."
+        hud = obs_item("hud", hud_text)
         with tempfile.TemporaryDirectory() as tmp:
             obs_dir, st, ev, out = write_tree(
                 tmp,
@@ -189,7 +192,7 @@ class SceneLineTests(unittest.TestCase):
         hud_lines = [line for line in doc["lines"] if line["template"] == "hud_reading"]
         self.assertEqual(len(hud_lines), 1)
         self.assertTrue(hud_lines[0]["text"].startswith("HUD reads: "))
-        self.assertIn("Timer 08:30 with 34 alive.", hud_lines[0]["text"])
+        self.assertIn(hud_text, hud_lines[0]["text"])
 
     def test_development_line_for_latest_change(self):
         with tempfile.TemporaryDirectory() as tmp:

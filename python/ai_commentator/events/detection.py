@@ -12,8 +12,11 @@ from ..config import (
     OBSERVATIONS_DIR,
     MATCH_STATE_FILENAME,
     OBSERVATION_CONFIDENCES,
+    EVENT_COVER_CATEGORIES,
     EVENT_ELIM_RE,
+    EVENT_ENGAGEMENT_WINDOW_S,
     EVENT_FEED_MENTIONS,
+    EVENT_GAMEPLAY_CATEGORIES,
     EVENT_NAME_RE,
     EVENT_RULES,
     EVENT_SCHEMA_VERSION,
@@ -22,8 +25,10 @@ from ..config import (
     EVENT_CLUSTER_WINDOW_S,
     EVENT_STREAK_WINDOW_S,
     EVENT_TRIGGER_CONFIDENCES,
+    EVENT_ZONE_CATEGORIES,
 )
 from ..errors import ObservationError
+from ..state.gameplay import entry_signals
 from ..state.match_state import fact_key, observation_sha256, validate_match_state
 from ..storage import write_json_atomic
 from ..vision.client import ensure_observation_timestamp
@@ -381,6 +386,74 @@ def _feed_clusters(candidates: list, window: float) -> list:
     return clusters
 
 
+def _gameplay_signal_entries(clean: list, categories: tuple) -> list:
+    """High/medium entries in ``categories`` with their gameplay signals.
+
+    Returns ``{"timestamp", "source", "item", "signals"}`` dicts sorted by
+    (timestamp, source). Signals come from the deterministic
+    interpretation layer; low-confidence entries never qualify.
+    """
+    candidates = []
+    for timestamp, source_name, validated in clean:
+        for item in validated["observations"]:
+            if item["category"] not in categories:
+                continue
+            if item["confidence"] not in EVENT_TRIGGER_CONFIDENCES:
+                continue
+            candidates.append(
+                {
+                    "timestamp": timestamp,
+                    "source": source_name,
+                    "item": item,
+                    "signals": entry_signals(item),
+                }
+            )
+    candidates.sort(key=lambda entry: (entry["timestamp"], entry["source"]))
+    return candidates
+
+
+def _engagement_sightings(candidates: list) -> list:
+    """Entries evidencing combat activity.
+
+    A sighting needs the combat category or explicit combat wording in a
+    character entry. Generic character visibility without combat wording
+    is not a sighting.
+    """
+    return [
+        entry
+        for entry in candidates
+        if entry["item"]["category"] == "combat"
+        or "combat" in entry["signals"]["observed"]
+    ]
+
+
+def _engagement_clusters(sightings: list, window: float) -> list:
+    """Greedy engagement clusters: combat at distinct timestamps in a window.
+
+    In timestamp order, a sighting joins the open cluster when its span
+    from the cluster start fits ``window``; otherwise the cluster closes
+    and a new one opens. Only clusters spanning at least two distinct
+    timestamps are returned: one frame of combat wording is a sighting,
+    never an engagement. A cluster claims only that combat activity was
+    observed across those sightings — never who fought whom, who won, or
+    why it started.
+    """
+    clusters = []
+    current: list = []
+    start = None
+    for entry in sightings:
+        if current and entry["timestamp"] - start <= window:
+            current.append(entry)
+            continue
+        if len({item["timestamp"] for item in current}) >= 2:
+            clusters.append(current)
+        current = [entry]
+        start = entry["timestamp"]
+    if len({item["timestamp"] for item in current}) >= 2:
+        clusters.append(current)
+    return clusters
+
+
 def detect_events(observations: list, state: dict) -> tuple[dict, dict]:
     """Detect evidence-grounded events from validated observations + state.
 
@@ -631,6 +704,117 @@ def detect_events(observations: list, state: dict) -> tuple[dict, dict]:
                 f"{', '.join(names)}; whether these are distinct entries "
                 f"or repeated sightings of the same entry is not "
                 f"established, and killer/victim roles are not established.",
+            )
+    gameplay = _gameplay_signal_entries(clean, EVENT_GAMEPLAY_CATEGORIES)
+    cover = _gameplay_signal_entries(clean, EVENT_COVER_CATEGORIES)
+    zone = _gameplay_signal_entries(clean, EVENT_ZONE_CATEGORIES)
+
+    def gameplay_fact(entry):
+        return state_fact(
+            entry["item"]["category"],
+            entry["item"]["description"],
+            entry["source"],
+        )
+
+    for cluster in _engagement_clusters(
+        _engagement_sightings(gameplay), EVENT_ENGAGEMENT_WINDOW_S
+    ):
+        sources = []
+        evidence = []
+        for sighting in cluster:
+            fact = gameplay_fact(sighting)
+            if fact is None:
+                break
+            sources.append(
+                {
+                    "timestamp": sighting["timestamp"],
+                    "file": sighting["source"],
+                    "fact_id": fact["id"],
+                }
+            )
+            evidence.extend(
+                [sighting["item"]["description"], sighting["item"]["evidence"]]
+            )
+        else:
+            first, last = cluster[0], cluster[-1]
+            stamps = sorted({item["timestamp"] for item in cluster})
+            emit(
+                "combat_engagement",
+                last["timestamp"],
+                "combat_engagement/v1",
+                sources,
+                evidence,
+                _weaker_confidence(
+                    [item["item"]["confidence"] for item in cluster]
+                ),
+                f"Combat activity observed across {len(stamps)} timestamps "
+                f"between {first['timestamp']}s and {last['timestamp']}s; "
+                f"participants, outcome, and cause are not established.",
+            )
+    single_rules = (
+        (
+            "knockdown_observed",
+            "knockdown",
+            gameplay,
+            ("elim",),
+            "words a player knocked down",
+            "elimination is not established; a down player can be revived",
+        ),
+        (
+            "revive_observed",
+            "revive",
+            gameplay,
+            (),
+            "words a revive",
+            "who revived whom is not established",
+        ),
+        (
+            "blue_wall_use",
+            "blue_wall",
+            cover,
+            (),
+            "words Blue Wall cover",
+            "who placed it and when are not established",
+        ),
+        (
+            "zone_pressure",
+            "zone",
+            zone,
+            (),
+            "words zone developments",
+            "who is affected is not established",
+        ),
+    )
+    for rule, tag, candidates, excluded, wording, unknown in single_rules:
+        for entry in candidates:
+            observed = entry["signals"]["observed"]
+            if tag not in observed:
+                continue
+            if any(blocked in observed for blocked in excluded):
+                continue
+            fact = gameplay_fact(entry)
+            if fact is None:
+                continue
+            # Single-sighting gameplay rules fire at the first sighting
+            # of their exact wording. A re-sighting (a down player who
+            # stays down, a banner that stays up) is not a new event.
+            if fact["first_seen"] != entry["timestamp"]:
+                continue
+            emit(
+                rule,
+                entry["timestamp"],
+                f"{rule}/v1",
+                [
+                    {
+                        "timestamp": entry["timestamp"],
+                        "file": entry["source"],
+                        "fact_id": fact["id"],
+                    }
+                ],
+                [entry["item"]["description"], entry["item"]["evidence"]],
+                entry["item"]["confidence"],
+                f"{entry['item']['category'].capitalize()} observation at "
+                f"{entry['timestamp']}s {wording}; {unknown}.",
             )
     document = {
         "schema_version": EVENT_SCHEMA_VERSION,

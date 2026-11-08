@@ -7,6 +7,7 @@ from openai import OpenAI
 
 from ..commentary.claims import gate_commentary_claims
 from ..commentary.generation import load_prior_commentary
+from ..commentary.narrative import build_narrative, render_narrative_block
 from ..commentary.writer import claim_id_of, prioritize_writer_claims, request_writer_text
 from ..config import (
     BASETEN_BASE_URL,
@@ -21,6 +22,7 @@ from ..config import (
 )
 from ..errors import ObservationError, WriterAPIError
 from ..events.detection import validate_events
+from ..state.gameplay import build_gameplay_state
 from ..state.match_state import observation_sha256, validate_match_state
 from ..storage import write_json_atomic
 from ..vision.client import ensure_observation_timestamp
@@ -376,6 +378,17 @@ def run_generate_script(
         )
     prompt_claims = list(model_claims)
     prompt_by_id = {claim["claim_id"]: claim for claim in prompt_claims}
+    narrative_block = render_narrative_block(
+        build_narrative(
+            build_gameplay_state(
+                [(timestamp, source, validated) for timestamp, source, validated in accepted],
+                state,
+            ),
+            state,
+            events,
+            history_texts,
+        )
+    )
     opening_utterance = None
     try:
         if client is None:
@@ -389,6 +402,7 @@ def run_generate_script(
                 prompt = build_script_prompt(
                     prompt_claims, history_texts + _opening_history(opening_utterance),
                     intensity=utterance_intensity(prompt_claims),
+                    narrative=narrative_block,
                 )
                 raw = request_writer_text(live_client, prompt, api_key=api_key,
                                           purpose="script")
@@ -399,6 +413,7 @@ def run_generate_script(
             prompt = build_script_prompt(
                 prompt_claims, history_texts + _opening_history(opening_utterance),
                 intensity=utterance_intensity(prompt_claims),
+                narrative=narrative_block,
             )
             raw = request_writer_text(client, prompt, purpose="script")
         parsed = parse_script_segments(raw, prompt_by_id)

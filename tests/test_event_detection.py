@@ -385,10 +385,16 @@ class NoInferenceTests(unittest.TestCase):
         self.assertEqual(document["events"], [])
 
     def test_persistent_banner_is_not_repeated(self):
+        # The shrinking-zone banner now yields one zone_pressure
+        # candidate (explicit zone wording), fired once at its first
+        # sighting — re-sightings of the same banner are not new events.
         document = detect(
             obs_doc(0, [BANNER]), obs_doc(48, [BANNER]), obs_doc(96, [BANNER])
         )
-        self.assertEqual(document["events"], [])
+        self.assertEqual(len(document["events"]), 1)
+        event = document["events"][0]
+        self.assertEqual(event["type"], "zone_pressure")
+        self.assertEqual(event["timestamp"], 0)
 
     def test_no_event_is_ever_confirmed(self):
         document = detect(
@@ -1006,12 +1012,24 @@ class TemporalProvenanceTests(unittest.TestCase):
 
 class NoTemporalInferenceTests(unittest.TestCase):
     def test_timers_and_banners_yield_no_temporal_events(self):
+        # Timers still yield nothing, and the repeated banner yields no
+        # multi-observation pattern (streak/cluster/engagement) — only the
+        # single-sighting zone_pressure candidate at its first sighting.
         document = detect(
             obs_doc(0, [TIMER_742, BANNER]),
             obs_doc(3, [TIMER_1057, BANNER]),
             obs_doc(6, [TIMER_742, BANNER]),
         )
-        self.assertEqual(document["events"], [])
+        temporal = {"elim_streak", "feed_cluster", "combat_engagement"}
+        self.assertTrue(
+            all(event["type"] not in temporal for event in document["events"])
+        )
+        zone = [
+            event for event in document["events"]
+            if event["type"] == "zone_pressure"
+        ]
+        self.assertEqual(len(zone), 1)
+        self.assertEqual(zone[0]["timestamp"], 0)
 
 
 class MixedVersionTests(unittest.TestCase):

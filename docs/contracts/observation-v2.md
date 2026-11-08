@@ -103,8 +103,10 @@ quoted text, so no new claim enters through the structured keys.
   (the standard stale-snapshot refusal, never a silent mix).
 - Match state is unchanged (`match-state-v1`): facts still file
   under the exact `(category, description)` pair. The structured
-  keys are validated at ingest and echoed into vision context, but
-  no detection rule reads them in v1; nothing is re-stated in state.
+  keys are validated at ingest, echoed into vision context, and read
+  by the `gameplay-v1` interpretation layer (entity labels seed
+  tracks; quoted action/spatial phrases feed engagement, movement,
+  and posture signals); nothing is re-stated in state.
 - Vision prompts request `observation-v2` with the optional keys;
   the previous-observation context carries them in bounded form.
   Consumers must tolerate absent keys (v1 files and v1-shaped v2

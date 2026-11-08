@@ -50,8 +50,10 @@ from main import (
 from test_commentary import obs_doc, obs_item, read_commentary, write_tree
 
 MAIN_PATH = Path(main.__file__)
-ENV_A = "Arid desert mesas under bright light."
-ENV_B = "Green containers near a rocky ledge."
+# Gameplay-bearing fixtures (vehicle movement / rotation): worthy under
+# the broadcast-significance gate while triggering no event rule.
+ENV_A = "A bike speeding past the rocky ledge."
+ENV_B = "Squad rotating across the container yard."
 
 
 class FakeWriterCompletions:

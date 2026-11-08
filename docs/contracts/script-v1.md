@@ -60,12 +60,28 @@ Shape checks always run. When the gated claim set is available
 - Each text passes `script_text_valid`: TTS shape, no invented
   `TAG.NAME` identities or numbers beyond the cited evidence (word
   numbers like "one" count as their digit), no kill/knock/damage,
-  outcome, action, zone, causal, or intent claims the evidence does not
-  contain, and preserved uncertainty (plus no certainty language) for
-  candidate event echoes.
+  outcome, action, zone, engagement, movement, causal, or intent claims
+  beyond the cited evidence and its structured gameplay context, and
+  preserved uncertainty (plus no certainty language) for candidate
+  event echoes.
 - Paraphrase is explicitly allowed: evidence quotes need not appear
   verbatim. Containment is not required; grounding is enforced by the
   checks above instead.
+- Knock and elimination wording are policed separately: knock wording
+  needs knock wording in the evidence or a `knockdown` gameplay tag,
+  while elimination wording always needs elimination wording in the
+  evidence itself — tags never upgrade a knock into an elim.
+- Action verbs are policed per stem: each action stem in the text needs
+  the same stem in the evidence, except narrow gameplay paraphrases
+  (combat-tagged evidence may be worded as an engagement;
+  movement-tagged evidence as repositioning). Engagement, movement,
+  and zone nouns likewise need their wording in the evidence or a
+  matching gameplay tag behind the cited claims.
+- The model also receives a bounded match-narrative block (verified
+  situation, active engagements, recent developments, unresolved
+  uncertainty, already-spoken lines). It is context, not evidence: it
+  helps connect developments across time but never justifies wording
+  beyond the cited claims, and the checks above ignore it.
 
 The checks are deterministic and need no second model call. A stronger
 semantic judge was considered and rejected for this milestone: it would

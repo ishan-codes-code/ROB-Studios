@@ -23,9 +23,12 @@ from ..config import (
     SCRIPT_CAUSAL_MARKERS,
     EVENT_NAME_RE,
     SCRIPT_CERTAINTY_MARKERS,
+    SCRIPT_ELIM_STEMS,
+    SCRIPT_ENGAGEMENT_STEMS,
     SCRIPT_INTENT_MARKERS,
-    SCRIPT_KILL_STEMS,
+    SCRIPT_KNOCK_STEMS,
     SCRIPT_MAX_CLAIMS,
+    SCRIPT_MOVEMENT_STEMS,
     SCRIPT_MAX_HISTORY_LINES,
     SCRIPT_MAX_TEXT_CHARS,
     SCRIPT_MIN_TEXT_CHARS,
@@ -69,7 +72,8 @@ INTENSITY_CLAUSES = {
 
 
 def build_script_prompt(claims: list, history_texts: list, pack=None,
-                        intensity: str | None = None) -> str:
+                        intensity: str | None = None,
+                        narrative: str | None = None) -> str:
     """Build the bounded prompt for the final-script model call.
 
     The model sees only evidence-gated claims plus recent spoken lines.
@@ -77,7 +81,10 @@ def build_script_prompt(claims: list, history_texts: list, pack=None,
     and it must return JSON mapping source claim ids to spoken segments.
     Wording comes from the game prompt pack; the JSON shape stays here.
     ``intensity`` (low/medium/high/critical) tunes delivery energy to
-    the evidence; unknown values are ignored.
+    the evidence; unknown values are ignored. ``narrative`` is optional
+    bounded match context (verified situation, not citable evidence):
+    it helps the model connect developments across time but never
+    justifies wording beyond the cited claims.
     """
     from ..prompts import coerce_pack, effective_game_context
 
@@ -90,12 +97,21 @@ def build_script_prompt(claims: list, history_texts: list, pack=None,
         fields["script_priorities"] + " ",
         fields["script_rules"] + " ",
         INTENSITY_CLAUSES.get(intensity or "", ""),
-        "Respond with ONLY a single JSON object, no markdown fences, no ",
-        "commentary, matching this shape: ",
-        '{"segments": [{"source_claim_ids": [<one or more ids below>], ',
-        '"text": <the spoken line>}]}. ',
-        fields["script_closing"] + " ",
     ]
+    if narrative:
+        parts.append(
+            "Match narrative (verified context only; speak only from the "
+            f"claims below): {narrative} "
+        )
+    parts.extend(
+        [
+            "Respond with ONLY a single JSON object, no markdown fences, no ",
+            "commentary, matching this shape: ",
+            '{"segments": [{"source_claim_ids": [<one or more ids below>], ',
+            '"text": <the spoken line>}]}. ',
+            fields["script_closing"] + " ",
+        ]
+    )
     for claim in claims:
         evidence = " / ".join(claim["evidence"])[:WRITER_MAX_EVIDENCE_CHARS]
         parts.append(
@@ -131,14 +147,33 @@ def _stem_present(lowered: str, stems: tuple) -> bool:
     return any(stem in lowered for stem in stems)
 
 
+def _cited_gameplay_tags(cited_claims: list) -> tuple[set, set]:
+    """Gameplay tags and event rules behind the cited claims.
+
+    Tags come from the deterministic interpretation layer (attached at
+    gating time), never from model wording. Claims without gameplay
+    context (hand-built fixtures, opening claims) simply contribute
+    nothing, keeping this check total.
+    """
+    tags: set = set()
+    rules: set = set()
+    for claim in cited_claims:
+        context = claim.get("gameplay") or {}
+        tags.update(context.get("tags", []))
+        if claim.get("rule"):
+            rules.add(claim["rule"])
+    return tags, rules
+
+
 def script_text_valid(text: str, cited_claims: list) -> bool:
     """Deterministic paraphrase check for one script segment.
 
     Paraphrase is allowed: evidence quotes need not appear verbatim.
     What is enforced instead: TTS-ready shape, no invented names or
-    numbers, no forbidden semantic additions beyond the cited evidence,
-    and preserved uncertainty for candidate events. Returns True only
-    when the wording passes every check.
+    numbers, no forbidden semantic additions beyond the cited evidence
+    and its structured gameplay context, and preserved uncertainty for
+    candidate events. Returns True only when the wording passes every
+    check.
     """
     if not isinstance(text, str) or not text.strip():
         return False
@@ -157,6 +192,7 @@ def script_text_valid(text: str, cited_claims: list) -> bool:
     evidence_joined = " / ".join(evidence_texts)
     evidence_lower = evidence_joined.lower()
     text_lower = text.lower()
+    tags, rules = _cited_gameplay_tags(cited_claims)
     evidence_names = set()
     for quote in evidence_texts:
         evidence_names.update(m.group(0) for m in EVENT_NAME_RE.finditer(quote))
@@ -168,17 +204,60 @@ def script_text_valid(text: str, cited_claims: list) -> bool:
     for number in _script_numbers(text):
         if number not in evidence_numbers and number not in cited_timestamps:
             return False
-    if not _stem_present(evidence_lower, SCRIPT_KILL_STEMS):
-        if _stem_present(text_lower, SCRIPT_KILL_STEMS):
+    # Knocks and eliminations are policed separately: knock wording may
+    # paraphrase knock-tagged evidence, but elimination wording always
+    # needs elimination wording in the evidence itself. Tags never
+    # upgrade a knock into an elim.
+    if (
+        not _stem_present(evidence_lower, SCRIPT_KNOCK_STEMS)
+        and "knockdown" not in tags
+    ):
+        if _stem_present(text_lower, SCRIPT_KNOCK_STEMS):
+            return False
+    if not _stem_present(evidence_lower, SCRIPT_ELIM_STEMS):
+        if _stem_present(text_lower, SCRIPT_ELIM_STEMS):
             return False
     if not _stem_present(evidence_lower, SCRIPT_OUTCOME_STEMS):
         if _stem_present(text_lower, SCRIPT_OUTCOME_STEMS):
             return False
-    if not _stem_present(evidence_lower, SCRIPT_ACTION_STEMS):
-        if _stem_present(text_lower, SCRIPT_ACTION_STEMS):
-            return False
-    if not _stem_present(evidence_lower, SCRIPT_ZONE_STEMS):
+    # Action verbs are policed per stem: each action stem in the text
+    # needs the same stem in the evidence or a covering gameplay
+    # paraphrase (combat-tagged evidence may be worded as an engagement,
+    # movement-tagged evidence as repositioning). One action word in the
+    # evidence never unlocks a different action word in the text.
+    if _stem_present(text_lower, SCRIPT_ACTION_STEMS):
+        allowed = set()
+        if "combat" in tags or "combat_engagement" in rules:
+            allowed.update(SCRIPT_ENGAGEMENT_STEMS)
+        if "movement" in tags:
+            allowed.update(SCRIPT_MOVEMENT_STEMS)
+        scrubbed = text_lower
+        for stem in allowed:
+            scrubbed = scrubbed.replace(stem, " ")
+        for stem in SCRIPT_ACTION_STEMS:
+            if stem in scrubbed and stem not in evidence_lower:
+                return False
+    if (
+        not _stem_present(evidence_lower, SCRIPT_ZONE_STEMS)
+        and "zone" not in tags
+    ):
         if _stem_present(text_lower, SCRIPT_ZONE_STEMS):
+            return False
+    # Engagement and movement nouns are policed like the other semantic
+    # groups: they need the wording in the evidence or a matching
+    # gameplay tag behind the cited claims — never a bare guess.
+    if (
+        not _stem_present(evidence_lower, SCRIPT_ENGAGEMENT_STEMS)
+        and "combat" not in tags
+        and "combat_engagement" not in rules
+    ):
+        if _stem_present(text_lower, SCRIPT_ENGAGEMENT_STEMS):
+            return False
+    if (
+        not _stem_present(evidence_lower, SCRIPT_MOVEMENT_STEMS)
+        and "movement" not in tags
+    ):
+        if _stem_present(text_lower, SCRIPT_MOVEMENT_STEMS):
             return False
     for marker in SCRIPT_CAUSAL_MARKERS:
         if marker in text_lower and marker not in evidence_lower:

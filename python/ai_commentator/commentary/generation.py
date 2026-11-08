@@ -17,12 +17,14 @@ from ..config import (
 )
 from ..errors import ObservationError, WriterAPIError
 from ..events.detection import validate_events
+from ..state.gameplay import build_gameplay_state
 from ..state.match_state import observation_sha256, validate_match_state
 from ..storage import write_json_atomic
 from ..vision.client import ensure_observation_timestamp
 from ..vision.frames import discover_observation_files, warn_about_legacy_observations
 from ..vision.observations import parse_observation, validate_observation
 from .claims import gate_commentary_claims
+from .narrative import build_narrative, render_narrative_block
 from .validation import validate_commentary
 from .writer import (
     claim_id_of,
@@ -212,7 +214,21 @@ def run_generate_commentary(
                 fresh_claims.append(claim)
         claims = fresh_claims
     if writer == "llm" and claims:
-        lines = run_writer_path(claims, prior_texts, client)
+        narrative_block = render_narrative_block(
+            build_narrative(
+                build_gameplay_state(
+                    [
+                        (timestamp, source, validated)
+                        for timestamp, source, validated in accepted
+                    ],
+                    state,
+                ),
+                state,
+                events,
+                prior_texts,
+            )
+        )
+        lines = run_writer_path(claims, prior_texts, client, narrative_block)
     else:
         try:
             lines = render_commentary_claims(claims)

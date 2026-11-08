@@ -1,5 +1,52 @@
 # Current state
 
+## Gameplay intelligence overhaul (uncommitted)
+
+ROB now commentates developing match situations instead of narrating
+visible objects, on branch `feature/commentary-refinements`. A new
+in-memory `gameplay-v1` interpretation layer (`state/gameplay.py`)
+reads the previously unused `observation-v2` structured keys into
+observed/inferred signals plus cautious exact-label entity tracks
+(occlusion/reappearance/movement; unknowns never linked), keeping
+observation, interpretation, and confirmed event separate. Event
+detection gains five additive candidate-only rules reusing the v1
+boundary (`combat_engagement` across 2+ timestamps in 15s;
+`knockdown_observed`, `revive_observed`, `blue_wall_use`,
+`zone_pressure` on explicit first-sighting wording); kill-feed and
+counter rules are byte-unchanged. Commentary gating adds the
+`no-broadcast-significance` rule: scene/development claims need
+gameplay wording, an entity-track change, or an event cite, so
+standalone scenery, generic sightings, and HUD trivia stay silent
+while gameplay developments and qualified echoes speak. Wording stages
+receive a bounded match narrative (situation, engagements,
+developments, uncertainties, already-said) as context-only input, and
+the script validator now grounds analytical wording in structured
+gameplay tags: knock/elim stems policed separately (tags never upgrade
+a knock), action verbs per-stem with narrow engagement/movement
+paraphrase allowances, and engagement/movement/zone nouns requiring
+evidence or a matching tag. No new pipeline, paid call, or protocol
+change: streaming windows, worker NDJSON, provider boundary, model ID,
+TTS, and Electron untouched. Docs: new `gameplay-v1.md` contract,
+extended `events-v1`/`commentary-v1`/`script-v1`/`observation-v2`
+sections, ADR 0016. Known limits: engagement (15s) and reappearance
+(6s) windows are tuning placeholders; live v2 field population still
+unverified (no paid calls); real-footage acceptance not run (no
+footage or key in this environment — instructions in the task
+handoff).
+
+Verification: 64 new offline fixture tests (`test_gameplay` 19,
+`test_event_intelligence` 17, `test_significance` 12, `test_narrative`
+16); full Python suite 779 tests with only the 3 pre-existing
+full-run failures (Windows `con` path, api_activity leak, opening
+already-emitted — all reproduce on the clean tree). Fixtures in the
+commentary/script/streaming/writer/opening/terminology suites that
+asserted trivial scene lines were updated to gameplay-bearing
+wordings; old expectations preserved as suppression tests. Electron
+suite (no Electron files touched): 608/617 with TEMP redirected into
+the workspace (sandbox EPERM blocks os.tmpdir()); the 9 failures sit
+in the documented pre-existing set (TTS preview, export, toast,
+ffmpeg, media, branding).
+
 ## Temporal gameplay event intelligence (uncommitted)
 
 Additive multi-observation patterns on branch

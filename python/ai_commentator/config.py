@@ -141,21 +141,43 @@ EVENTS_FILENAME = "events.json"
 EVENTS_PATH = EVENTS_DIR / EVENTS_FILENAME
 EVENT_SCHEMA_VERSION = "events-v1"
 EVENT_STATUSES = ("candidate",)
-EVENT_RULES = ("kill_feed_entry", "elim_count_increased", "elim_streak", "feed_cluster")
+EVENT_RULES = (
+    "kill_feed_entry",
+    "elim_count_increased",
+    "elim_streak",
+    "feed_cluster",
+    "combat_engagement",
+    "knockdown_observed",
+    "revive_observed",
+    "blue_wall_use",
+    "zone_pressure",
+)
 # Temporal rule windows (seconds, inclusive spans). Initial engineering
 # placeholders: tune against real match footage, keeping values finite
 # and non-negative. Streak = span of the whole increasing chain;
 # cluster = span from the first to the last feed entry.
 EVENT_STREAK_WINDOW_S = 30.0
 EVENT_CLUSTER_WINDOW_S = 10.0
+EVENT_ENGAGEMENT_WINDOW_S = 15.0
 # Deterministic significance order for event wording (most first).
 # Computed at gating/priority time, never stored on events.
 EVENT_SIGNIFICANCE_RANK = (
     "feed_cluster",
     "elim_streak",
+    "combat_engagement",
+    "knockdown_observed",
     "elim_count_increased",
     "kill_feed_entry",
+    "revive_observed",
+    "blue_wall_use",
+    "zone_pressure",
 )
+# Categories eligible for gameplay event rules. HUD-only readings stay
+# with the counter/feed rules; environment wording counts only for
+# placed cover (Blue Wall) and zone developments.
+EVENT_GAMEPLAY_CATEGORIES = ("character", "combat")
+EVENT_COVER_CATEGORIES = ("environment", "character", "combat")
+EVENT_ZONE_CATEGORIES = ("environment", "character", "hud", "combat")
 EVENT_FEED_MENTIONS = ("kill feed", "killfeed", "elimination feed", "elim feed")
 EVENT_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*\.[A-Za-z0-9_]+")
 EVENT_ELIM_RE = re.compile(r"Elim\s+(\d+)")
@@ -177,7 +199,7 @@ COMMENTARY_TEMPLATES = (
 )
 # Temporal rules worded with the echo-like event_sequence template
 # (type stays event_echo, so qualifier/uncertainty rules still apply).
-COMMENTARY_SEQUENCE_RULES = ("elim_streak", "feed_cluster")
+COMMENTARY_SEQUENCE_RULES = ("elim_streak", "feed_cluster", "combat_engagement")
 COMMENTARY_SCENE_CATEGORIES = ("environment", "character")
 COMMENTARY_QUALIFIERS = {
     "kill_feed_entry": "killer and victim roles are not established",
@@ -188,6 +210,15 @@ COMMENTARY_QUALIFIERS = {
     "elim_count_increased": (
         "who was eliminated, by whom, and by what means are not established"
     ),
+    "combat_engagement": (
+        "participants, outcome, and cause are not established"
+    ),
+    "knockdown_observed": (
+        "elimination is not established; a down player can be revived"
+    ),
+    "revive_observed": "who revived whom is not established",
+    "blue_wall_use": "who placed it and when are not established",
+    "zone_pressure": "who is affected is not established",
 }
 COMMENTARY_GATE_RULES = (
     "valid-inputs",
@@ -196,10 +227,29 @@ COMMENTARY_GATE_RULES = (
     "uncertainty-scope",
     "category-scope",
     "no-elimination-from-absence",
+    "no-broadcast-significance",
     "already-emitted",
     "no-justified-wording",
     "stale-fact",
     "subsumed-by-development",
+)
+# Gameplay signal tags that make a standalone fact claim worth
+# broadcasting. A fact carrying none of these is accurate description,
+# not commentary — it is spoken only when an entity track changed
+# (movement, reappearance) or an event cites it. Deliberately excludes
+# bare entity mentions, quoted verbs, and scenery: "a player near the
+# billboard" is visible, not newsworthy.
+BROADCAST_GAMEPLAY_TAGS = (
+    "combat",
+    "knockdown",
+    "revive",
+    "blue_wall",
+    "grenade",
+    "smoke",
+    "vehicle",
+    "zone",
+    "elim",
+    "movement",
 )
 WRITER_MAX_CLAIMS = 6
 WRITER_MAX_HISTORY_LINES = 4
@@ -228,12 +278,26 @@ SCRIPT_UNCERTAINTY_MARKERS = (
     "signs of",
 )
 SCRIPT_CERTAINTY_MARKERS = ("confirmed", "definitely", "certainly")
-SCRIPT_KILL_STEMS = (
-    "kill", "killed", "killer", "elim", "knock", "knocked",
-    "assist", "damage", "headshot", "downed",
+SCRIPT_KNOCK_STEMS = ("knock", "knocked", "downed")
+SCRIPT_ELIM_STEMS = (
+    "kill", "killed", "killer", "elim",
+    "assist", "damage", "headshot",
     # BGMI finish/flush synonyms: a script line may only use them when
-    # the cited evidence already carries kill semantics.
+    # the cited evidence already carries elimination semantics. Gameplay
+    # tags never unlock elimination wording: a knock is never an elim.
     "finish", "flush",
+)
+SCRIPT_KILL_STEMS = SCRIPT_KNOCK_STEMS + SCRIPT_ELIM_STEMS
+# Narrow paraphrase groups the validator polices with gameplay-tag
+# grounding. Deliberately unambiguous nouns only: generic words like
+# "fight" ("the final fight") or "shift" ("a momentum shift") appear in
+# legitimate casting language and are not policed as engagement claims.
+SCRIPT_ENGAGEMENT_STEMS = (
+    "engagement", "engaging", "firefight",
+)
+SCRIPT_MOVEMENT_STEMS = (
+    "rotating", "rotation", "reposition", "repositioning",
+    "moving", "movement", "move",
 )
 SCRIPT_OUTCOME_STEMS = (
     "victor", " winner", " wins", "defeat", " champion",
@@ -264,6 +328,15 @@ SCRIPT_WORD_NUMBERS = {
     "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
     "ten": 10,
 }
+# Match-narrative prompt context: bounded counts and character budgets so
+# the evolving match summary can never grow unbounded in the prompt.
+NARRATIVE_MAX_ENGAGEMENTS = 2
+NARRATIVE_MAX_DEVELOPMENTS = 3
+NARRATIVE_MAX_UNCERTAINTIES = 3
+NARRATIVE_MAX_HISTORY = 2
+NARRATIVE_MAX_MOVED = 2
+NARRATIVE_MAX_BULLET_CHARS = 200
+NARRATIVE_MAX_CHARS = 1200
 DEFAULT_VISION_BATCH_LIMIT = 5
 DEFAULT_VISION_BATCH_JOBS = 1
 MAX_VISION_BATCH_JOBS = 4

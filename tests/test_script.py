@@ -45,8 +45,10 @@ from test_commentary import (
     write_tree,
 )
 
-ENV_A = "Arid desert mesas under bright light."
-ENV_B = "Green containers near a rocky ledge."
+# Gameplay-bearing fixtures (vehicle movement / rotation): worthy under
+# the broadcast-significance gate while triggering no event rule.
+ENV_A = "A bike speeding past the rocky ledge."
+ENV_B = "Squad rotating across the container yard."
 HUD_HEALTH = "Bottom-center player status bar shows health 200/200 and one elimination."
 
 
@@ -335,7 +337,7 @@ class RejectionTests(unittest.TestCase):
             )
             # Echo evidence names RRQ.JEEK; naming it is grounded here.
             good_named = (
-                "Possible feed movement involving RRQ.JEEK, unconfirmed."
+                "Possible feed activity involving RRQ.JEEK, unconfirmed."
             )
             self.assertTrue(script_text_valid(good_named, [echo]))
             client = FakeScriptClient(

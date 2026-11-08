@@ -6,11 +6,17 @@ import sys
 from ai_commentator.commentary.claims import (
     _commentary_fact_claim,
     _commentary_uncertainty_tokens,
+    claim_broadcast_worthy,
+    claim_gameplay_context,
     gate_commentary_claims,
 )
 from ai_commentator.commentary.generation import (
     run_generate_commentary as _run_generate_commentary,
     load_prior_commentary,
+)
+from ai_commentator.commentary.narrative import (
+    build_narrative,
+    render_narrative_block,
 )
 from ai_commentator.commentary.writer import (
     _render_claim_line,
@@ -50,6 +56,7 @@ from ai_commentator.config import (
     ADAPTIVE_TIMESTAMP_PRECISION,
     BASETEN_BASE_URL,
     BASETEN_MODEL,
+    BROADCAST_GAMEPLAY_TAGS,
     COMMENTARY_DIR,
     COMMENTARY_FILENAME,
     COMMENTARY_GATE_RULES,
@@ -63,8 +70,11 @@ from ai_commentator.config import (
     COMMENTARY_TYPES,
     DEFAULT_VISION_BATCH_JOBS,
     DEFAULT_VISION_BATCH_LIMIT,
+    EVENT_COVER_CATEGORIES,
     EVENT_ELIM_RE,
+    EVENT_ENGAGEMENT_WINDOW_S,
     EVENT_FEED_MENTIONS,
+    EVENT_GAMEPLAY_CATEGORIES,
     EVENT_NAME_RE,
     EVENT_CLUSTER_WINDOW_S,
     EVENT_RULES,
@@ -74,6 +84,7 @@ from ai_commentator.config import (
     EVENT_STATUSES,
     EVENT_TEAM_SCOPE_RE,
     EVENT_TRIGGER_CONFIDENCES,
+    EVENT_ZONE_CATEGORIES,
     EVENTS_DIR,
     EVENTS_FILENAME,
     EVENTS_PATH,
@@ -86,6 +97,13 @@ from ai_commentator.config import (
     MATCH_STATE_SCHEMA_VERSION,
     MATCH_STATE_STATUSES,
     MAX_VISION_BATCH_JOBS,
+    NARRATIVE_MAX_BULLET_CHARS,
+    NARRATIVE_MAX_CHARS,
+    NARRATIVE_MAX_DEVELOPMENTS,
+    NARRATIVE_MAX_ENGAGEMENTS,
+    NARRATIVE_MAX_HISTORY,
+    NARRATIVE_MAX_MOVED,
+    NARRATIVE_MAX_UNCERTAINTIES,
     OBSERVATION_CATEGORIES,
     OBSERVATION_CONFIDENCES,
     OBSERVATION_FILENAME_RE,
@@ -102,7 +120,11 @@ from ai_commentator.config import (
     SCRIPT_DIR,
     SCRIPT_FILENAME,
     SCRIPT_INTENT_MARKERS,
+    SCRIPT_ELIM_STEMS,
+    SCRIPT_ENGAGEMENT_STEMS,
     SCRIPT_KILL_STEMS,
+    SCRIPT_KNOCK_STEMS,
+    SCRIPT_MOVEMENT_STEMS,
     SCRIPT_MAX_CLAIMS,
     SCRIPT_MAX_HISTORY_LINES,
     SCRIPT_MAX_TEXT_CHARS,
@@ -197,6 +219,15 @@ from ai_commentator.state.match_state import (
     new_match_state_builder,
     observation_sha256,
     validate_match_state,
+)
+from ai_commentator.state.gameplay import (
+    GAMEPLAY_SCHEMA_VERSION,
+    build_entity_tracks,
+    build_gameplay_state,
+    entity_track_for_label,
+    entry_signals,
+    fact_signal_tags,
+    validate_gameplay,
 )
 from ai_commentator.state.runner import run_state_rebuild
 from ai_commentator.storage import (

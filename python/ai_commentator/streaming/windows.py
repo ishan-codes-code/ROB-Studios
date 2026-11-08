@@ -11,6 +11,7 @@ may flow downstream; failures are recorded as omissions, never spoken.
 from __future__ import annotations
 
 from ..commentary.claims import gate_commentary_claims
+from ..commentary.narrative import build_narrative, render_narrative_block
 from ..commentary.writer import (
     claim_id_of,
     prioritize_writer_claims,
@@ -24,6 +25,7 @@ from ..script.generation import (
     parse_script_segments,
     script_text_valid,
 )
+from ..state.gameplay import build_gameplay_state
 from ..state.match_state import build_match_state
 from .queues import PRIORITY_HIGH, PRIORITY_LOW, PRIORITY_NORMAL
 
@@ -136,12 +138,21 @@ def run_script_window(
         )
     prompt_claims = list(model_claims)
     prompt_by_id = {claim["claim_id"]: claim for claim in prompt_claims}
+    narrative_block = render_narrative_block(
+        build_narrative(
+            build_gameplay_state(list(observations), state),
+            state,
+            events,
+            history_texts,
+        )
+    )
     try:
         prompt = build_script_prompt(
             prompt_claims,
             history_texts,
             pack,
             intensity=utterance_intensity(prompt_claims),
+            narrative=narrative_block,
         )
         raw = request_writer_text(client, prompt, api_key=api_key)
         parsed = parse_script_segments(raw, prompt_by_id)
