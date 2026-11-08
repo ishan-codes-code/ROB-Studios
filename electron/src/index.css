@@ -71,10 +71,11 @@
   --color-glass: var(--glass);
   --color-glass-border: var(--glass-border);
 
-  --font-sans: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
-    monospace;
+  --font-sans:
+    "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  --font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
@@ -122,5 +123,12 @@ button[data-slot="button"]:active:not(:disabled) {
 @media (prefers-reduced-motion: reduce) {
   button[data-slot="button"]:active:not(:disabled) {
     transform: none;
+  }
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
   }
 }
