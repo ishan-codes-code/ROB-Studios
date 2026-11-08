@@ -9,7 +9,12 @@ from openai import OpenAI
 
 from ..commentary.claims import gate_commentary_claims
 from ..commentary.generation import load_prior_commentary
-from ..commentary.writer import claim_id_of, prioritize_writer_claims, request_writer_text
+from ..commentary.writer import (
+    claim_id_of,
+    contains_leaked_validation_language,
+    prioritize_writer_claims,
+    request_writer_text,
+)
 from ..config import (
     BASETEN_BASE_URL,
     COMMENTARY_PATH,
@@ -120,8 +125,85 @@ def build_script_prompt(claims: list, history_texts: list, pack=None,
             f"evidence: {evidence})."
         )
         if claim["qualification"] is not None:
-            parts.append(f" Keep uncertainty: {claim['qualification']}.")
+            parts.append(
+                " Internal guard (never speak these words; stay cautious "
+                "and grounded instead): "
+                f"{claim['qualification']}."
+            )
         parts.append(" ")
+    if history_texts:
+        parts.append("Already said (do not repeat this information): ")
+        parts.append(" | ".join(history_texts[-SCRIPT_MAX_HISTORY_LINES:]))
+    return "".join(parts) + stylistic_prompt_suffix()
+
+
+def build_beat_prompt(beats: list, history_texts: list, pack=None,
+                      intensity: str | None = None,
+                      narrative: str | None = None) -> str:
+    """Build the bounded prompt for the beat-driven script model call.
+
+    The model scores a producer beat sheet, not disconnected frame
+    claims: each beat carries its development (what), named
+    participants, verbatim evidence, an optional grounded tactical
+    read, and internal must_not_claim guards. History plus the bounded
+    narrative block supply continuity context; neither is citable
+    evidence. The model answers with the same ``segments`` JSON shape
+    as :func:`build_script_prompt`, citing each beat's
+    ``source_claim_ids``, and omits beats it cannot word safely.
+    """
+    from ..prompts import coerce_pack, effective_game_context
+
+    resolved = coerce_pack(pack)
+    fields = resolved["fields"]
+    match_context = effective_game_context(resolved)
+    parts = [
+        fields["script_persona"] + " ",
+        (match_context + " " if match_context else ""),
+        fields["script_priorities"] + " ",
+        fields["script_rules"] + " ",
+        INTENSITY_CLAUSES.get(intensity or "", ""),
+        "You are scoring a beat sheet, not isolated frames: blend "
+        "play-by-play with colour, vary sentence shape, match energy to "
+        "each beat's delivery, and connect follow-up beats to earlier "
+        "lines with meaningful transitions. ",
+    ]
+    if narrative:
+        parts.append(
+            "Match narrative (verified context only; speak only from the "
+            f"beats below): {narrative} "
+        )
+    parts.extend(
+        [
+            "Respond with ONLY a single JSON object, no markdown fences, no ",
+            "commentary, matching this shape: ",
+            '{"segments": [{"source_claim_ids": [<one or more ids below>], ',
+            '"text": <the spoken line>}]}. ',
+            fields["script_closing"] + " ",
+        ]
+    )
+    for beat in beats:
+        evidence = " / ".join(beat["evidence"])[:WRITER_MAX_EVIDENCE_CHARS]
+        participants = ", ".join(beat["participants"]) or "none named"
+        parts.append(
+            f"Beat {beat['beat_id']} (at {beat['timestamp']}s, "
+            f"priority {beat['priority']}, delivery {beat['delivery']}): "
+            f"What: {beat['what']} "
+            f"Participants: {participants}. "
+            f"Evidence: {evidence}. "
+        )
+        if beat.get("tactical_significance"):
+            parts.append(
+                f"Tactical read: {beat['tactical_significance']} "
+            )
+        if beat.get("must_not_claim"):
+            parts.append(
+                "Never claim (internal guards, never speak these words): "
+                f"{'; '.join(beat['must_not_claim'])}. "
+            )
+        parts.append(
+            "Cite as source_claim_ids: "
+            f"{', '.join(sorted(beat['source_claim_ids']))}. "
+        )
     if history_texts:
         parts.append("Already said (do not repeat this information): ")
         parts.append(" | ".join(history_texts[-SCRIPT_MAX_HISTORY_LINES:]))
@@ -165,15 +247,24 @@ def _cited_gameplay_tags(cited_claims: list) -> tuple[set, set]:
     return tags, rules
 
 
-def script_text_valid(text: str, cited_claims: list) -> bool:
+def _guard_norm(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def script_text_valid(
+    text: str,
+    cited_claims: list,
+    must_not_claim: list | None = None,
+) -> bool:
     """Deterministic paraphrase check for one script segment.
 
     Paraphrase is allowed: evidence quotes need not appear verbatim.
     What is enforced instead: TTS-ready shape, no invented names or
     numbers, no forbidden semantic additions beyond the cited evidence
-    and its structured gameplay context, and preserved uncertainty for
-    candidate events. Returns True only when the wording passes every
-    check.
+    and its structured gameplay context, preserved uncertainty for
+    candidate events, no spoken internal-validation language, and no
+    must_not_claim guard phrasing. Returns True only when the wording
+    passes every check.
     """
     if not isinstance(text, str) or not text.strip():
         return False
@@ -186,6 +277,17 @@ def script_text_valid(text: str, cited_claims: list) -> bool:
         return False
     if text.count("!") > 2:
         return False
+    if contains_leaked_validation_language(stripped):
+        return False
+    if must_not_claim:
+        normalized = _guard_norm(stripped)
+        for guard in must_not_claim:
+            if (
+                isinstance(guard, str)
+                and guard.strip()
+                and _guard_norm(guard) in normalized
+            ):
+                return False
     evidence_texts = []
     for claim in cited_claims:
         evidence_texts.extend(claim["evidence"])

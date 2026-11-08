@@ -40,6 +40,8 @@ from test_commentary import (
     SEQ_ELIM_4,
     SEQ_ELIM_5,
     SEQ_ELIM_6,
+    SEQ_FEED_A,
+    SEQ_FEED_B,
     obs_doc,
     obs_item,
     write_tree,
@@ -193,9 +195,16 @@ class ValidOutputTests(unittest.TestCase):
             out = Path(tmp) / "script.json"
             by_id = gate_script_claims(obs_dir, st, ev)
             self.assertTrue(by_id)
+            # The producer wraps developments and echoes into beats;
+            # scene claims get no-beat omissions and are uncitable.
+            wrapped = {
+                claim_id: claim for claim_id, claim in by_id.items()
+                if claim["type"] != "scene"
+            }
+            self.assertTrue(wrapped)
             texts = {
-                claim_id: f"And here comes the play: {by_id[claim_id]['evidence'][0].lower()}"
-                for claim_id in by_id
+                claim_id: f"And here comes the play: {claim['evidence'][0].lower()}"
+                for claim_id, claim in wrapped.items()
             }
             client = FakeScriptClient(
                 lambda kwargs, index: script_response(script_json([
@@ -221,7 +230,14 @@ class ValidOutputTests(unittest.TestCase):
                 self.assertIn(claim_id, by_id)
                 self.assertNotIn(claim_id, seen)
                 seen.append(claim_id)
-        self.assertEqual(set(seen), set(by_id))
+        wrapped_ids = {
+            claim_id for claim_id, claim in by_id.items()
+            if claim["type"] != "scene"
+        }
+        self.assertEqual(set(seen), wrapped_ids)
+        self.assertTrue(
+            any(entry["rule"] == "no-beat" for entry in doc["omitted"])
+        )
         # Full contract validation with provenance passes.
         validate_script(doc, by_id)
         # Chronological ordering holds.
@@ -336,8 +352,11 @@ class RejectionTests(unittest.TestCase):
                 "unconfirmed for now."
             )
             # Echo evidence names RRQ.JEEK; naming it is grounded here.
+            # Bare "Possible" carries the uncertainty: trailing
+            # ", unconfirmed" qualifier clauses are leaked validation
+            # language and rejected.
             good_named = (
-                "Possible feed activity involving RRQ.JEEK, unconfirmed."
+                "Possible feed activity involving RRQ.JEEK."
             )
             self.assertTrue(script_text_valid(good_named, [echo]))
             client = FakeScriptClient(
@@ -559,20 +578,33 @@ class SilenceAndHistoryTests(unittest.TestCase):
 class ProvenanceTests(unittest.TestCase):
     def test_timestamps_derive_from_evidence_and_order(self):
         with tempfile.TemporaryDirectory() as tmp:
-            obs_dir, st, ev, _ = two_claim_tree(tmp)
+            # Two feed echoes 9s apart: both survive producer pacing.
+            obs_dir, st, ev, _ = write_tree(
+                tmp,
+                {
+                    0: obs_doc(0, [SEQ_FEED_A]),
+                    9: obs_doc(9, [SEQ_FEED_B]),
+                },
+            )
             out = Path(tmp) / "script.json"
             by_id = gate_script_claims(obs_dir, st, ev)
-            ids = sorted(by_id)
+            echoes = sorted(
+                (claim["timestamp"], claim_id_of(claim))
+                for claim in by_id.values()
+                if claim["type"] == "event_echo"
+            )
+            older, newer = echoes[0][1], echoes[-1][1]
             # Return segments newest-first; the stage must reorder them.
+            # Bare "Possible" carries echo uncertainty without leaking.
             client = FakeScriptClient(
                 lambda kwargs, index: script_response(script_json([
                     {
-                        "source_claim_ids": [ids[1]],
-                        "text": f"Later moment: {by_id[ids[1]]['evidence'][0].lower()}",
+                        "source_claim_ids": [newer],
+                        "text": f"Possible later feed entry: {by_id[newer]['evidence'][0].lower()}",
                     },
                     {
-                        "source_claim_ids": [ids[0]],
-                        "text": f"Earlier moment: {by_id[ids[0]]['evidence'][0].lower()}",
+                        "source_claim_ids": [older],
+                        "text": f"Possible earlier feed entry: {by_id[older]['evidence'][0].lower()}",
                     },
                 ]))
             )
@@ -733,7 +765,7 @@ class SequenceScriptTests(unittest.TestCase):
         self.assertFalse(script_text_valid(
             "Team AG kept raising their elimination count.", [seq]))
         self.assertTrue(script_text_valid(
-            "Team AG may have kept raising their count, unconfirmed.",
+            "Team AG may have kept raising their count.",
             [seq]))
 
     def test_causal_identity_outcome_rejected(self):
@@ -760,8 +792,7 @@ class SequenceScriptTests(unittest.TestCase):
             pair_id = [cid for cid, claim in by_claim.items()
                        if claim["template"] == "event_echo"
                        and claim["timestamp"] == 3][0]
-            text = ("The AG counter possibly climbed twice in a row, "
-                    "unconfirmed.")
+            text = "The AG counter possibly climbed twice in a row."
             self.assertTrue(script_text_valid(
                 text, [by_claim[seq_id], by_claim[pair_id]]))
             client = FakeScriptClient(
@@ -788,8 +819,7 @@ class SequenceScriptTests(unittest.TestCase):
             by_id = gate_script_claims(obs_dir, st, ev)
             seq_id = [cid for cid, claim in by_id.items()
                       if claim["template"] == "event_sequence"][0]
-            text = ("The AG panel appears to show a rising count, "
-                    "unconfirmed.")
+            text = "The AG panel appears to show a rising count."
             self.assertTrue(script_text_valid(text, [by_id[seq_id]]))
             client = FakeScriptClient(
                 lambda kwargs, index: script_response(script_json([

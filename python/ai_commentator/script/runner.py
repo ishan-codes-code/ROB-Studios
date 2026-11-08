@@ -5,10 +5,11 @@ from pathlib import Path
 
 from openai import OpenAI
 
+from ..caster.producer import produce_beats
 from ..commentary.claims import gate_commentary_claims
 from ..commentary.generation import load_prior_commentary
 from ..commentary.narrative import build_narrative, render_narrative_block
-from ..commentary.writer import claim_id_of, prioritize_writer_claims, request_writer_text
+from ..commentary.writer import claim_id_of, request_writer_text
 from ..config import (
     BASETEN_BASE_URL,
     COMMENTARY_PATH,
@@ -31,7 +32,7 @@ from ..vision.observations import parse_observation, validate_observation
 from ..streaming.windows import utterance_intensity
 from .generation import (
     _script_norm,
-    build_script_prompt,
+    build_beat_prompt,
     load_prior_script,
     parse_script_segments,
     script_segment_id,
@@ -39,6 +40,7 @@ from .generation import (
     validate_script,
 )
 from .opening import opening_available, run_opening
+from .review import repair_beat_line, review_caster_quality
 
 
 def _resolve_live_credentials():
@@ -119,11 +121,13 @@ def run_generate_script(
     observations, match state, and events (refusing stale inputs exactly
     like commentary), gates claims with the existing logic, suppresses
     repeats against the prior script plus already-spoken history, and
-    words at most SCRIPT_MAX_CLAIMS prioritized claims with one Muse
-    Spark request. No deterministic template text is ever presented as
-    LLM output: invalid or unsupported segments are omitted, and a
+    scores the resulting producer beat sheet — beats, not disconnected
+    frame claims — with one Muse Spark request. No deterministic
+    template text is ever presented as LLM output: invalid or
+    unsupported segments are omitted, quality-flagged lines get at
+    most one deterministic rewrite (or the beat is dropped), and a
     provider or validation failure writes an explicit ``error`` status
-    (exit 1) instead of a false success. Zero eligible claims writes a
+    (exit 1) instead of a false success. Zero eligible beats writes a
     ``silence`` status with no model call (exit 0). Upstream artifacts
     are only read, never rewritten.
     """
@@ -364,30 +368,73 @@ def run_generate_script(
             print(f"Script snapshot: {out_path}")
             print("Script status: silence (deliberate silence).")
         return code
-    model_claims, overflow = prioritize_writer_claims(fresh_claims)
-    for claim in overflow:
+    gameplay = build_gameplay_state(
+        [(timestamp, source, validated) for timestamp, source, validated in accepted],
+        state,
+    )
+    try:
+        beats = produce_beats(
+            gameplay, state, events, fresh_claims, history_texts
+        )
+    except ObservationError as exc:
+        print(f"Script beat production failed: {exc}", file=sys.stderr)
+        return 1
+    wrapped_ids = {
+        claim_id for beat in beats for claim_id in beat["source_claim_ids"]
+    }
+    for claim in fresh_claims:
+        if claim["claim_id"] not in wrapped_ids:
+            omitted.append(
+                {
+                    "rule": "no-beat",
+                    "subject": claim["claim_id"],
+                    "reason": (
+                        "claim wrapped in no producer beat (scene "
+                        "description, pacing, or already-spoken wording); "
+                        "only beats speak."
+                    ),
+                }
+            )
+    model_beats = beats[:SCRIPT_MAX_CLAIMS]
+    for beat in beats[SCRIPT_MAX_CLAIMS:]:
         omitted.append(
             {
                 "rule": "over-claim-limit",
-                "subject": claim["claim_id"],
+                "subject": beat["beat_id"],
                 "reason": (
-                    f"claim beyond the bounded batch of {SCRIPT_MAX_CLAIMS}; "
+                    f"beat beyond the bounded batch of {SCRIPT_MAX_CLAIMS}; "
                     f"not sent to the model in this run."
                 ),
             }
         )
-    prompt_claims = list(model_claims)
-    prompt_by_id = {claim["claim_id"]: claim for claim in prompt_claims}
+    if not model_beats:
+        document = {
+            "schema_version": SCRIPT_SCHEMA_VERSION,
+            "status": "silence",
+            "generated_from": generated_from,
+            "segments": [],
+            "omitted": omitted,
+            "error": None,
+        }
+        code = write_document(document)
+        if code == 0:
+            print(
+                f"Script finished: {len(files)} discovered, "
+                f"{len(accepted)} accepted, 0 segment(s), "
+                f"{len(omitted)} omitted."
+            )
+            print(f"Script snapshot: {out_path}")
+            print("Script status: silence (deliberate silence).")
+        return code
+    prompt_claims = []
+    prompt_by_id = {}
+    for beat in model_beats:
+        for claim_id in beat["source_claim_ids"]:
+            if claim_id not in prompt_by_id:
+                prompt_by_id[claim_id] = claims_by_id[claim_id]
+                prompt_claims.append(claims_by_id[claim_id])
     narrative_block = render_narrative_block(
-        build_narrative(
-            build_gameplay_state(
-                [(timestamp, source, validated) for timestamp, source, validated in accepted],
-                state,
-            ),
-            state,
-            events,
-            history_texts,
-        )
+        build_narrative(gameplay, state, events, history_texts)
     )
     opening_utterance = None
     try:
@@ -399,8 +446,8 @@ def run_generate_script(
                     live_client, prior_claims, history_texts, claims_by_id,
                     omitted, api_key=api_key,
                 )
-                prompt = build_script_prompt(
-                    prompt_claims, history_texts + _opening_history(opening_utterance),
+                prompt = build_beat_prompt(
+                    model_beats, history_texts + _opening_history(opening_utterance),
                     intensity=utterance_intensity(prompt_claims),
                     narrative=narrative_block,
                 )
@@ -410,8 +457,8 @@ def run_generate_script(
             opening_utterance = _word_opening(
                 client, prior_claims, history_texts, claims_by_id, omitted
             )
-            prompt = build_script_prompt(
-                prompt_claims, history_texts + _opening_history(opening_utterance),
+            prompt = build_beat_prompt(
+                model_beats, history_texts + _opening_history(opening_utterance),
                 intensity=utterance_intensity(prompt_claims),
                 narrative=narrative_block,
             )
@@ -450,10 +497,22 @@ def run_generate_script(
         # Missing API key: fail fast before any paid call, writing nothing.
         print(f"Script failed: {exc}", file=sys.stderr)
         return 1
+    beats_by_claim = {}
+    for beat in model_beats:
+        for claim_id in beat["source_claim_ids"]:
+            beats_by_claim.setdefault(claim_id, beat)
+    quality_history = history_texts + _opening_history(opening_utterance)
     built = []
     for ids, wording in parsed:
         cited = [prompt_by_id[claim_id] for claim_id in ids]
-        if not script_text_valid(wording, cited):
+        guards = []
+        for claim_id in ids:
+            beat = beats_by_claim.get(claim_id)
+            if beat is not None:
+                for guard in beat["must_not_claim"]:
+                    if guard not in guards:
+                        guards.append(guard)
+        if not script_text_valid(wording, cited, must_not_claim=guards):
             omitted.append(
                 {
                     "rule": "unsupported-wording",
@@ -462,6 +521,29 @@ def run_generate_script(
                 }
             )
             continue
+        primary = beats_by_claim.get(ids[0])
+        if primary is not None and review_caster_quality(
+            wording, primary, quality_history
+        ):
+            fixed = repair_beat_line(
+                wording, primary, cited,
+                must_not_claim=guards, history=quality_history,
+            )
+            if fixed is None or not script_text_valid(
+                fixed, cited, must_not_claim=guards
+            ):
+                omitted.append(
+                    {
+                        "rule": "quality-drop",
+                        "subject": "+".join(ids),
+                        "reason": (
+                            "line failed caster-quality review with no "
+                            "safe deterministic rewrite."
+                        ),
+                    }
+                )
+                continue
+            wording = fixed.strip()
         timestamp = max(claim["timestamp"] for claim in cited)
         built.append((timestamp, sorted(ids), wording.strip()))
     if opening_utterance is not None:

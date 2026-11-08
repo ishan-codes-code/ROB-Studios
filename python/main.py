@@ -18,10 +18,14 @@ from ai_commentator.commentary.narrative import (
     build_narrative,
     render_narrative_block,
 )
+from ai_commentator.caster.analyst import analyze_match
+from ai_commentator.caster.beats import beat_id_for, validate_beat
+from ai_commentator.caster.producer import produce_beats
 from ai_commentator.commentary.writer import (
     _render_claim_line,
     build_writer_prompt,
     claim_id_of,
+    contains_leaked_validation_language,
     order_commentary_claims,
     parse_writer_lines,
     prioritize_writer_claims,
@@ -171,6 +175,7 @@ from ai_commentator.script.generation import (
     _script_norm,
     _script_numbers,
     _stem_present,
+    build_beat_prompt,
     build_script_prompt,
     load_prior_script,
     parse_script_segments,
@@ -178,6 +183,7 @@ from ai_commentator.script.generation import (
     script_text_valid,
     validate_script,
 )
+from ai_commentator.script.review import repair_beat_line, review_caster_quality
 from ai_commentator.script.opening import (
     OPENING_CLAIM_TYPE,
     OPENING_TEMPLATE,

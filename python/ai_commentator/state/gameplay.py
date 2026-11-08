@@ -14,7 +14,10 @@ in-memory ``gameplay-v1`` document:
 - **entity tracks**: cautiously maintained identities keyed by exact
   on-screen label. Similar labels are never merged, unlabeled sightings
   are never linked across frames, and a gap in sightings means
-  ``occluded`` — never eliminated.
+  ``occluded`` — never eliminated. Each track additionally carries its
+  last-known position, the position-change sequence across its
+  sightings, a chronological per-sighting engagement timeline, and a
+  weakest-link tracking confidence.
 
 The document is derived deterministically from the same inputs as match
 state (plus the state snapshot for latest-timestamp/status context) and
@@ -25,7 +28,9 @@ surface: replaying the same observations always yields the same bytes.
 
 from __future__ import annotations
 
-from ..config import EVENT_NAME_RE
+import re
+
+from ..config import EVENT_NAME_RE, OBSERVATION_CONFIDENCES
 from ..errors import ObservationError
 from ..vision.observations import _reject_extra, _require_non_empty_string
 from .match_state import fact_key
@@ -176,6 +181,231 @@ _SIGNAL_WORD_FIELDS = (
     ("scenery", SCENERY_WORDS),
 )
 
+#: Weapon wording, matched as whole terms (see ``_SIGNAL_TERM_FIELDS``).
+#: Generic families plus widely fielded Free Fire / BGMI model names, so
+#: downstream reasoning can see armament without a model call. Short
+#: model names (``ak``, ``ump``, ``scar``) are safe to list: term
+#: matching blanks entity labels first, so a gamertag like ``SCAR.FACE``
+#: never fires ``weapon`` while prose like "an AK rifle" still does.
+WEAPON_WORDS = (
+    "weapon",
+    "weapons",
+    "gun",
+    "guns",
+    "rifle",
+    "rifles",
+    "assault rifle",
+    "assault rifles",
+    "sniper rifle",
+    "sniper rifles",
+    "shotgun",
+    "shotguns",
+    "sniper",
+    "snipers",
+    "pistol",
+    "pistols",
+    "smg",
+    "smgs",
+    "submachine",
+    "machine gun",
+    "machine guns",
+    "machine-gun",
+    "ammo",
+    "ammunition",
+    "reload",
+    "reloads",
+    "reloading",
+    "reloaded",
+    "scope",
+    "scopes",
+    "scoped",
+    "suppressor",
+    "suppressors",
+    "silencer",
+    "silencers",
+    "launcher",
+    "launchers",
+    "crossbow",
+    "crossbows",
+    "katana",
+    "katanas",
+    "knife",
+    "knives",
+    "machete",
+    "desert eagle",
+    "ak",
+    "ak47",
+    "ak-47",
+    "akm",
+    "m4a1",
+    "m416",
+    "m1014",
+    "m1887",
+    "m1873",
+    "m500",
+    "m60",
+    "m24",
+    "mp40",
+    "mp5",
+    "ump",
+    "ump45",
+    "uzi",
+    "awm",
+    "groza",
+    "scar",
+    "famas",
+    "xm8",
+    "an94",
+    "parafal",
+    "svd",
+    "g18",
+    "kar98",
+    "kar98k",
+    "mini14",
+    "spas12",
+    "sks",
+    "vss",
+    "dragunov",
+)
+
+#: Worn/carried gear and consumables. A Blue Wall stays tagged
+#: ``blue_wall`` only (cover object, not loadout); a bare ``shield``
+#: tags nothing, as before.
+EQUIPMENT_WORDS = (
+    "armor",
+    "armour",
+    "helmet",
+    "helmets",
+    "vest",
+    "vests",
+    "bulletproof",
+    "backpack",
+    "backpacks",
+    "medkit",
+    "med kit",
+    "med kits",
+    "med-kit",
+    "first aid",
+    "first-aid",
+    "bandage",
+    "bandages",
+    "inhaler",
+    "inhalers",
+    "repair kit",
+    "repair kits",
+    "loadout",
+    "loadouts",
+    "inventory",
+    "attachment",
+    "attachments",
+    "foregrip",
+    "ghillie",
+    "flare",
+    "flares",
+    "landmine",
+    "landmines",
+    "heal",
+    "heals",
+    "healing",
+    "loot",
+    "looting",
+    "looted",
+    "crate",
+    "crates",
+    "supply crate",
+)
+
+#: Round and outcome markers (Clash Squad rounds, match results). Bare
+#: ``round`` matches only as a whole term, so "around the rock" and "on
+#: the ground" never fire it. Bare plural ``rounds`` is intentionally
+#: absent: ammunition rounds ("30 rounds left") and game rounds ("won 3
+#: rounds") are indistinguishable without parsing, so neither claims
+#: the tag.
+ROUND_STATE_WORDS = (
+    "round",
+    "booyah",
+    "victory",
+    "victories",
+    "defeat",
+    "defeats",
+    "defeated",
+    "winner",
+    "winners",
+    "champion",
+    "champions",
+    "match point",
+    "match-point",
+    "matchpoint",
+    "game point",
+    "chicken dinner",
+    "scoreboard",
+)
+
+#: Match-phase and HUD-progression markers: lobby, flight and drop,
+#: alive/elim counters, timers, and end-of-match screens. Bare ``elim``
+#: is counter-only ("Elim 4"): whole-term matching keeps it from firing
+#: inside "eliminated"/"elimination", which stay ``elim``-tagged
+#: outcomes. Deliberately excluded: ``dropped``/``landing``/``landed``
+#: (knock and shooter-slang collisions), plural ``kills`` (counter vs
+#: outcome ambiguity), and the kill feed (owned by event detection).
+MATCH_PHASE_WORDS = (
+    "lobby",
+    "lobbies",
+    "loading",
+    "plane",
+    "planes",
+    "airplane",
+    "airplanes",
+    "parachute",
+    "parachutes",
+    "parachuting",
+    "dropping",
+    "skydiving",
+    "gliding",
+    "airdrop",
+    "airdrops",
+    "drop zone",
+    "drop-zone",
+    "alive",
+    "elim",
+    "elims",
+    "timer",
+    "timers",
+    "countdown",
+    "final circle",
+    "end screen",
+    "end-screen",
+    "game over",
+    "game-over",
+    "match end",
+    "spawn",
+    "spawning",
+    "spawned",
+    "respawn",
+    "respawning",
+    "respawned",
+)
+
+#: Whole-term signal tags. Unlike ``_SIGNAL_WORD_FIELDS`` (substring
+#: match, kept byte-for-byte for backward compatibility), these match
+#: on word boundaries over label-blanked prose (see ``_prose_text``),
+#: so short terms (``ak``, ``ump``, ``gun``, ``round``, ``elim``)
+#: cannot fire inside larger words or gamertags.
+_SIGNAL_TERM_FIELDS = (
+    ("weapon", WEAPON_WORDS),
+    ("equipment", EQUIPMENT_WORDS),
+    ("round_state", ROUND_STATE_WORDS),
+    ("match_phase", MATCH_PHASE_WORDS),
+)
+
+_COMPILED_TERMS = tuple(
+    (
+        tag,
+        tuple(re.compile(r"\b%s\b" % re.escape(term)) for term in words),
+    )
+    for tag, words in _SIGNAL_TERM_FIELDS
+)
+
 
 def _entry_text(entry: dict) -> str:
     """Lowercased searchable text of one validated observation entry."""
@@ -190,6 +420,35 @@ def _entry_text(entry: dict) -> str:
         if isinstance(subject, dict) and isinstance(subject.get("label"), str):
             parts.append(subject["label"])
     return " ".join(part for part in parts if part).lower()
+
+
+def _prose_text(entry: dict) -> str:
+    """Lowercased entry prose for whole-term signal matching.
+
+    Entity labels are names, never vocabulary: ``TAG.NAME`` tokens and
+    structured subject labels are blanked, so a gamertag like
+    ``SCAR.FACE`` (or ``Scar``) cannot fire ``weapon`` while prose like
+    "an AK rifle" still does. Appended subject labels are excluded for
+    the same reason (they quote description/evidence verbatim, so no
+    vocabulary is lost by skipping the duplicates).
+    """
+    parts = [entry.get("description", ""), entry.get("evidence", "")]
+    action = entry.get("action")
+    spatial = entry.get("spatial")
+    if isinstance(action, str):
+        parts.append(action)
+    if isinstance(spatial, str):
+        parts.append(spatial)
+    text = " ".join(part for part in parts if part).lower()
+    text = EVENT_NAME_RE.sub(" ", text)
+    for subject in entry.get("subjects", []) or []:
+        if not isinstance(subject, dict):
+            continue
+        label = subject.get("label")
+        if not isinstance(label, str) or not label.strip():
+            continue
+        text = re.sub(r"\b%s\b" % re.escape(label.strip().lower()), " ", text)
+    return text
 
 
 def _name_tokens(text: str) -> list[str]:
@@ -209,13 +468,19 @@ def entry_signals(entry: dict) -> dict:
     "posture": str | None}`` with sorted, deduplicated tag lists.
     ``observed`` tags name wording directly present; ``inferred`` tags
     name weak suggestions that require corroboration before any rule may
-    act on them. Never raises on missing optional keys (v1 entries and
-    v1-shaped v2 entries simply yield fewer tags).
+    act on them. Whole-term tags (``weapon``, ``equipment``,
+    ``round_state``, ``match_phase``) match on word boundaries over
+    label-blanked prose. Never raises on missing optional keys (v1
+    entries and v1-shaped v2 entries simply yield fewer tags).
     """
     text = _entry_text(entry)
     observed: set[str] = set()
     for tag, words in _SIGNAL_WORD_FIELDS:
         if any(word in text for word in words):
+            observed.add(tag)
+    prose = _prose_text(entry)
+    for tag, patterns in _COMPILED_TERMS:
+        if any(pattern.search(prose) for pattern in patterns):
             observed.add(tag)
     entities: list[dict] = []
     seen_labels: set[str] = set()
@@ -289,9 +554,12 @@ def build_entity_tracks(accepted: list) -> list:
     entry without an entity label yields an unlinked ``unknown-`` track
     that can never join another sighting. Movement is flagged only when
     two non-empty spatial phrases differ across sightings of the same
-    track. Tracks sort by ``(first_seen, ref)``; sightings sort by
-    ``(timestamp, source)``. Deterministic: the same inputs always yield
-    the same tracks.
+    track. Each track also records its last-known quoted position, the
+    position-change sequence across sightings, a chronological
+    per-sighting engagement timeline, and a tracking confidence (weakest
+    contributing sighting label). Tracks sort by ``(first_seen, ref)``;
+    sightings sort by ``(timestamp, source)``. Deterministic: the same
+    inputs always yield the same tracks.
     """
     sightings_by_label: dict[str, dict] = {}
     unknown_tracks: list[dict] = []
@@ -302,6 +570,7 @@ def build_entity_tracks(accepted: list) -> list:
             spatial_text = spatial.strip() if isinstance(spatial, str) else ""
             action = entry.get("action")
             action_text = action.strip() if isinstance(action, str) else ""
+            confidence = entry.get("confidence")
             sighting = {
                 "timestamp": timestamp,
                 "source": source_name,
@@ -312,6 +581,11 @@ def build_entity_tracks(accepted: list) -> list:
                 "action": action_text,
                 "posture": signals["posture"],
                 "observed": signals["observed"],
+                "tracking_confidence": (
+                    confidence
+                    if confidence in OBSERVATION_CONFIDENCES
+                    else "low"
+                ),
             }
             if not signals["entities"]:
                 unknown_tracks.append(
@@ -354,6 +628,37 @@ def build_entity_tracks(accepted: list) -> list:
         if len(spatials) >= 2 and spatials[0].lower() != spatials[-1].lower():
             movement = {"from": spatials[0], "to": spatials[-1]}
         postures = [item["posture"] for item in sightings if item["posture"]]
+        positions: list[dict] = []
+        for item in sightings:
+            if not item["spatial"]:
+                continue
+            if (
+                positions
+                and item["spatial"].lower() == positions[-1]["spatial"].lower()
+            ):
+                continue
+            positions.append(
+                {
+                    "timestamp": item["timestamp"],
+                    "source": item["source"],
+                    "spatial": item["spatial"],
+                }
+            )
+        engagements = [
+            {
+                "timestamp": item["timestamp"],
+                "source": item["source"],
+                "action": item["action"],
+                "spatial": item["spatial"],
+                "posture": item["posture"],
+                "observed": list(item["observed"]),
+            }
+            for item in sightings
+        ]
+        rank = {"high": 0, "medium": 1, "low": 2}
+        tracking_confidence = max(
+            sightings, key=lambda item: rank[item["tracking_confidence"]]
+        )["tracking_confidence"]
         tracks.append(
             {
                 "ref": track["ref"],
@@ -365,6 +670,10 @@ def build_entity_tracks(accepted: list) -> list:
                 "posture": postures[-1] if postures else None,
                 "movement": movement,
                 "sightings": sightings,
+                "last_known_position": spatials[-1] if spatials else None,
+                "positions": positions,
+                "engagements": engagements,
+                "tracking_confidence": tracking_confidence,
             }
         )
     tracks.sort(key=lambda item: (item["first_seen"], item["ref"]))
@@ -515,6 +824,10 @@ def validate_gameplay(data: dict) -> dict:
                 "posture",
                 "movement",
                 "sightings",
+                "last_known_position",
+                "positions",
+                "engagements",
+                "tracking_confidence",
             ),
             where,
         )
@@ -542,6 +855,70 @@ def validate_gameplay(data: dict) -> dict:
             _reject_extra(movement, ("from", "to"), f"{where}.movement")
             _require_non_empty_string(movement, "from", f"{where}.movement")
             _require_non_empty_string(movement, "to", f"{where}.movement")
+        last_known = track.get("last_known_position")
+        if last_known is not None and not isinstance(last_known, str):
+            raise ObservationError(
+                f"{where} field 'last_known_position' must be a string or null."
+            )
+        if "positions" in track:
+            positions = track["positions"]
+            if not isinstance(positions, list):
+                raise ObservationError(
+                    f"{where} field 'positions' must be a list."
+                )
+            for position_index, position in enumerate(positions):
+                position_where = f"{where}.positions[{position_index}]"
+                if not isinstance(position, dict):
+                    raise ObservationError(f"{position_where} must be an object.")
+                _reject_extra(
+                    position, ("timestamp", "source", "spatial"), position_where
+                )
+                position_ts = position.get("timestamp")
+                if isinstance(position_ts, bool) or not isinstance(
+                    position_ts, (int, float)
+                ):
+                    raise ObservationError(
+                        f"{position_where} field 'timestamp' must be a number."
+                    )
+                _require_non_empty_string(position, "source", position_where)
+                _require_non_empty_string(position, "spatial", position_where)
+        if "engagements" in track:
+            engagements = track["engagements"]
+            if not isinstance(engagements, list):
+                raise ObservationError(
+                    f"{where} field 'engagements' must be a list."
+                )
+            for engagement_index, engagement in enumerate(engagements):
+                engagement_where = f"{where}.engagements[{engagement_index}]"
+                if not isinstance(engagement, dict):
+                    raise ObservationError(f"{engagement_where} must be an object.")
+                _reject_extra(
+                    engagement,
+                    (
+                        "timestamp",
+                        "source",
+                        "action",
+                        "spatial",
+                        "posture",
+                        "observed",
+                    ),
+                    engagement_where,
+                )
+                engagement_ts = engagement.get("timestamp")
+                if isinstance(engagement_ts, bool) or not isinstance(
+                    engagement_ts, (int, float)
+                ):
+                    raise ObservationError(
+                        f"{engagement_where} field 'timestamp' must be a number."
+                    )
+                _require_non_empty_string(engagement, "source", engagement_where)
+        if "tracking_confidence" in track and (
+            track["tracking_confidence"] not in OBSERVATION_CONFIDENCES
+        ):
+            raise ObservationError(
+                f"{where} has invalid tracking_confidence "
+                f"'{track['tracking_confidence']}'."
+            )
         sightings = track.get("sightings")
         if not isinstance(sightings, list) or not sightings:
             raise ObservationError(
@@ -561,6 +938,7 @@ def validate_gameplay(data: dict) -> dict:
                     "action",
                     "posture",
                     "observed",
+                    "tracking_confidence",
                 ),
                 sighting_where,
             )
@@ -570,6 +948,13 @@ def validate_gameplay(data: dict) -> dict:
                     f"{sighting_where} field 'timestamp' must be a number."
                 )
             _require_non_empty_string(sighting, "source", sighting_where)
+            if "tracking_confidence" in sighting and (
+                sighting["tracking_confidence"] not in OBSERVATION_CONFIDENCES
+            ):
+                raise ObservationError(
+                    f"{sighting_where} has invalid tracking_confidence "
+                    f"'{sighting['tracking_confidence']}'."
+                )
     summary = data.get("summary")
     if not isinstance(summary, dict):
         raise ObservationError("Gameplay state requires field 'summary' as an object.")

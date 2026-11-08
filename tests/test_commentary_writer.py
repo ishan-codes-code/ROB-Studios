@@ -347,10 +347,9 @@ class EventEchoWriterTests(unittest.TestCase):
             self.assertEqual(len(echo_ids), 1)
             echo = by_id[echo_ids[0]]
             quoted = " — ".join(echo["evidence"])
-            text = (
-                f"Big moment: {quoted} — "
-                f"unconfirmed: {echo['qualification']}"
-            )
+            # Quotes plus a bare uncertainty marker: the qualifier
+            # stays internal and leaked clauses are rejected.
+            text = f"Big moment: {quoted} — possible development."
             client = FakeWriterClient(
                 lambda kwargs, index: writer_response(wording_json([
                     {"claim_id": echo_ids[0], "text": text}
@@ -399,8 +398,11 @@ class EventEchoWriterTests(unittest.TestCase):
             self.assertEqual(code, 0)
             doc = read_commentary(out)
         got = {line["claim_id"]: line["text"] for line in doc["lines"]}
-        self.assertIn("unconfirmed", got[echo_ids[0]])
+        self.assertIn(
+            "a possible development, details still unclear", got[echo_ids[0]]
+        )
         self.assertNotIn("definitely", got[echo_ids[0]])
+        self.assertNotIn("unconfirmed", got[echo_ids[0]])
 
     def test_invented_identity_falls_back(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -638,7 +640,7 @@ class WriterValidationUnitTests(unittest.TestCase):
         )
         good = (
             "RRQ.JEEK eliminated OG.IQOOPAWDI in the kill feed — "
-            "unconfirmed: killer and victim roles are not established"
+            "possible development."
         )
         self.assertTrue(valid(good, echo))
         self.assertFalse(valid(echo["evidence"][0], echo))
@@ -719,17 +721,16 @@ class EventSequenceWriterTests(unittest.TestCase):
 
     def test_render_sequence_shape(self):
         text = render_claim_text(self.sequence_claim())
-        self.assertTrue(text.startswith("Sequence:"))
+        self.assertTrue(text.startswith("Sequence developing:"))
         self.assertIn("Team AG panel header Elim 4.", text)
         self.assertIn("Team AG panel header Elim 6.", text)
-        self.assertIn("are not established", text)
+        self.assertNotIn("are not established", text)
 
     def test_valid_sequence_wording(self):
         claim = self.sequence_claim()
         text = (
-            "Sequence: Team AG panel header Elim 4. "
-            "Team AG panel header Elim 6., unconfirmed: who was "
-            "eliminated, by whom, and by what means are not established."
+            "Sequence developing: Team AG panel header Elim 4. "
+            "Team AG panel header Elim 6. Possible development."
         )
         self.assertTrue(writer_text_valid(text, claim))
 

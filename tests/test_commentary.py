@@ -258,7 +258,11 @@ class EventEchoTests(unittest.TestCase):
         self.assertEqual(echo["template"], "event_echo")
         self.assertIsNotNone(echo["event_id"])
         self.assertIsNotNone(echo["qualification"])
-        self.assertIn("unconfirmed", echo["text"])
+        # The qualifier stays internal-only: spoken text uses cautious
+        # grounded wording with no leaked validation language.
+        self.assertIn("a possible development, details still unclear", echo["text"])
+        self.assertNotIn("unconfirmed", echo["text"])
+        self.assertNotIn("not established", echo["text"])
         self.assertIn("RRQ.JEEK", echo["text"])
 
 
@@ -719,7 +723,8 @@ class EventSequenceTests(unittest.TestCase):
         self.assertEqual(line["timestamp"], 6)
         self.assertIsNotNone(line["event_id"])
         self.assertIn("not established", line["qualification"])
-        self.assertTrue(line["text"].startswith("Sequence:"))
+        self.assertTrue(line["text"].startswith("Sequence developing:"))
+        self.assertNotIn("unconfirmed", line["text"])
         for quote in line["evidence"]:
             self.assertIn(quote, line["text"])
 

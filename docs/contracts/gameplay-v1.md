@@ -66,12 +66,28 @@ Each entity-track object has exactly these fields:
 | `posture` | string or null | Latest posture word, or null when none was worded |
 | `movement` | object or null | `{from, to}` differing spatial phrases, or null |
 | `sightings` | non-empty array of sighting objects | Every sighting, sorted by (timestamp, source) |
+| `last_known_position` | string or null, optional | Latest quoted spatial phrase, or null when none was quoted |
+| `positions` | array of `{timestamp, source, spatial}` objects, optional | Position-change sequence in sighting order (see below) |
+| `engagements` | array of sighting-summary objects, optional | Chronological per-sighting summaries (see below) |
+| `tracking_confidence` | `high`/`medium`/`low`, optional | Weakest contributing sighting label (see below) |
 
 Each sighting object has exactly these fields: `timestamp` (number),
 `source` (non-empty string), `fact_key` (two-element `[category,
 description]` list), `spatial` (string, empty when unquoted), `action`
 (string, empty when unquoted), `posture` (string or null), `observed`
-(list of strings).
+(list of strings), and optional `tracking_confidence`
+(`high`/`medium`/`low`, restating the entry's observation confidence
+label).
+
+Each `positions` element quotes one position change: the first quoted
+position plus each later quoted position that differs from the previous
+kept one (compared case-insensitively, originals kept). Each
+`engagements` element summarizes one sighting — `timestamp`, `source`,
+`action`, `spatial`, `posture`, `observed` — in the same order as
+`sightings`. The track-level `tracking_confidence` is the weakest
+sighting label, so a track is never stronger than any sighting behind
+it. The four track fields and the sighting confidence are additive and
+optional: documents without them still validate as `gameplay-v1`.
 
 `summary` has exactly these fields: `entity_count` (labeled tracks),
 `unknown_sightings` (unlinked tracks), `combat_active` (boolean:
@@ -102,7 +118,12 @@ refs with status `occluded`).
 Tags derive from explicit word lists in `state/gameplay.py`
 (`POSTURE_WORDS`, `COMBAT_WORDS`, `KNOCKDOWN_WORDS`, `REVIVE_WORDS`,
 `BLUE_WALL_WORDS`, `GRENADE_WORDS`, `SMOKE_WORDS`, `VEHICLE_WORDS`,
-`ZONE_WORDS`, `ELIM_WORDS`, `MOVEMENT_WORDS`, `SCENERY_WORDS`).
+`ZONE_WORDS`, `ELIM_WORDS`, `MOVEMENT_WORDS`, `SCENERY_WORDS`, plus
+`WEAPON_WORDS`, `EQUIPMENT_WORDS`, `ROUND_STATE_WORDS`,
+`MATCH_PHASE_WORDS`). The original twelve match by substring; the four
+new lists match as whole terms on word boundaries over label-blanked
+prose (`TAG.NAME` tokens and subject labels removed), so entity labels
+are names, never vocabulary.
 Load-bearing distinctions:
 
 - Knockdown words (`knocked`, `downed`, `crawling`, ...) tag
@@ -117,6 +138,21 @@ Load-bearing distinctions:
 - Scenery nouns (`grass`, `road`, `billboard`, ...) tag `scenery` so
   the significance gate can tell standalone environment description
   from gameplay-linked context. The tag suppresses nothing by itself.
+- Weapon families and model names (`rifle`, `AK`, `M1014`, `ammo`,
+  `reload`, ...) tag `weapon`. `gunfire` stays `combat`-only, and a
+  gamertag like `SCAR.FACE` never tags `weapon`.
+- Gear and consumables (`helmet`, `vest`, `medkit`, `loadout`,
+  `loot`, ...) tag `equipment`. A Blue Wall stays `blue_wall`-tagged
+  cover, never loadout; a bare `shield` tags nothing.
+- Round and outcome markers (`round`, `match point`, `booyah`,
+  `victory`/`defeat`, `winner`, `scoreboard`, ...) tag `round_state`.
+  `around`/`ground` never match, and bare plural `rounds` is
+  intentionally unmatched (ammunition vs game rounds).
+- Phase and HUD-progression markers (`lobby`, `parachute`, `drop
+  zone`, `alive`, `timer`, `end screen`, ...) tag `match_phase`. Bare
+  `elim` is counter-only (`Elim 4`); `eliminated`/`elimination` stay
+  `elim`-tagged outcomes and never tag `match_phase`. The kill feed is
+  not tagged here (owned by event detection).
 
 ## Determinism and persistence
 
@@ -134,4 +170,7 @@ Changes to this contract require bumping `schema_version` and
 reviewing all consumers (event detection, commentary gating,
 narrative). Adding a signal tag is a minor but review-gated change
 (document it here first); changing identity, status, or movement
-semantics is breaking.
+semantics is breaking. The `weapon`/`equipment`/`round_state`/
+`match_phase` tags and the optional track/sighting reconstruction
+fields are such an additive extension: `schema_version` stays
+`gameplay-v1` and documents without them still validate.

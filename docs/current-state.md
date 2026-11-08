@@ -1,5 +1,38 @@
 # Current state
 
+## Caster-first intelligence architecture (uncommitted)
+
+The recorded-gameplay pipeline now runs perception → temporal
+reconstruction → gameplay analyst → caster producer → beat-driven
+writer → editorial review → existing TTS/export, on branch
+`feature/commentary-refinements` (prior overhaul work committed as
+76c0bfe). `state/gameplay.py` gains weapon/equipment and
+round-state/match-phase signals plus per-track engagement timelines
+and tracking confidence (all additive; `gameplay-v1` compatible). New
+`caster/` package: `beats.py` (strict beat schema wrapping gated
+claims via `source_claim_ids`), `analyst.py`
+(`observed_facts`/`interpretations`/`hypotheses`/`unknown` separation)
+with modular `games/clash_squad.py`, and `producer.py` (chronological
+beat sheet, priority/delivery, 5s pacing, silence, no-repeat,
+`must_not_claim`). The sequential script path (`script/runner.py`)
+scores beats via `build_beat_prompt`; `script-v1` segments shape
+unchanged so TTS/export keep working. Uncertainty no longer leaks
+into speech: qualifiers are internal-only, templates speak cautious
+grounded lines, and `script_text_valid`/`writer_text_valid` reject
+leaked validation language; new `script/review.py` adds the
+caster-quality reviewer with one deterministic rewrite-or-drop (never
+a second model call). Streaming windows keep the legacy claims path
+(recorded MVP; non-goal).
+
+Verification: 66 new targeted tests (`test_reconstruction` 24,
+`test_producer` 20, `test_caster_writer` 22); full Python suite 845
+tests with only the 3 pre-existing clean-tree failures (Windows `con`
+path, api_activity leak, opening already-emitted). Existing suites
+with intended-behavior fallout updated minimally (script,
+commentary, writer, opening, streaming fakes); old leak-wording
+expectations replaced with no-leak assertions. Real-footage
+acceptance not run (no footage or key in this environment).
+
 ## Gameplay intelligence overhaul (uncommitted)
 
 ROB now commentates developing match situations instead of narrating

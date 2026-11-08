@@ -93,6 +93,35 @@ Sequence claims (`event_sequence` template) keep the `event_echo`
 claim type, so the uncertainty/certainty rules above cover them with
 no script-shape change; no new stems were needed.
 
+## Beat-driven writing (recorded path)
+
+The sequential path words producer beats (`caster/producer.py`),
+not disconnected frame claims: each beat carries its development
+(`what`), named participants, verbatim evidence, an optional
+grounded tactical read, and internal `must_not_claim` guards, plus
+bounded narrative context. The model answers with the same
+`segments` shape, citing each beat's `source_claim_ids`, so the
+schema above is unchanged.
+
+## Spoken-text bans
+
+Spoken `text` never contains internal-validation language: `not
+established`, `unconfirmed` qualifier clauses (`unconfirmed:`, dash
+or trailing `, unconfirmed`, `unconfirmed for now`), or
+participants/outcome meta-talk. Qualifiers survive only as internal
+`must_not_claim` guards (enforced by omission) plus cautious
+grounded wording (`possible`, `may`, `appears`).
+`script_text_valid` rejects leaks and guard phrasing.
+
+## Editorial review
+
+After the factual validator, `review_caster_quality` flags
+screenshot narration, repetition, generic filler, missing
+continuity, leaked validation language, and unnatural hype. A
+flagged line gets at most one deterministic rewrite to a safe
+grounded line from beat evidence, or the beat is dropped — never a
+second model call. Rewrites re-pass the factual validator.
+
 ## Compatibility
 
 - `script-v1` is a new, distinct artifact. It does not change the

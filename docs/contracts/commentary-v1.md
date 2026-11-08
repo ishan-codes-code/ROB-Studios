@@ -109,19 +109,21 @@ and no other wording path; a line naming any other template is invalid.
 - Precondition: an `events-v1` event with status `candidate` whose every
   cited fact is non-conflicted in state. Echoes always clear the
   significance gate: their rule evidence is the gameplay link.
-- Allowed claim: quote the event's evidence and state that it is
-  unconfirmed.
-- Text shape: `"{evidence quote} — unconfirmed: {qualifier}"` where
-  `{qualifier}` is fixed per rule (`kill_feed_entry`: `"killer and victim
-  roles are not established"`; `elim_count_increased`: `"who was
-  eliminated, by whom, and by what means are not established"`;
-  `knockdown_observed`: `"elimination is not established; a down player
-  can be revived"`; `revive_observed`: `"who revived whom is not
-  established"`; `blue_wall_use`: `"who placed it and when are not
-  established"`; `zone_pressure`: `"who is affected is not
-  established"`).
-  The qualifier slot has no variable path: the renderer holds no other
-  wording for this template.
+- Allowed claim: quote the event's evidence with cautious grounded
+  wording. The qualifier is internal-only (the `qualification`
+  field plus writer guards): enforced by omitting unshown detail,
+  never spoken.
+- Text shape: `"{evidence quote} — a possible development, details
+  still unclear."` The renderer holds no other wording for this
+  template. Fixed qualifier texts per rule (`kill_feed_entry`:
+  `"killer and victim roles are not established"`;
+  `elim_count_increased`: `"who was eliminated, by whom, and by what
+  means are not established"`; `knockdown_observed`: `"elimination
+  is not established; a down player can be revived"`;
+  `revive_observed`: `"who revived whom is not established"`;
+  `blue_wall_use`: `"who placed it and when are not established"`;
+  `zone_pressure`: `"who is affected is not established"`) stay as
+  the internal `qualification` value only.
 
 ### `event_sequence`
 
@@ -129,15 +131,17 @@ and no other wording path; a line naming any other template is invalid.
   temporal rule (`elim_streak`, `feed_cluster`, `combat_engagement`)
   whose every cited fact is non-conflicted in state.
 - Allowed claim: quote the event's evidence (every reading or entry
-  in the sequence) and state that it is unconfirmed.
-- Text shape: `"Sequence: {evidence quotes} — unconfirmed:
-  {qualifier}"` where `{qualifier}` is fixed per rule
+  in the sequence) with cautious grounded wording; the qualifier is
+  internal-only, never spoken.
+- Text shape: `"Sequence developing: {evidence quotes} — details
+  still unclear."` Fixed qualifier texts per rule
   (`elim_streak`: `"who was eliminated, by whom, and by what means
   are not established"`; `feed_cluster`: `"killer and victim roles
   are not established"`; `combat_engagement`: `"participants,
-  outcome, and cause are not established"`). The line type stays
-  `event_echo`, so the qualifier, uncertainty, and validator rules
-  for echoes apply unchanged; only the template key differs.
+  outcome, and cause are not established"`) stay as the internal
+  `qualification` value only. The line type stays `event_echo`, so
+  the uncertainty and validator rules for echoes apply unchanged;
+  only the template key differs.
 
 Event echoes (both templates) gate and render in significance order
 (`feed_cluster` > `elim_streak` > `combat_engagement` >

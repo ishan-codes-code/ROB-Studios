@@ -32,9 +32,10 @@ ENV_A = "A bike speeding past the rocky ledge."
 ENV_B = "Squad rotating across the container yard."
 FAKE_WAV = b"RIFF\x24\x00\x00\x00WAVEfmt payload-bytes-here"
 # Stem-free fake wording: valid against any evidence under the script
-# validator (no kill/outcome/action/zone/engagement/movement claims),
-# with the uncertainty marker echoes require.
-SAFE_WORDING = "Activity is visible in the view, unconfirmed."
+# validator (no kill/outcome/action/zone/engagement/movement claims).
+# Bare leading "Possible" carries echo uncertainty without leaking
+# validation language (trailing ", unconfirmed" clauses are banned).
+SAFE_WORDING = "Possible activity in the view."
 
 
 class FakeTextClient:

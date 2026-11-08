@@ -13,6 +13,7 @@ from ..config import (
     COMMENTARY_QUALIFIERS,
     COMMENTARY_SCHEMA_VERSION,
     EVENT_SIGNIFICANCE_RANK,
+    SCRIPT_UNCERTAINTY_MARKERS,
     WRITER_MAX_CLAIMS,
     WRITER_MAX_EVIDENCE_CHARS,
     WRITER_MAX_HISTORY_LINES,
@@ -25,12 +26,43 @@ from ..vision.observations import _reject_extra, parse_observation
 from .validation import commentary_claim_id, commentary_line_id
 
 
+#: Internal-validation language that must never appear in spoken text.
+#: Qualifiers ("... are not established") and "unconfirmed" qualifier
+#: clauses are internal guards enforced by omission; spoken caution uses
+#: grounded wording (possible/may/appears) instead.
+LEAKED_VALIDATION_PATTERNS = (
+    re.compile(r"not established\b", re.IGNORECASE),
+    re.compile(r"unconfirmed\s*:", re.IGNORECASE),
+    re.compile(r"[—–-]\s*unconfirmed\b", re.IGNORECASE),
+    re.compile(r",\s*unconfirmed\b", re.IGNORECASE),
+    re.compile(r"\bunconfirmed for now\b", re.IGNORECASE),
+    re.compile(r"\bparticipants?\b[^.!?]{0,50}\bunconfirmed\b", re.IGNORECASE),
+    re.compile(r"\boutcome\b[^.!?]{0,50}\bunconfirmed\b", re.IGNORECASE),
+)
+
+
+def contains_leaked_validation_language(text: str) -> bool:
+    """Whether spoken text leaks internal-validation language.
+
+    True when the text speaks a qualifier ("not established"),
+    an "unconfirmed" qualifier clause (colon, dash, trailing comma, or
+    "unconfirmed for now"), or participants/outcome meta-talk. A bare
+    mid-sentence "unconfirmed" ("an unconfirmed report") is not a
+    qualifier clause and is left to the uncertainty-marker rules.
+    """
+    if not isinstance(text, str):
+        return False
+    return any(pattern.search(text) for pattern in LEAKED_VALIDATION_PATTERNS)
+
+
 def render_claim_text(claim: dict) -> str:
     """Deterministic template wording for one gated claim.
 
     A fixed prefix plus verbatim validated strings. The single wording
     implementation shared by the template path and the writer fallback
-    path, so both speak exactly what the gate approved.
+    path, so both speak exactly what the gate approved. Event echoes
+    use cautious grounded wording; the internal qualifier is enforced
+    by omission and never spoken.
     """
     description = claim["evidence"][0]
     timestamp = claim["timestamp"]
@@ -44,10 +76,10 @@ def render_claim_text(claim: dict) -> str:
         return f"Update: {description}"
     if claim["template"] == "event_echo":
         quoted = " — ".join(claim["evidence"])
-        return f"{quoted} — unconfirmed: {claim['qualification']}"
+        return f"{quoted} — a possible development, details still unclear."
     if claim["template"] == "event_sequence":
         quoted = " — ".join(claim["evidence"])
-        return f"Sequence: {quoted} — unconfirmed: {claim['qualification']}"
+        return f"Sequence developing: {quoted} — details still unclear."
     raise ObservationError(
         f"Unknown commentary template '{claim['template']}'."
     )
@@ -156,10 +188,11 @@ def build_writer_prompt(claims: list, history_texts: list, pack=None,
     """Build the bounded prompt for the commentary-writer model.
 
     The model sees only gated claims (with their verbatim evidence,
-    confidence labels, and echo qualifiers) plus recent already-spoken
-    lines for consistency. It never sees raw observations, match state,
-    or full history. It must answer with JSON mapping claim ids to
-    spoken lines, and may omit claims it cannot word safely.
+    confidence labels, and internal echo guards) plus recent
+    already-spoken lines for consistency. It never sees raw
+    observations, match state, or full history. It must answer with
+    JSON mapping claim ids to spoken lines, and may omit claims it
+    cannot word safely.
     Wording comes from the game prompt pack; the JSON shape stays here.
     ``narrative`` is optional bounded match context (verified situation,
     not citable evidence): it helps the model connect developments
@@ -196,7 +229,10 @@ def build_writer_prompt(claims: list, history_texts: list, pack=None,
             f"evidence: {evidence})."
         )
         if claim["qualification"] is not None:
-            parts.append(f" Required qualifier: {claim['qualification']}.")
+            parts.append(
+                " Internal guard (never speak these words; enforce by "
+                f"omitting unshown detail): {claim['qualification']}."
+            )
         parts.append(" ")
     if history_texts:
         parts.append("Already said (do not repeat this information): ")
@@ -331,11 +367,12 @@ def writer_text_valid(text: str, claim: dict) -> bool:
     """Check one model-worded line against its gated claim.
 
     Mechanical checks only: every evidence quote must appear verbatim,
-    named tokens must close over the evidence, and event echoes must
-    carry their qualifier verbatim. Anything else fails closed to the
-    deterministic template wording. This cannot prove semantic
-    faithfulness — misleading arrangements of true quotes remain a known
-    residual risk (see the contract).
+    named tokens must close over the evidence, no internal-validation
+    language may be spoken, and event echoes must carry a cautious
+    uncertainty marker. Anything else fails closed to the deterministic
+    template wording. This cannot prove semantic faithfulness —
+    misleading arrangements of true quotes remain a known residual risk
+    (see the contract).
     """
     for quote in claim["evidence"]:
         if quote not in text:
@@ -348,8 +385,11 @@ def writer_text_valid(text: str, claim: dict) -> bool:
     for token in _feed_name_tokens(text):
         if token not in evidence_tokens:
             return False
+    if contains_leaked_validation_language(text):
+        return False
     if claim["type"] == "event_echo":
-        if claim["qualification"] not in text:
+        lowered = text.lower()
+        if not any(marker in lowered for marker in SCRIPT_UNCERTAINTY_MARKERS):
             return False
     return True
 

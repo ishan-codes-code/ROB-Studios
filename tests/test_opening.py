@@ -98,9 +98,11 @@ def opening_segment_json(claim_id, text):
 
 
 def claim_id_in_prompt(prompt):
-    match = re.search(r"Claim (\S+)", prompt)
+    # Beat prompts list "Beat <beat_id>" plus "Cite as
+    # source_claim_ids: <ids>"; match a bare claim id either way.
+    match = re.search(r"clm-[0-9a-f]+", prompt)
     assert match, prompt
-    return match.group(1)
+    return match.group(0)
 
 
 class OpeningMetadataTests(unittest.TestCase):
@@ -341,6 +343,13 @@ class SequentialOpeningTests(unittest.TestCase):
             out = Path(tmp) / "script.json"
             by_id = gate_script_claims(obs_dir, st, ev)
             self.assertTrue(by_id)
+            # Only beat-wrapped claims (developments, echoes) are
+            # citable; scene claims get no-beat omissions.
+            wrapped = [
+                claim_id for claim_id, claim in by_id.items()
+                if claim["type"] != "scene"
+            ]
+            self.assertTrue(wrapped)
 
             def handle(kwargs, index):
                 content = kwargs["messages"][0]["content"]
@@ -356,7 +365,7 @@ class SequentialOpeningTests(unittest.TestCase):
                         "text": ("Opening noted, and here is the play: "
                                  + by_id[claim_id]["evidence"][0].lower()),
                     }
-                    for claim_id in by_id
+                    for claim_id in wrapped
                 ]))
 
             client = FakeScriptClient(handle)
@@ -390,6 +399,13 @@ class SequentialOpeningTests(unittest.TestCase):
             obs_dir, st, ev, _ = two_claim_tree(tmp)
             out = Path(tmp) / "script.json"
             by_id = gate_script_claims(obs_dir, st, ev)
+            # Only beat-wrapped claims (developments, echoes) are
+            # citable; scene claims get no-beat omissions.
+            wrapped = [
+                claim_id for claim_id, claim in by_id.items()
+                if claim["type"] != "scene"
+            ]
+            self.assertTrue(wrapped)
 
             def handle(kwargs, index):
                 return script_response(script_json([
@@ -398,7 +414,7 @@ class SequentialOpeningTests(unittest.TestCase):
                         "text": ("Here is the play: "
                                  + by_id[claim_id]["evidence"][0].lower()),
                     }
-                    for claim_id in by_id
+                    for claim_id in wrapped
                 ]))
 
             client = FakeScriptClient(handle)
@@ -409,7 +425,7 @@ class SequentialOpeningTests(unittest.TestCase):
             doc = json.loads(out.read_text(encoding="utf-8"))
         self.assertEqual(code, 0)
         self.assertEqual(len(client.calls), 1)
-        self.assertEqual(len(doc["segments"]), len(by_id))
+        self.assertEqual(len(doc["segments"]), len(wrapped))
 
 
 class StreamingOpeningTests(unittest.TestCase):
