@@ -1,5 +1,29 @@
 # Current state
 
+## Manual HUD-read spike tool (uncommitted)
+
+Manual-only paid spike on branch `feature/commentary-refinements`,
+never called by the app: `python/tools/spike_hud_read.py` grabs
+frames with the adaptive `ScheduledVideoReader`, encodes full frame
+plus a 2x-upscaled top-22% HUD strip, and sends full / full+strip
+variants through a new additive `request_broadcast_text` (Meta
+adapter only, same error taxonomy/redaction/accounting as the other
+vision calls, 1024-token v3 budget; base class raises
+`NotImplementedError`). Responses parse with `validate_observation_v3`,
+raw/parsed JSON is saved per call, and per-frame tables show
+timer/scores/alive/focus/cues/latency/output-tokens/parse-errors
+with repeat agreement and optional labels accuracy. Key resolution
+mirrors the worker via the provider registry; keys and base64 never
+printed. Other adapter methods, model ID, and provider boundary
+untouched.
+
+Verification: 7 new offline tests (`test_spike_hud_read`: fake
+adapter, synthetic cv2 video, labels, parse-failure path,
+unsupported-adapter/missing-video/out-of-range handling, `--help`);
+full Python suite 916 tests with only the 3 pre-existing clean-tree
+failures (Windows `con` path, api_activity leak, opening
+already-emitted).
+
 ## Observation-v3 broadcast schema (uncommitted)
 
 New `observation-v3` schema alongside v1/v2 on branch

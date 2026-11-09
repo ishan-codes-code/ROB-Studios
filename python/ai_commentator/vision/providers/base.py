@@ -94,6 +94,21 @@ class VisionProviderAdapter:
         """Return raw model text for one adaptive wrapper response."""
         raise NotImplementedError
 
+    def request_broadcast_text(
+        self,
+        timestamp,
+        image_data_urls,
+        prompt: str,
+    ) -> str:
+        """Return raw model text for one broadcast-overlay reading.
+
+        ``image_data_urls`` carries the full frame first plus an
+        optional HUD-strip crop in a single request. Only providers
+        with multi-image broadcast support implement this; the default
+        raises NotImplementedError.
+        """
+        raise NotImplementedError
+
     # -- verification operations ------------------------------------------
     def request_text(self, prompt: str, purpose: str = "commentary") -> str:
         """Return raw model text for one text-only prompt (no images)."""

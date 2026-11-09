@@ -56,6 +56,11 @@ from ..verify import (
     validate_verify_text,
 )
 
+# Output budget for one broadcast-overlay reading: the compact v3 JSON
+# runs ~150-250 tokens, with headroom for the model's reasoning pass
+# (reasoning spend comes out of this same budget).
+BROADCAST_MAX_TOKENS = 1024
+
 
 def _post_json(url: str, payload: dict, api_key: str,
                timeout: float) -> tuple[int, dict | str]:
@@ -350,6 +355,70 @@ class MetaAdapter(VisionProviderAdapter):
                 image_data_url,
                 purpose="vision-adaptive",
             )
+        except (VisionAPIError, ObservationError):
+            raise
+        except Exception as exc:
+            raise VisionAPIError(
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
+            ) from None
+
+    def request_broadcast_text(self, timestamp, image_data_urls,
+                               prompt: str) -> str:
+        """Request one broadcast-overlay reading over one or two images.
+
+        ``image_data_urls`` carries the full frame first plus an
+        optional HUD-strip crop; both ride in a single request after
+        the caller-built prompt. Error taxonomy, secret redaction, and
+        activity accounting mirror the other vision calls; budget
+        exhaustion surfaces through the standard incomplete check in
+        extract_output_text.
+        """
+        urls = list(image_data_urls or [])
+        if not urls or any(not isinstance(url, str) or not url for url in urls):
+            raise ValueError(
+                "Broadcast requests need at least one image data URL."
+            )
+        content = [{"type": "input_text", "text": prompt}]
+        for image_data_url in urls:
+            content.append(
+                {"type": "input_image", "image_url": image_data_url}
+            )
+        payload: dict = {
+            "model": self.model,
+            "input": [{"type": "message", "role": "user",
+                       "content": content}],
+            "stream": False,
+            "max_output_tokens": BROADCAST_MAX_TOKENS,
+        }
+        tracker = ApiRequestTracker(PROVIDER_ID, "vision-broadcast",
+                                    model=self.model,
+                                    frame_count=len(urls))
+        tracker.start()
+        try:
+            status, body = _post_json(
+                self.responses_url, payload, self.api_key, self.timeout
+            )
+        except VisionAPIError as exc:
+            fail_from_error(tracker, exc)
+            raise
+        except ObservationError as exc:
+            tracker.fail(error_code="bad_response", message=str(exc))
+            raise
+        except Exception as exc:
+            wrapped = VisionAPIError(
+                f"Meta API request error: {redact_secret(str(exc), self.api_key)}",
+                code=classify_exception(exc),
+                provider="meta",
+            )
+            fail_from_error(tracker, wrapped)
+            raise wrapped from None
+        in_tokens, out_tokens = usage_of(body)
+        tracker.succeed(http_status=status, input_tokens=in_tokens,
+                        output_tokens=out_tokens)
+        try:
+            return extract_output_text(body)
         except (VisionAPIError, ObservationError):
             raise
         except Exception as exc:
