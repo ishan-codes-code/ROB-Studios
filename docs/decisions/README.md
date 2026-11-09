@@ -34,3 +34,4 @@ not need an ADR; record choices that constrain future work.
 - [0014 — User-configured OpenAI-compatible custom provider](0014-custom-openai-compatible-provider.md)
 - [0015 — Temporal gameplay event intelligence as an additive extension](0015-temporal-event-intelligence.md)
 - [0016 — Gameplay intelligence: interpretation layer, gameplay events, significance gating](0016-gameplay-intelligence-overhaul.md)
+- [0017 — Broadcast pipeline: overlay perception plus deterministic timeline](0017-broadcast-pipeline.md)

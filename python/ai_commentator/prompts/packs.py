@@ -52,6 +52,11 @@ PACK_FIELDS = {
         "description": "Closing sentence of the adaptive sampling prompt.",
         "max_chars": 500,
     },
+    "broadcast_vision_prompt": {
+        "label": "Broadcast vision prompt (v3)",
+        "description": "HUD-reading prompt for observation-v3 broadcast frames.",
+        "max_chars": 2000,
+    },
     "game_context": {
         "label": "Game context",
         "description": "Supplementary game knowledge for vision prompts (pack default).",
@@ -149,6 +154,20 @@ def _free_fire_fields():
         "vision_closing_adaptive": (
             "Put anything unreadable or ambiguous in uncertainties; never invent detail. "
             "The sampling reason is descriptive text only."
+        ),
+        "broadcast_vision_prompt": (
+            "You are reading a broadcast overlay. READ the HUD: round "
+            "timer, team scores, alive pips per team, focus player "
+            "name/weapon/state/HP. Output ONLY the JSON schema. Use null "
+            "when a value is not visible or unreadable. Report only what "
+            "is visible; do not list absent things; do not write sentences "
+            "about what is NOT visible. cues: list only cues clearly "
+            "visible in this frame, each with a <=12 word evidence phrase. "
+            "notes: one short positive sentence or null. "
+            "Free Fire layout: timer top-center (red when low), team score "
+            "blocks top-center flanking the timer, alive pips in rows "
+            "beneath scores, squad list left with HP bars, weapon "
+            "bottom-right, spectate panel when spectating."
         ),
         "game_context": (
             "Free Fire reference: the Blue Wall is a deployable cover wall "
@@ -298,6 +317,21 @@ def _cod_fields():
         "vision_closing_adaptive": (
             "Put anything unreadable or ambiguous in uncertainties; never invent detail. "
             "The sampling reason is descriptive text only."
+        ),
+        # unverified layout — best-effort HUD map; confirm against real footage.
+        "broadcast_vision_prompt": (
+            "You are reading a broadcast overlay. READ the HUD: round "
+            "timer, team scores, alive pips per team, focus player "
+            "name/weapon/state/HP. Output ONLY the JSON schema. Use null "
+            "when a value is not visible or unreadable. Report only what "
+            "is visible; do not list absent things; do not write sentences "
+            "about what is NOT visible. cues: list only cues clearly "
+            "visible in this frame, each with a <=12 word evidence phrase. "
+            "notes: one short positive sentence or null. "
+            "Call of Duty layout: match timer top-center with team scores "
+            "on either side, minimap top-left, compass strip across the "
+            "top, kill feed lower-left, armor plates and ammo "
+            "bottom-right, objective markers when contesting."
         ),
         "game_context": (
             "Call of Duty reference (battle royale and multiplayer, "
@@ -456,6 +490,21 @@ def _bgmi_fields():
         "vision_closing_adaptive": (
             "Put anything unreadable or ambiguous in uncertainties; never invent detail. "
             "The sampling reason is descriptive text only."
+        ),
+        # unverified layout — best-effort HUD map; confirm against real footage.
+        "broadcast_vision_prompt": (
+            "You are reading a broadcast overlay. READ the HUD: round "
+            "timer, team scores, alive pips per team, focus player "
+            "name/weapon/state/HP. Output ONLY the JSON schema. Use null "
+            "when a value is not visible or unreadable. Report only what "
+            "is visible; do not list absent things; do not write sentences "
+            "about what is NOT visible. cues: list only cues clearly "
+            "visible in this frame, each with a <=12 word evidence phrase. "
+            "notes: one short positive sentence or null. "
+            "BGMI layout: match timer with alive count top-center, compass "
+            "strip across the top, minimap top-right, health and boost "
+            "bars bottom-center, weapon and ammo bottom-right, kill feed "
+            "messages at the side, blue-zone timer when the zone shrinks."
         ),
         "game_context": (
             "BGMI reference: a knock downs a player who can still be revived; "

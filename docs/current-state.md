@@ -1,5 +1,25 @@
 # Current state
 
+## Observation-v3 broadcast schema (uncommitted)
+
+New `observation-v3` schema alongside v1/v2 on branch
+`feature/commentary-refinements`, no legacy behavior change: HUD
+readings plus visible cues with unknown-as-null semantics
+(`docs/contracts/observation-v3.md`), v3 constants in `config.py`
+(deliberately absent from the legacy version tuple), strict
+`vision/observations_v3.py` validator reusing the shared JSON/fence
+parsing, and an additive `broadcast_vision_prompt` pack field for all
+three games (Free Fire layout per spec; CoD/BGMI best-effort marked
+unverified). ADR 0017 records the broadcast pipeline shape and why
+the keyword tagger is not used. No v3 caller exists yet; legacy
+vision calls, worker, state/events/commentary/script untouched.
+
+Verification: 44 new offline tests (`test_observation_v3`: valid
+examples, one test per rejection rule, v1/v2 separation, pack field);
+full Python suite 909 tests with only the 3 pre-existing clean-tree
+failures (Windows `con` path, api_activity leak, opening
+already-emitted).
+
 ## False-combat and scenery-spam fixes, recorded path (uncommitted)
 
 Signal-layer fix on branch `feature/commentary-refinements`, no

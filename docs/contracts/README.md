@@ -24,6 +24,9 @@ Defined contracts:
   verbatim-only structured evidence (`subjects`/`action`/`spatial`):
   per-version strict validation, the substring rule, absent-vs-null
   semantics, and mixed-directory compatibility.
+- [observation-v3.md](observation-v3.md) — broadcast-overlay readings
+  (HUD values plus visible cues, unknown as null): strict validation,
+  the pack-configurable cue enum, token budget, and v1/v2 separation.
 - [adaptive-sampling-v1.md](adaptive-sampling-v1.md) — the LLM-guided
   sequential sampling loop (roadmap milestone M4.1): one wrapper
   response with a validated observation half plus a separately

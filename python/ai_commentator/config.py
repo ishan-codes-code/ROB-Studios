@@ -130,6 +130,41 @@ OBSERVATION_SCHEMA_VERSIONS = (OBSERVATION_SCHEMA_VERSION, OBSERVATION_SCHEMA_VE
 OBSERVATION_CATEGORIES = ("environment", "character", "hud", "combat", "other")
 OBSERVATION_CONFIDENCES = ("high", "medium", "low")
 OBSERVATION_SUBJECT_KINDS = ("player", "team", "other")
+# Broadcast-overlay observations (observation-v3, docs/contracts/
+# observation-v3.md). The legacy pipeline reads v1/v2 only, so V3 is
+# deliberately NOT a member of OBSERVATION_SCHEMA_VERSIONS.
+OBSERVATION_SCHEMA_VERSION_V3 = "observation-v3"
+OBSERVATION_V3_SCENES = (
+    "gameplay",
+    "spectate",
+    "lobby",
+    "loading",
+    "results",
+    "menu",
+    "cutscene",
+    "unknown",
+)
+# Default cue enum; packs may configure their own list, which callers
+# pass to validate_observation_v3 as the effective enum.
+OBSERVATION_V3_CUES = (
+    "muzzle_flash",
+    "tracer",
+    "knock_indicator",
+    "elimination_banner",
+    "kill_feed_entry",
+    "damage_numbers",
+    "grenade",
+    "smoke",
+    "zone_shrinking",
+    "revive",
+    "vehicle",
+    "victory_banner",
+    "defeat_banner",
+    "round_start",
+    "round_end",
+)
+OBSERVATION_V3_STATES = ("alive", "knocked", "spectating", "dead")
+OBSERVATION_V3_CONFIDENCES = ("high", "medium", "low")
 OBSERVATION_OUTPUT_PATH = OBSERVATIONS_DIR / "frame_00000.json"
 FRAME_FILENAME_RE = re.compile(r"^frame_(\d+)\.jpg$")
 OBSERVATION_FILENAME_RE = re.compile(r"^frame_(\d+)\.json$")
