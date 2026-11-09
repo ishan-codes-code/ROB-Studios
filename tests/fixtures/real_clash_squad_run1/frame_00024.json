@@ -1,0 +1,37 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 24,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Open dirt ground with a large billboard structure on supports and trees in the distance",
+      "confidence": "high",
+      "evidence": "brown dirt foreground, large dark rectangular billboard structure on posts on the right, trees under sky in background"
+    },
+    {
+      "category": "character",
+      "description": "One player character in dark clothing running across the dirt while holding a pistol",
+      "confidence": "high",
+      "evidence": "central figure in black sleeveless top and dark pants captured mid-stride with handgun in hand and long object on back"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, grenade, smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "view of the running character, dirt ground, billboard and background shows no fire effects, throwable arcs, distinct smoke, blasts, or vehicle shapes"
+    },
+    {
+      "category": "other",
+      "description": "No clearly identifiable Blue Wall deployed around the player",
+      "confidence": "medium",
+      "evidence": "open dirt around the running character shows no large gray-blue wall segment in the immediate foreground"
+    }
+  ],
+  "uncertainties": [
+    "Player team, health, and movement intent cannot be determined from this frame",
+    "Whether opponents, knockdowns, revives, or zone pressure are present cannot be determined",
+    "Weapon model beyond pistol family cannot be confidently recognized from the gameplay view",
+    "Whether the distant gray block shapes are Blue Walls or static map cover cannot be determined",
+    "Whether light haze in the background is smoke or distance fog cannot be determined"
+  ]
+}

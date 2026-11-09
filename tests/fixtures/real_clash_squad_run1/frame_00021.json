@@ -1,0 +1,35 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 21,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Open dirt ground bordering grass with a large billboard on supports and trees in the distance",
+      "confidence": "high",
+      "evidence": "brown dirt foreground adjacent to green grass on the left, large dark rectangular billboard on posts in the upper center, trees under sky in background"
+    },
+    {
+      "category": "other",
+      "description": "A single Blue Wall deployed on the ground behind the running player",
+      "confidence": "high",
+      "evidence": "large gray-blue irregular Blue Wall segment standing on the grass-dirt edge left of center behind the player"
+    },
+    {
+      "category": "character",
+      "description": "One player character in dark clothing with a backpack running while holding a pistol",
+      "confidence": "high",
+      "evidence": "central figure in black sleeveless top and dark pants with backpack and handgun in hand captured mid-stride"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, grenade, smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "view of the running character, Blue Wall, ground and billboard shows no fire effects, throwable arcs, smoke, blasts, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Player team, health, and movement intent cannot be determined from this frame",
+    "Whether opponents, knockdowns, revives, or zone pressure are present cannot be determined",
+    "Weapon model beyond pistol family cannot be confidently recognized from the gameplay view"
+  ]
+}

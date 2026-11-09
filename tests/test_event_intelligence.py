@@ -77,7 +77,7 @@ class EngagementTests(unittest.TestCase):
                     _entry(
                         "character",
                         "EVOS.RAJ returning fire behind cover.",
-                        "Tracers from EVOS.RAJ position.",
+                        "Tracer from EVOS.RAJ position.",
                         subjects=[{"label": "EVOS.RAJ", "kind": "player"}],
                     )
                 ],

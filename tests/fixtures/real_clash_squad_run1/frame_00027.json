@@ -1,0 +1,37 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 27,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Dirt compound with clustered light-blue shipping containers and a large billboard structure on supports along the edge",
+      "confidence": "high",
+      "evidence": "open brown dirt area holding several light-blue rectangular containers, large dark billboard on posts bordering the upper side with grass and water beyond"
+    },
+    {
+      "category": "character",
+      "description": "One small player character standing on open dirt near the containers",
+      "confidence": "high",
+      "evidence": "dark figure on the dirt below the blue containers in the lower-center of the view"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, grenade, smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "view of the character, dirt, containers and billboard shows no fire effects, throwable arcs, distinct smoke, blasts, or vehicle shapes"
+    },
+    {
+      "category": "other",
+      "description": "Several Blue Walls standing along the left edge of the area away from the player",
+      "confidence": "medium",
+      "evidence": "multiple irregular blue-gray wall segments lined up on the left side beyond the dirt compound"
+    }
+  ],
+  "uncertainties": [
+    "Weapon family and model for the visible character cannot be confidently recognized from this elevated view",
+    "Team affiliation, health state, and movement intent of the visible character cannot be determined from this frame",
+    "Whether small dark shapes in the distance are additional players or map details cannot be determined",
+    "Whether opponents, knockdowns, revives, grenade throws, or zone pressure are present cannot be determined",
+    "On-screen text is too small and blurred to ground weapon, character, or outcome facts"
+  ]
+}

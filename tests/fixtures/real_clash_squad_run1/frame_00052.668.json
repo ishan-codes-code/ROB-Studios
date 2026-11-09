@@ -1,0 +1,35 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 52.668,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Outdoor area beside a light-blue building wall with stacked containers and crates in the background under daylight on mixed dirt and grass ground",
+      "confidence": "high",
+      "evidence": "light-blue vertical wall on the left, stacked blue container and wooden crate shapes behind to the right with a billboard shape farther back, dirt and grass ground under daylight"
+    },
+    {
+      "category": "character",
+      "description": "One player figure in helmet and backpack in a crouched running pose holding a firearm forward beside cover in the center foreground",
+      "confidence": "high",
+      "evidence": "helmeted figure with backpack in center foreground in crouched running pose holding a long gun forward beside light-colored wall shapes"
+    },
+    {
+      "category": "combat",
+      "description": "Multiple Blue Wall segments deployed as cover around the player position",
+      "confidence": "high",
+      "evidence": "large light bluish-white blocky wall shapes standing on the ground in the center and to the right behind the player"
+    },
+    {
+      "category": "combat",
+      "description": "No clearly visible muzzle flash, tracer fire, grenade arc, explosion, distinct smoke plume, or vehicle",
+      "confidence": "medium",
+      "evidence": "view of the player, Blue Walls, and background shows no distinct fire effects, throwable arcs, blasts, distinct smoke, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Specific weapon family or model cannot be confidently recognized from the in-world view alone",
+    "Team affiliation, opponent presence, movement intent, and down or revive status cannot be determined from this frame",
+    "Whether markers above cover indicate opponents or teammates is ambiguous without relying on HUD readings"
+  ]
+}

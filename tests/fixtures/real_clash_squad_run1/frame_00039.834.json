@@ -1,0 +1,37 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 39.834,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Grassy open ground with blue building structures and metal supports in the background under daylight",
+      "confidence": "high",
+      "evidence": "grassy ground extending to blue structures and poles behind the Blue Walls"
+    },
+    {
+      "category": "character",
+      "description": "One player figure in dark top and dark pants with a backpack crouched beside a Blue Wall in the foreground holding a small light-colored object in hand",
+      "confidence": "high",
+      "evidence": "dark-clothed figure with backpack positioned against white textured wall in foreground holding small object in hand"
+    },
+    {
+      "category": "other",
+      "description": "Multiple Blue Walls placed close and extending into mid-distance forming cover across the field",
+      "confidence": "high",
+      "evidence": "white textured Blue Wall segments in foreground and behind forming continuous cover"
+    },
+    {
+      "category": "combat",
+      "description": "No clearly visible muzzle flash, tracer fire, explosion, grenade arc, distinct smoke plume, or vehicle",
+      "confidence": "medium",
+      "evidence": "view of field, figure, and Blue Walls shows no distinct fire effects, throwable arcs, blasts, distinct smoke, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Weapon family or model for the foreground figure cannot be confidently recognized from the gameplay view alone",
+    "Whether the bright spot in the distance is muzzle flash, lighting, or other effect cannot be determined from this frame",
+    "Whether a second distant player figure is present cannot be confirmed from this frame",
+    "Team affiliation, movement intent, and knockdown or revive status cannot be determined from this frame",
+    "Whether grenade throws, smoke use, or zone pressure are present cannot be determined from this frame"
+  ]
+}

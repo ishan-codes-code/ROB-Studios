@@ -1,0 +1,34 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 42.834,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Grassy open ground with blue container structures, trees, and a large billboard on metal supports under daylight",
+      "confidence": "high",
+      "evidence": "grassy ground extending to blue structures, trees, and billboard supports behind the Blue Walls"
+    },
+    {
+      "category": "character",
+      "description": "One player figure in dark top and dark pants with a backpack moving forward holding a small handgun with both hands",
+      "confidence": "high",
+      "evidence": "dark-clothed figure with backpack in the foreground holding a small gun forward"
+    },
+    {
+      "category": "other",
+      "description": "Multiple Blue Walls placed forming cover across the field in the mid-distance",
+      "confidence": "high",
+      "evidence": "white textured Blue Wall segments behind the figure and further to the right forming continuous cover"
+    },
+    {
+      "category": "combat",
+      "description": "No clearly visible muzzle flash, tracer fire, explosion, grenade arc, distinct smoke plume, or vehicle",
+      "confidence": "medium",
+      "evidence": "view of field, figure, and Blue Walls shows no distinct fire effects, throwable arcs, blasts, distinct smoke, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Specific weapon model cannot be confidently recognized from the gameplay view alone",
+    "Team affiliation, movement intent, and down or revive status cannot be determined from this frame"
+  ]
+}

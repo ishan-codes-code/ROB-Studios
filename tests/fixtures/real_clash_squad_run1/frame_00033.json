@@ -1,0 +1,35 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 33,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Large billboard structure on metal supports on grass beside a curved paved road, with a brown dirt area to the left and light-blue building roofs in the lower left",
+      "confidence": "high",
+      "evidence": "large brown billboard on metal supports on grass beside curved dark paved road, brown dirt patch to the left, light-blue roofs in lower left"
+    },
+    {
+      "category": "character",
+      "description": "Three small player figures visible on dirt and grass around the billboard structure",
+      "confidence": "medium",
+      "evidence": "small dark figures on dirt to the left of the billboard, beside Blue Wall at the billboard base, and on grass below the billboard on the right"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, grenade arc, distinct smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "view of billboard, grass, road and figures shows no fire effects, throwable arcs, distinct smoke, blasts, or vehicle shapes"
+    },
+    {
+      "category": "other",
+      "description": "Several Blue Walls standing around the billboard base on grass and additional Blue Walls on grass and curved road in the background",
+      "confidence": "high",
+      "evidence": "multiple irregular light blue-white wall segments clustered at the billboard base on grass and additional segments on grass and curved road behind the billboard"
+    }
+  ],
+  "uncertainties": [
+    "Weapon families or models for the visible figures cannot be confidently recognized from this elevated view",
+    "Posture, health state, team affiliation, and movement intent of the visible figures cannot be determined from this frame",
+    "Whether knockdowns, revives, grenade throws, or zone pressure are present cannot be determined from this frame"
+  ]
+}

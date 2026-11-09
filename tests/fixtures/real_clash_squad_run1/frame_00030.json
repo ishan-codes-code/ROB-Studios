@@ -1,0 +1,36 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 30,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Open dirt and grass area with two light-blue shipping containers beside a large billboard structure on posts next to a curved paved road",
+      "confidence": "high",
+      "evidence": "two light-blue rectangular containers on brown dirt on the left, large upright billboard on supports on grass in the center, curved dark paved road on the right"
+    },
+    {
+      "category": "character",
+      "description": "Three small player figures visible on dirt and grass around the billboard structure",
+      "confidence": "medium",
+      "evidence": "small dark figures on the dirt behind the billboard and on the grass to the left and right of the billboard posts"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, grenade arc, distinct smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "view of containers, billboard, grass, road and figures shows no fire effects, throwable arcs, distinct smoke, blasts, or vehicle shapes"
+    },
+    {
+      "category": "other",
+      "description": "Several Blue Walls standing on the grass and paved road around the billboard",
+      "confidence": "high",
+      "evidence": "multiple irregular light blue-white wall segments on grass behind and beside the billboard and on the curved road"
+    }
+  ],
+  "uncertainties": [
+    "Weapon families or models for the visible figures cannot be confidently recognized from this elevated view",
+    "Posture, health state, team affiliation, and movement intent of the visible figures cannot be determined from this frame",
+    "Whether additional distant shapes are players or map details cannot be determined",
+    "Whether knockdowns, revives, grenade throws, or zone pressure are present cannot be determined from this frame"
+  ]
+}

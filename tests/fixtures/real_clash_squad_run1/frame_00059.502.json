@@ -1,0 +1,36 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 59.502,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Outdoor container yard with large blue shipping containers on dirt beside grass and a paved road under daylight",
+      "confidence": "high",
+      "evidence": "large blue rectangular container structures centered on brown dirt with surrounding green grass and dark curved road on the right under daylight"
+    },
+    {
+      "category": "combat",
+      "description": "Multiple Blue Wall segments deployed around the containers and on nearby grass",
+      "confidence": "high",
+      "evidence": "irregular white-blue wall cluster on the upper left beside the containers and curved white-blue shapes to the right of the containers and an isolated curved shape on the lower right grass"
+    },
+    {
+      "category": "character",
+      "description": "Multiple small player figures positioned around the containers and Blue Walls",
+      "confidence": "medium",
+      "evidence": "small dark figure shapes near the left building edge, near the upper left of the containers, near the upper right of the containers, and near the center container doorway viewed from high top-down angle"
+    },
+    {
+      "category": "combat",
+      "description": "No clearly visible grenade arc, explosion, distinct smoke plume, firing glow, or vehicle in the container area",
+      "confidence": "medium",
+      "evidence": "view of containers, ground, grass and Blue Walls shows no distinct throwable arc, blast, distinct smoke, bright firing glow, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Whether the small dark shapes are standing, prone, or down cannot be determined from this high top-down view",
+    "Team affiliation and identities of the figures cannot be determined from in-world view alone",
+    "Specific weapon families or models cannot be confidently recognized from the small shapes",
+    "Nature and cause of the large translucent blue overlay crossing the view cannot be determined"
+  ]
+}

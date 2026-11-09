@@ -1,0 +1,37 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 12,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "A curved paved road with white lane markings bordered by grassy ground, with a large billboard on posts and blue container structures in the background",
+      "confidence": "high",
+      "evidence": "dark asphalt curving across the frame with white dashed lane markings, grass on both sides, large rectangular billboard on supports near top center, blue structures on the upper left"
+    },
+    {
+      "category": "other",
+      "description": "Multiple Blue Walls deployed on the road and on the grass",
+      "confidence": "high",
+      "evidence": "irregular pale blue-white Blue Wall segments visible on the left side of the road, lower left, lower center, center right, and upper right grassy area"
+    },
+    {
+      "category": "character",
+      "description": "A single small player figure standing on the road next to a Blue Wall near the center",
+      "confidence": "medium",
+      "evidence": "small dark upright figure shape on the asphalt immediately below the central Blue Wall segment"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, grenade, smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "open view of road, grass, billboard and Blue Walls shows no fire, blast, throwable arc, or vehicle shape"
+    }
+  ],
+  "uncertainties": [
+    "Player identities, teams, weapons, health, and movement intent cannot be determined",
+    "Whether the translucent blue tint over the center-right is a game effect, placement indicator, or visual artifact cannot be determined",
+    "Whether faint gray patches on the left side of the road are smoke, dust, or image artifact cannot be determined",
+    "Knockdown, down, or revive states cannot be determined",
+    "Zone state, vehicles, and grenades cannot be confirmed"
+  ]
+}

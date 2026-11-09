@@ -3,8 +3,10 @@
 :func:`produce_beats` is a pure deterministic function over validated
 gameplay, match state, detected events, gated commentary claims, and
 previously spoken history texts. It wraps meaningful developments only
-— event echoes and development claims; static scene description stays
-silent — with priority, delivery, pacing, and repeat suppression:
+— event echoes and development claims, except static Blue Wall cover
+notes (cover description is not a development); static scene
+description stays silent — with priority, delivery, pacing, and repeat
+suppression:
 
 - **Chronological**: beats sort by (timestamp, priority, id).
 - **Pacing cap**: at most one non-critical beat per 5-second window;
@@ -187,9 +189,10 @@ def produce_beats(
 
     Pure and deterministic: inputs validate first (gameplay strictly,
     claims for gate-output shape, history as strings), candidates wrap
-    event-echo and development claims only, repeats drop before pacing,
-    pacing keeps chronological order, and every emitted beat validates
-    (including its content-bound id) before return.
+    event-echo and development claims only (Blue Wall cover notes stay
+    silent like scene claims), repeats drop before pacing, pacing keeps
+    chronological order, and every emitted beat validates (including its
+    content-bound id) before return.
     """
     validate_gameplay(gameplay)
     if not isinstance(state, dict):
@@ -217,6 +220,8 @@ def produce_beats(
         if claim["type"] == "scene":
             continue
         kind = _beat_kind(claim, events_by_id)
+        if kind == "blue_wall_use":
+            continue
         evidence = [str(quote) for quote in claim["evidence"]]
         what = _first_sentence(evidence[0])
         if _repeated(what, history_texts):

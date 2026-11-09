@@ -290,8 +290,8 @@ class GameplayKeptTests(unittest.TestCase):
                 [
                     _entry(
                         "character",
-                        "Two players are visible near the Blue Walls.",
-                        "Two figures by Blue Walls.",
+                        "Two players are visible near the Blue Wall.",
+                        "Two figures by Blue Wall.",
                     )
                 ],
             )

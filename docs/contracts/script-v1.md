@@ -99,7 +99,8 @@ The sequential path words producer beats (`caster/producer.py`),
 not disconnected frame claims: each beat carries its development
 (`what`), named participants, verbatim evidence, an optional
 grounded tactical read, and internal `must_not_claim` guards, plus
-bounded narrative context. The model answers with the same
+bounded narrative context. Static Blue Wall cover notes
+(`blue_wall_use`) never become beats. The model answers with the same
 `segments` shape, citing each beat's `source_claim_ids`, so the
 schema above is unchanged.
 

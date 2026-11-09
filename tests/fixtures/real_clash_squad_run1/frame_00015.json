@@ -1,0 +1,35 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 15,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Grassy ground bordering a paved road with white lane markings, with a large billboard on posts near the center",
+      "confidence": "high",
+      "evidence": "green grass area adjacent to dark asphalt with white markings on the left, large rectangular billboard on supports in upper center"
+    },
+    {
+      "category": "other",
+      "description": "Multiple Blue Walls deployed on the grass and road edge",
+      "confidence": "high",
+      "evidence": "pale blue-white irregular Blue Wall segments visible in upper right, center, lower right, lower left, and bottom of the frame"
+    },
+    {
+      "category": "character",
+      "description": "Two small player figures lying on the grassy area",
+      "confidence": "medium",
+      "evidence": "small dark horizontal figure shapes on the grass in the lower-center and upper-right areas"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, grenade, smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "open view of grass, road, billboard and Blue Walls shows no fire, blast, throwable arc, or vehicle shape"
+    }
+  ],
+  "uncertainties": [
+    "Whether the figures lying on the ground are down, prone, or otherwise cannot be determined",
+    "Player identities, teams, weapons, health, and movement intent cannot be determined",
+    "Knockdown, elimination, or revive states cannot be determined"
+  ]
+}

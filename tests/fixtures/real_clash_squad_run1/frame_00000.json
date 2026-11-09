@@ -1,0 +1,29 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 0,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "An outdoor yard with blue shipping containers, a large billboard frame on grass, and a concrete building edge on the right",
+      "confidence": "high",
+      "evidence": "blue shipping containers grouped near center-right, dark billboard support structure on grassy ground left of center, paved ground in foreground and walled structure with red stripe along right side"
+    },
+    {
+      "category": "other",
+      "description": "Multiple Blue Walls deployed on the open grassy ground",
+      "confidence": "high",
+      "evidence": "irregular purple-blue wall blocks sitting on grass in left-mid and center areas with additional similar blocks visible further back near containers"
+    },
+    {
+      "category": "combat",
+      "description": "No active firefight, grenade, smoke, or vehicle activity is visible in the frame",
+      "confidence": "medium",
+      "evidence": "open view of yard and containers shows no muzzle flash, tracer, explosion, smoke plume, or vehicle shape"
+    }
+  ],
+  "uncertainties": [
+    "No distinct player character models are clearly discernible",
+    "Weapon types, character skills, and knockdown or revive states cannot be determined",
+    "Positions, identities, and movement intent are unreadable"
+  ]
+}

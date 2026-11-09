@@ -37,6 +37,31 @@ def _truncate(text: str, limit: int) -> str:
     return cleaned[:limit] + "…(truncated)"
 
 
+def _current_combat_tagged(gameplay: dict, state: dict) -> bool:
+    """Whether a current fact carries a non-negated combat tag.
+
+    Tags come from the guarded interpretation layer (negated wording
+    tags nothing); "current" comes from match state (last seen at the
+    latest timestamp). Inputs without a state facts list fall back to
+    the summary flag so hand-built fixtures stay total.
+    """
+    facts = state.get("facts")
+    if not isinstance(facts, list) or not facts:
+        summary = gameplay.get("summary") or {}
+        return bool(summary.get("combat_active"))
+    tagged = {
+        (item.get("category"), item.get("description"))
+        for item in gameplay.get("fact_signals", [])
+        if isinstance(item, dict) and "combat" in (item.get("observed") or [])
+    }
+    return any(
+        isinstance(fact, dict)
+        and fact.get("status") == "current"
+        and (fact.get("category"), fact.get("description")) in tagged
+        for fact in facts
+    )
+
+
 def build_narrative(
     gameplay: dict,
     state: dict,
@@ -61,7 +86,7 @@ def build_narrative(
 
     situation: list[str] = []
     summary = gameplay.get("summary") or {}
-    if summary.get("combat_active"):
+    if _current_combat_tagged(gameplay, state):
         situation.append("Combat is active in the latest observations.")
     else:
         situation.append("No combat in the latest observations.")

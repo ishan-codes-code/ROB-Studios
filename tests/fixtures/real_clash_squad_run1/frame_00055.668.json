@@ -1,0 +1,35 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 55.668,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Outdoor dirt-ground lane between large light-blue vertical structures with trees and open sky visible beyond under daylight",
+      "confidence": "high",
+      "evidence": "dirt ground in foreground and mid-distance flanked by tall light-blue blocky structures, green trees and sky in background under daylight"
+    },
+    {
+      "category": "character",
+      "description": "One player figure viewed from behind in the center foreground wearing helmet and backpack and holding a firearm while moving forward",
+      "confidence": "high",
+      "evidence": "helmeted figure with large backpack in center foreground in running posture with gun shape visible, positioned between light-blue structures"
+    },
+    {
+      "category": "combat",
+      "description": "Multiple Blue Wall segments standing as cover along the lane and ahead of the player",
+      "confidence": "medium",
+      "evidence": "large light-blue blocky wall shapes flanking the player on left and right and two darker textured wall segments standing on the ground ahead in the mid-distance"
+    },
+    {
+      "category": "combat",
+      "description": "No clearly visible muzzle flash, tracer fire, grenade arc, explosion, distinct smoke plume, or vehicle",
+      "confidence": "medium",
+      "evidence": "view of the player, Blue Walls, and open lane shows no distinct fire effects, throwable arcs, blasts, distinct smoke, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Whether the large light-blue structures include permanent containers in addition to deployed Blue Walls is ambiguous from this view alone",
+    "Specific weapon family or model cannot be confidently recognized from the in-world view alone",
+    "Opponent presence, team affiliation, and down or revive status cannot be determined from this frame"
+  ]
+}

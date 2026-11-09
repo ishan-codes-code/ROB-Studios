@@ -1,0 +1,37 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 58.668,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Outdoor container yard with large blue shipping containers on mixed dirt and grass ground beside a paved road under daylight",
+      "confidence": "high",
+      "evidence": "large blue rectangular container structures centered on brown dirt with surrounding green grass and a dark curved road in the upper right under daylight"
+    },
+    {
+      "category": "character",
+      "description": "Multiple small player figures positioned around the containers including one in the lower foreground near a container, one within the left-side wall cluster, and one in the upper area near the containers",
+      "confidence": "medium",
+      "evidence": "dark-clothed figure shape on the dirt near the lower container edge, small dark shape inside the left white walls by a bright glow, and small dark silhouette above the central containers"
+    },
+    {
+      "category": "combat",
+      "description": "Multiple Blue Wall segments deployed around the container area",
+      "confidence": "high",
+      "evidence": "irregular white-blue wall shapes clustered on the left beside the containers and isolated curved wall shapes to the right of the containers on grass and dirt"
+    },
+    {
+      "category": "combat",
+      "description": "Bright yellow-white firing glow visible within the left-side Blue Wall cluster with no clearly visible grenade arc, explosion, distinct smoke plume, or vehicle",
+      "confidence": "medium",
+      "evidence": "small bright yellow-white glow among the left white walls near a figure shape, while the view of containers and ground shows no distinct throwable arc, blast, distinct smoke, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Whether the lower foreground figure is down, prone, or moving cannot be determined from this top-down view alone",
+    "Whether the bright glow is muzzle flash, hit effect, or other firing effect is ambiguous",
+    "Team affiliation, identities, and down versus active status of the small figures cannot be determined from in-world view alone",
+    "Specific weapon families or models cannot be confidently recognized",
+    "Whether the translucent blue area on the right is zone-related or another visual effect is ambiguous"
+  ]
+}

@@ -124,14 +124,13 @@ ZONE_WORDS = (
 )
 
 #: Elimination-outcome wording. Only explicit outcome words count; knocks,
-#: absences, and rewordings never match.
+#: absences, and rewordings never match. "finished"/"flush" were removed:
+#: they fire on looting ("finished looting") and plumbing, not outcomes.
 ELIM_WORDS = (
     "eliminated",
     "elimination",
     "killed",
     "kill confirmed",
-    "finished",
-    "flush",
 )
 
 #: Movement wording. A single movement word is only a cue; confirmed
@@ -386,11 +385,12 @@ MATCH_PHASE_WORDS = (
     "respawned",
 )
 
-#: Whole-term signal tags. Unlike ``_SIGNAL_WORD_FIELDS`` (substring
-#: match, kept byte-for-byte for backward compatibility), these match
-#: on word boundaries over label-blanked prose (see ``_prose_text``),
-#: so short terms (``ak``, ``ump``, ``gun``, ``round``, ``elim``)
-#: cannot fire inside larger words or gamertags.
+#: Whole-term signal tags. All sixteen lists (``_SIGNAL_WORD_FIELDS``
+#: plus these) match as whole terms on word boundaries, so short words
+#: (``car``, ``ak``, ``ump``, ``gun``, ``round``, ``elim``) cannot fire
+#: inside larger words. These four additionally match over label-blanked
+#: prose (see ``_prose_text``), so entity labels are names, never
+#: vocabulary.
 _SIGNAL_TERM_FIELDS = (
     ("weapon", WEAPON_WORDS),
     ("equipment", EQUIPMENT_WORDS),
@@ -405,6 +405,173 @@ _COMPILED_TERMS = tuple(
     )
     for tag, words in _SIGNAL_TERM_FIELDS
 )
+
+_COMPILED_WORDS = tuple(
+    (
+        tag,
+        tuple(re.compile(r"\b%s\b" % re.escape(word)) for word in words),
+    )
+    for tag, words in _SIGNAL_WORD_FIELDS
+)
+
+#: Negation cues for the signal negation guard (every word list). All
+#: match as whole words, so "no" never fires inside "knocked" and "not"
+#: never fires inside "knot".
+NEGATION_CUES = (
+    "no",
+    "not",
+    "none",
+    "without",
+    "neither",
+    "nor",
+    "absent",
+    "isn't",
+    "aren't",
+    "cannot",
+    "can't",
+)
+
+_CUE_PATTERNS = tuple(
+    re.compile(r"\b%s\b" % re.escape(cue)) for cue in NEGATION_CUES
+)
+
+#: Clause splitter for the negation guard: sentence/clause punctuation
+#: plus coordinators.
+_CLAUSE_SPLIT_RE = re.compile(r"[.;,]|\b(?:and|but|or)\b")
+
+#: Trailing "not clearly visible" constructions negate the matches
+#: before them in the same clause ("muzzle flash is not clearly
+#: visible"): the named thing is explicitly unreadable. A leading
+#: positive with a negated tail ("firing glow with no clearly visible
+#: grenade arc") keeps its positive matches — the construction only
+#: reaches backward when nothing is asserted after its cue.
+_CLEARLY_VISIBLE_RE = re.compile(r"\bclearly visible\b")
+
+#: Tags an entry whose description opens with a negation cue never
+#: contributes: absence worded as a description is not a sighting.
+_DESCRIPTION_NEGATED_TAGS = frozenset(
+    {"combat", "zone", "grenade", "smoke", "vehicle", "knockdown", "elim"}
+)
+
+_DESCRIPTION_NEGATION_RE = re.compile(
+    r"^(?:no|not|none|without|neither|nor|absent|isn't|aren't|cannot|can't)\b"
+)
+
+
+def _clause_runs(text: str) -> list:
+    """Split lowered text into runs of ``(start, end)`` clause spans.
+
+    Clauses break on ``[.;,]`` and and/but/or; runs break on ``[.;]``
+    and but, so one run is a single comma/and/or list whose later items
+    may inherit negation from an earlier item.
+    """
+    parts = []
+    last = 0
+    for match in _CLAUSE_SPLIT_RE.finditer(text):
+        parts.append((last, match.start(), match.group(0)))
+        last = match.end()
+    parts.append((last, len(text), ""))
+    runs: list = []
+    current: list = []
+    for start, end, separator in parts:
+        current.append((start, end))
+        if separator == "" or separator in ".;" or separator == "but":
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _clause_cues(text: str, start: int, end: int) -> list:
+    """Start offsets of negation cues inside one clause span."""
+    clause = text[start:end]
+    cues = []
+    for pattern in _CUE_PATTERNS:
+        cues.extend(match.start() + start for match in pattern.finditer(clause))
+    return sorted(cues)
+
+
+def _guarded_match_starts(text: str, compiled_fields) -> dict:
+    """Signal-match starts per tag surviving the negation guard.
+
+    ``text`` is already lowercased. A match dies when a negation cue
+    precedes it in its clause, when its clause ends in a negated
+    clearly-visible construction, or when an earlier item of its
+    comma/and/or list opens with a leading cue (before that item's
+    first match) or dangles one (after that item's last surviving
+    match) — so "No muzzle flash, tracer, grenade, smoke or vehicle"
+    yields zero tags. Deterministic: positions only, no guessing.
+    """
+    runs = _clause_runs(text)
+    starts_by_tag: dict = {}
+    for tag, patterns in compiled_fields:
+        starts = []
+        for pattern in patterns:
+            starts.extend(match.start() for match in pattern.finditer(text))
+        starts_by_tag[tag] = sorted(starts)
+    everywhere = sorted(
+        start for starts in starts_by_tag.values() for start in starts
+    )
+
+    def locate(pos):
+        for run in runs:
+            for index, (start, end) in enumerate(run):
+                if start <= pos < end:
+                    return run, index
+        return None, None
+
+    def own_killed(run, index, pos) -> bool:
+        start, end = run[index]
+        if any(cue < pos for cue in _clause_cues(text, start, end)):
+            return True
+        clause = text[start:end]
+        for visible in _CLEARLY_VISIBLE_RE.finditer(clause):
+            cues_before = [
+                cue
+                for cue in _clause_cues(text, start, end)
+                if cue < start + visible.start()
+                and re.match(r"no\b|not\b", text[cue:end])
+            ]
+            if not cues_before:
+                continue
+            anchor = min(cues_before)
+            if not any(
+                match > anchor for match in everywhere if start <= match < end
+            ):
+                return True
+        return False
+
+    def list_opener(run, index) -> bool:
+        start, end = run[index]
+        cues = _clause_cues(text, start, end)
+        if not cues:
+            return False
+        own = [pos for pos in everywhere if start <= pos < end]
+        if not own:
+            return False
+        if min(cues) < min(own):
+            return True
+        survivors = [
+            pos for pos in own if not own_killed(run, index, pos)
+        ]
+        return bool(survivors) and max(cues) > max(survivors)
+
+    allowed: dict = {}
+    for tag, starts in starts_by_tag.items():
+        kept = []
+        for pos in starts:
+            run, index = locate(pos)
+            if run is None:
+                kept.append(pos)
+                continue
+            if own_killed(run, index, pos):
+                continue
+            if any(list_opener(run, earlier) for earlier in range(index)):
+                continue
+            kept.append(pos)
+        allowed[tag] = kept
+    return allowed
 
 
 def _entry_text(entry: dict) -> str:
@@ -461,6 +628,15 @@ def _name_tokens(text: str) -> list[str]:
     return tokens
 
 
+#: Per-word posture patterns for specificity-first selection under
+#: the same negation guard (keyed by word, so they never collide with
+#: the tag keys of ``_COMPILED_WORDS``).
+_COMPILED_POSTURE_WORDS = tuple(
+    (word, (re.compile(r"\b%s\b" % re.escape(word)),))
+    for word in POSTURE_WORDS
+)
+
+
 def entry_signals(entry: dict) -> dict:
     """Derive deterministic signals for one validated observation entry.
 
@@ -468,19 +644,27 @@ def entry_signals(entry: dict) -> dict:
     "posture": str | None}`` with sorted, deduplicated tag lists.
     ``observed`` tags name wording directly present; ``inferred`` tags
     name weak suggestions that require corroboration before any rule may
-    act on them. Whole-term tags (``weapon``, ``equipment``,
-    ``round_state``, ``match_phase``) match on word boundaries over
-    label-blanked prose. Never raises on missing optional keys (v1
-    entries and v1-shaped v2 entries simply yield fewer tags).
+    act on them. All sixteen word lists match as whole terms on word
+    boundaries under the negation guard (negated wording tags nothing);
+    the four whole-term tags (``weapon``, ``equipment``,
+    ``round_state``, ``match_phase``) additionally match over
+    label-blanked prose. Entries whose description opens with a negation
+    cue never contribute combat/zone/grenade/smoke/vehicle/knockdown/
+    elim tags. Never raises on missing optional keys (v1 entries and
+    v1-shaped v2 entries simply yield fewer tags).
     """
     text = _entry_text(entry)
     observed: set[str] = set()
-    for tag, words in _SIGNAL_WORD_FIELDS:
-        if any(word in text for word in words):
+    guarded = _guarded_match_starts(
+        text, _COMPILED_WORDS + _COMPILED_POSTURE_WORDS
+    )
+    for tag, _words in _SIGNAL_WORD_FIELDS:
+        if guarded.get(tag):
             observed.add(tag)
     prose = _prose_text(entry)
-    for tag, patterns in _COMPILED_TERMS:
-        if any(pattern.search(prose) for pattern in patterns):
+    guarded_terms = _guarded_match_starts(prose, _COMPILED_TERMS)
+    for tag, _words in _SIGNAL_TERM_FIELDS:
+        if guarded_terms.get(tag):
             observed.add(tag)
     entities: list[dict] = []
     seen_labels: set[str] = set()
@@ -506,9 +690,14 @@ def entry_signals(entry: dict) -> dict:
         observed.add("action_quoted")
     if isinstance(entry.get("spatial"), str) and entry["spatial"].strip():
         observed.add("spatial_quoted")
+    description = entry.get("description", "")
+    if isinstance(description, str) and _DESCRIPTION_NEGATION_RE.match(
+        description.strip().lower()
+    ):
+        observed.difference_update(_DESCRIPTION_NEGATED_TAGS)
     posture = None
     for word in POSTURE_WORDS:
-        if word in text:
+        if guarded.get(word):
             posture = word
             break
     inferred: set[str] = set()
@@ -524,6 +713,38 @@ def entry_signals(entry: dict) -> dict:
         "entities": sorted(entities, key=lambda item: item["label"]),
         "posture": posture,
     }
+
+
+def entry_wording_negated(entry: dict) -> bool:
+    """Whether an entry's wording reports absence rather than presence.
+
+    True when the description opens with a negation cue, or when the
+    entry has combat-word matches but every one dies under the negation
+    guard. Event detection uses this so negated combat-category entries
+    ("No muzzle flash, ...") are not counted as engagement sightings;
+    unnegated entries without combat words ("Blue Wall deployed") still
+    count by category, as before.
+    """
+    description = entry.get("description", "")
+    if isinstance(description, str) and _DESCRIPTION_NEGATION_RE.match(
+        description.strip().lower()
+    ):
+        return True
+    text = _entry_text(entry)
+    combat_patterns: tuple = ()
+    for tag, patterns in _COMPILED_WORDS:
+        if tag == "combat":
+            combat_patterns = patterns
+            break
+    raw = [
+        match.start()
+        for pattern in combat_patterns
+        for match in pattern.finditer(text)
+    ]
+    if not raw:
+        return False
+    guarded = _guarded_match_starts(text, _COMPILED_WORDS)
+    return not guarded.get("combat")
 
 
 def _track_status(sightings: list, latest: float | int | None) -> str:
@@ -743,8 +964,14 @@ def build_gameplay_state(accepted: list, state: dict) -> dict:
             "reappeared_entities": sorted(
                 track["ref"] for track in tracks if track["status"] == "reappeared"
             ),
+            # Unlinked unknown- tracks are per-sighting placeholders, not
+            # trackable entities: keep them in raw tracks (unchanged
+            # above) but out of the occluded list the narrative counts.
             "occluded_entities": sorted(
-                track["ref"] for track in tracks if track["status"] == "occluded"
+                track["ref"]
+                for track in tracks
+                if track["status"] == "occluded"
+                and not track["ref"].startswith("unknown-")
             ),
         },
     }

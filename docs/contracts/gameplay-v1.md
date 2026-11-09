@@ -94,7 +94,8 @@ optional: documents without them still validate as `gameplay-v1`.
 combat wording present and the latest timestamp observed),
 `moved_entities` (sorted refs with movement), `reappeared_entities`
 (sorted refs with status `reappeared`), `occluded_entities` (sorted
-refs with status `occluded`).
+refs with status `occluded`, labeled tracks only — unlinked `unknown-`
+tracks stay in `entities` but out of this list).
 
 ## Identity and status rules
 
@@ -120,17 +121,27 @@ Tags derive from explicit word lists in `state/gameplay.py`
 `BLUE_WALL_WORDS`, `GRENADE_WORDS`, `SMOKE_WORDS`, `VEHICLE_WORDS`,
 `ZONE_WORDS`, `ELIM_WORDS`, `MOVEMENT_WORDS`, `SCENERY_WORDS`, plus
 `WEAPON_WORDS`, `EQUIPMENT_WORDS`, `ROUND_STATE_WORDS`,
-`MATCH_PHASE_WORDS`). The original twelve match by substring; the four
-new lists match as whole terms on word boundaries over label-blanked
-prose (`TAG.NAME` tokens and subject labels removed), so entity labels
-are names, never vocabulary.
+`MATCH_PHASE_WORDS`). All sixteen lists match as whole terms on word
+boundaries (so `car` never fires inside `carpet`); the four newer
+lists additionally match over label-blanked prose (`TAG.NAME` tokens
+and subject labels removed), so entity labels are names, never
+vocabulary. A negation guard applies to every list: text splits into
+clauses on `[.;,]` and `and`/`but`/`or`, a match preceded in its
+clause by a negation cue (`no`, `not`, `none`, `without`, `neither`,
+`nor`, `absent`, `isn't`, `aren't`, `cannot`, `can't`) is ignored, a
+trailing `not clearly visible` construction negates its clause, and a
+whole comma/`and`/`or` list after a leading negation is negated (so
+`No muzzle flash, tracer, grenade, smoke or vehicle` yields zero
+tags); entries whose description opens with a negation cue never
+contribute `combat`/`zone`/`grenade`/`smoke`/`vehicle`/`knockdown`/
+`elim` tags.
 Load-bearing distinctions:
 
 - Knockdown words (`knocked`, `downed`, `crawling`, ...) tag
   `knockdown` and `posture`, never `elim`. A down player is down, not
   eliminated.
-- Only explicit outcome words (`eliminated`, `killed`, `finished`,
-  `flush`, ...) tag `elim`.
+- Only explicit outcome words (`eliminated`, `killed`, ...) tag
+  `elim` (`finished`/`flush` were removed: looting is not elimination).
 - `blue wall` and `gloo wall` tag `blue_wall`; a bare `shield` never
   does. A Blue Wall is cover, not a conventional shield.
 - `revive` words tag `revive`; a reappearing player without them is

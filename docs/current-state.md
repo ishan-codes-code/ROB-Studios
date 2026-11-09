@@ -1,5 +1,68 @@
 # Current state
 
+## False-combat and scenery-spam fixes, recorded path (uncommitted)
+
+Signal-layer fix on branch `feature/commentary-refinements`, no
+pipeline or schema change. `state/gameplay.py`: all sixteen word
+lists now match as whole terms on word boundaries under a negation
+guard (clause splitting on `[.;,]`/`and`/`but`/`or`, cue-before-match
+suppression, negated `not clearly visible` constructions, whole-list
+inheritance after a leading negation, plus a description-opens-negated
+strip of combat/zone/grenade/smoke/vehicle/knockdown/elim tags);
+`finished`/`flush` removed from `ELIM_WORDS`; `occluded_entities`
+excludes unlinked `unknown-` tracks (raw tracks unchanged).
+`commentary/narrative.py` prints "Combat is active" only for a
+current fact with a non-negated combat tag. `caster/producer.py`
+skips `blue_wall_use` claims like scene claims (zone kept).
+`events/detection.py` engagement sightings exclude negated
+combat-category wording via a new `entry_wording_negated` helper
+(unnegated category counting preserved). Docs: `gameplay-v1.md`
+lexicon/`occluded_entities` wording, `events-v1.md` sighting
+sentence, `script-v1.md` one-liner; no schema bump (shapes, enums,
+consumers unchanged). Fixture effect (replay final window): events
+31→15 (`combat_engagement` 4→1 — the survivor clusters 13
+timestamps of unnegated combat-categorized cover plus the genuine
+firing-glow frame; `blue_wall_use` 27→14 as plural `Walls` stops
+matching); claims 32→15; beats 6→1 with zero `No…`-worded and zero
+`blue_wall_use` beats; occluded 118→0; narrative now "No combat in
+the latest observations."
+
+Verification: 14 new offline tests (`test_false_combat`,
+including fixture predicates for fewer-than-4 engagements and no
+negation-worded beat); two existing fixtures reworded to singulars
+(`tracers`→`tracer`, `Blue Walls`→`Blue Wall`) where they encoded
+substring matching; full Python suite 865 tests with only the 3
+pre-existing clean-tree failures (Windows `con` path, api_activity
+leak, opening already-emitted).
+
+## Golden fixture + offline replay/eval tools (uncommitted)
+
+No pipeline behavior changes on branch `feature/commentary-refinements`:
+`tests/fixtures/real_clash_squad_run1/` holds a real 63.27s Free Fire
+Clash Squad run (30 `observation-v2` files + `adaptive_run.json`, 122
+entries; environment 30 / other 16 / combat 43 / character 33) with a
+README of known fixture defects (D1: 29 negation entries filed as
+positive combat/other claims; D2: zero `subjects`/`action`/`spatial`
+usage; D3: zero `hud` entries). New `python/tools/replay_legacy.py`
+replays the run offline through the deterministic stages only
+(validate → match state → events → gating → writer prioritization →
+gameplay → narrative → script prompt, mirroring the streaming window
+trigger), writing one `prompt_window_NN.txt` per window (13 on the
+fixture). New `python/tools/eval_script.py` reports the automated
+script metrics (lines, words/sec, lines/minute, forbidden-meta-word
+hits, number tokens, overlap count with WAV or words/2.5 durations).
+Nothing under `python/ai_commentator/`, `python/worker.py`, or
+`electron/` touched. Gaps: `docs/eval/commentary-rubric.md` does not
+exist, so the forbidden-phrase list and metric definitions are fixed
+in the tool docstring/output instead; fixture defect IDs D1-D3 were
+undefined in the brief and describe observed fixture properties.
+
+Verification: 6 new offline tests (`test_replay_tools`, `python -I`
+subprocesses with keys scrubbed); full Python suite 851 tests with
+only the 3 pre-existing clean-tree failures (Windows `con` path,
+api_activity leak, opening already-emitted). Replay prints
+negation-entry count 29 as required.
+
 ## Caster-first intelligence architecture (uncommitted)
 
 The recorded-gameplay pipeline now runs perception → temporal

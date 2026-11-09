@@ -1,0 +1,297 @@
+{
+  "schema_version": "adaptive-run-v1",
+  "video": "C:\\Users\\AK\\AppData\\Roaming\\ROB Studio\\projects\\friday-finals-b1dbbe\\source\\gameplay.mp4",
+  "output_observations": "C:\\Users\\AK\\AppData\\Roaming\\ROB Studio\\projects\\friday-finals-b1dbbe\\output\\observations",
+  "intervals": {
+    "HIGH": 0.5,
+    "NORMAL": 3.0,
+    "LOW": 6.0
+  },
+  "max_frames": null,
+  "duration": 63.266666666666666,
+  "status": "completed",
+  "termination": "video-end",
+  "requested_timestamps": [
+    0.0,
+    6.0,
+    9.0,
+    12.0,
+    15.0,
+    21.0,
+    24.0,
+    27.0,
+    30.0,
+    33.0,
+    36.0,
+    39.0,
+    39.5,
+    39.667,
+    39.834,
+    42.834,
+    45.834,
+    48.834,
+    49.334,
+    49.501,
+    49.668,
+    52.668,
+    55.668,
+    58.668,
+    59.168,
+    59.335,
+    59.502,
+    62.502,
+    63.002,
+    63.169
+  ],
+  "iterations": [
+    {
+      "timestamp": 0.0,
+      "observation_file": "frame_00000.json",
+      "speed": "LOW",
+      "reason": "static yard view with deployed cover but no visible characters firing or moving",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 6.0,
+      "observation_file": "frame_00006.json",
+      "speed": "NORMAL",
+      "reason": "players positioned near deployed Blue Walls without visible firing, suggesting repositioning",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 9.0,
+      "observation_file": "frame_00009.json",
+      "speed": "NORMAL",
+      "reason": "Blue Walls placed on road and grass with no visible firefight, indicating repositioning",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 12.0,
+      "observation_file": "frame_00012.json",
+      "speed": "NORMAL",
+      "reason": "single player repositioning among deployed Blue Walls with no visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 15.0,
+      "observation_file": "frame_00015.json",
+      "speed": "LOW",
+      "reason": "relatively static view of deployed Blue Walls with no visible firing or explosions",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 21.0,
+      "observation_file": "frame_00021.json",
+      "speed": "NORMAL",
+      "reason": "single player moving in open with a Blue Wall nearby but no visible firefight",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 24.0,
+      "observation_file": "frame_00024.json",
+      "speed": "NORMAL",
+      "reason": "single character repositioning across open ground with no visible firefight",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 27.0,
+      "observation_file": "frame_00027.json",
+      "speed": "NORMAL",
+      "reason": "single character positioned near containers with distant Blue Walls but no visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 30.0,
+      "observation_file": "frame_00030.json",
+      "speed": "NORMAL",
+      "reason": "players repositioning around cover with no visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 33.0,
+      "observation_file": "frame_00033.json",
+      "speed": "NORMAL",
+      "reason": "players positioned around Blue Wall cover near billboard with no visible firing, indicating repositioning",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 36.0,
+      "observation_file": "frame_00036.json",
+      "speed": "NORMAL",
+      "reason": "figures repositioning in open with Blue Walls present but no visible firing or knockdown",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 39.0,
+      "observation_file": "frame_00039.json",
+      "speed": "HIGH",
+      "reason": "Multiple Blue Walls in cover line with players positioned around them",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 39.5,
+      "observation_file": "frame_00039.5.json",
+      "speed": "NORMAL",
+      "reason": "Players positioned behind Blue Walls with no visible firing, indicating repositioning",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 39.667,
+      "observation_file": "frame_00039.667.json",
+      "speed": "LOW",
+      "reason": "No active fire visible with players positioned behind placed cover in a relatively static scene",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 39.834,
+      "observation_file": "frame_00039.834.json",
+      "speed": "NORMAL",
+      "reason": "figure in cover behind Blue Walls with no active fire visible, suggesting repositioning",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 42.834,
+      "observation_file": "frame_00042.834.json",
+      "speed": "NORMAL",
+      "reason": "Player repositioning near Blue Walls with no visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 45.834,
+      "observation_file": "frame_00045.834.json",
+      "speed": "NORMAL",
+      "reason": "player repositioning on foot with no visible firing or cover use",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 48.834,
+      "observation_file": "frame_00048.834.json",
+      "speed": "HIGH",
+      "reason": "Multiple Blue Walls deployed with player repositioning around cover",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 49.334,
+      "observation_file": "frame_00049.334.json",
+      "speed": "NORMAL",
+      "reason": "player repositioning near deployed Blue Walls without visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 49.501,
+      "observation_file": "frame_00049.501.json",
+      "speed": "NORMAL",
+      "reason": "player repositioning near cover with no visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 49.668,
+      "observation_file": "frame_00049.668.json",
+      "speed": "NORMAL",
+      "reason": "ordinary forward movement with no visible firing or knockdown",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 52.668,
+      "observation_file": "frame_00052.668.json",
+      "speed": "NORMAL",
+      "reason": "player repositioning behind deployed cover with no visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 55.668,
+      "observation_file": "frame_00055.668.json",
+      "speed": "NORMAL",
+      "reason": "player repositioning between cover with no visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 58.668,
+      "observation_file": "frame_00058.668.json",
+      "speed": "HIGH",
+      "reason": "Active firing glow with multiple Blue Walls and players positioned around containers",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 59.168,
+      "observation_file": "frame_00059.168.json",
+      "speed": "HIGH",
+      "reason": "multiple Blue Walls remain deployed around containers with players positioned nearby",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 59.335,
+      "observation_file": "frame_00059.335.json",
+      "speed": "HIGH",
+      "reason": "Multiple Blue Walls deployed with players positioned around containers suggesting cover exchange",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 59.502,
+      "observation_file": "frame_00059.502.json",
+      "speed": "NORMAL",
+      "reason": "players positioned around deployed cover with no visible firing",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 62.502,
+      "observation_file": "frame_00062.502.json",
+      "speed": "HIGH",
+      "reason": "Multiple Blue Walls and clustered players around containers indicate ongoing close engagement",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 63.002,
+      "observation_file": "frame_00063.002.json",
+      "speed": "HIGH",
+      "reason": "Close opponents with multiple Blue Walls and visible smoke indicate ongoing engagement needing close tracking.",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    },
+    {
+      "timestamp": 63.169,
+      "observation_file": "frame_00063.169.json",
+      "speed": "HIGH",
+      "reason": "Close opponents with multiple Blue Walls and lingering smoke indicate ongoing engagement needing close tracking.",
+      "sampling_diagnostics": [],
+      "status": "ok"
+    }
+  ],
+  "observations": 30,
+  "requests": 32,
+  "failed_requests": 3,
+  "speed_counts": {
+    "HIGH": 8,
+    "NORMAL": 19,
+    "LOW": 3
+  },
+  "error": null
+}

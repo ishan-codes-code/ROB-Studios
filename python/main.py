@@ -232,6 +232,7 @@ from ai_commentator.state.gameplay import (
     build_gameplay_state,
     entity_track_for_label,
     entry_signals,
+    entry_wording_negated,
     fact_signal_tags,
     validate_gameplay,
 )

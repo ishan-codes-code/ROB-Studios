@@ -1,0 +1,42 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 39.667,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Open grassy field with a large billboard structure on supports, buildings and trees in the distance under clear sky",
+      "confidence": "high",
+      "evidence": "grassy ground extending to billboard on supports with buildings and trees beyond under blue sky"
+    },
+    {
+      "category": "character",
+      "description": "One player figure in dark sleeveless top and dark pants with a backpack in the foreground beside a Blue Wall, holding a small handgun-like object",
+      "confidence": "high",
+      "evidence": "dark-clothed figure with backpack standing next to white textured wall in foreground holding small object in hand"
+    },
+    {
+      "category": "character",
+      "description": "A second small player figure standing in the mid-distance near Blue Walls by the billboard base",
+      "confidence": "medium",
+      "evidence": "small dark figure visible on grass near the line of walls by the billboard supports"
+    },
+    {
+      "category": "other",
+      "description": "Multiple Blue Walls placed in a continuous line forming cover across the field",
+      "confidence": "high",
+      "evidence": "row of white textured Blue Wall segments extending across the grass from foreground to mid-distance"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer fire, explosion, grenade arc, distinct smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "view of field, figures, and Blue Walls shows no fire effects, throwable arcs, blasts, distinct smoke, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Weapon family or model for the figures cannot be confidently recognized from the gameplay view alone",
+    "Whether the reddish glow at the foreground figure's feet is damage, skill, or other effect cannot be determined from this frame",
+    "Team affiliation, movement intent, and knockdown or revive status cannot be determined from this frame",
+    "Whether grenade throws, smoke use, or zone pressure are present cannot be determined from this frame"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 36,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Open dirt ground area with a large billboard structure on metal supports, light-blue shipping containers, and trees in the distance under clear sky",
+      "confidence": "high",
+      "evidence": "brown billboard on metal supports behind dirt area, light-blue containers to the right, green trees and blue sky beyond"
+    },
+    {
+      "category": "character",
+      "description": "One player figure in dark clothing with a backpack in the foreground on dirt, with a green glow around the lower legs",
+      "confidence": "high",
+      "evidence": "dark-clothed figure with backpack centered in foreground on dirt with green glow at feet"
+    },
+    {
+      "category": "character",
+      "description": "A second small player figure standing near containers and walls in the mid-distance",
+      "confidence": "medium",
+      "evidence": "small dark figure standing on dirt near light-blue container in mid-distance"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, grenade arc, distinct smoke plume, or vehicle is clearly visible",
+      "confidence": "medium",
+      "evidence": "view of dirt field, figures, containers and billboard shows no fire effects, throwable arcs, blasts, distinct smoke, or vehicle shapes"
+    },
+    {
+      "category": "other",
+      "description": "Several Blue Walls standing on the left side of the field and clustered behind the mid-distance figure near the billboard base",
+      "confidence": "high",
+      "evidence": "translucent blue wall segments on the left edge and row of blue-grey wall segments behind the mid-distance figure at the billboard base"
+    }
+  ],
+  "uncertainties": [
+    "Weapon family or model for the visible figures cannot be confidently recognized from this view",
+    "Whether the green glow around the foreground figure is a skill effect, healing effect, or other effect cannot be determined from this frame",
+    "Posture detail, team affiliation, movement intent, and knockdown or revive status cannot be determined from this frame",
+    "Whether grenade throws, smoke use, or zone pressure are present cannot be determined beyond lack of visible effects"
+  ]
+}

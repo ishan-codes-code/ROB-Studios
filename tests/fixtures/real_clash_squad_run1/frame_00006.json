@@ -1,0 +1,35 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 6,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "A curved paved road bordered by grassy ground with a large billboard structure on posts and blue shipping containers in the background",
+      "confidence": "high",
+      "evidence": "dark asphalt with white lane markings curving across the lower frame, grass beyond the road, large rectangular billboard on supports, and blue container shapes in the upper background"
+    },
+    {
+      "category": "other",
+      "description": "Multiple Blue Walls deployed on the grass and near the road edge",
+      "confidence": "high",
+      "evidence": "irregular pale blue-white wall blocks on the left grass, beside the road near center, and on the right grass"
+    },
+    {
+      "category": "character",
+      "description": "Several small player models visible on and beside the road",
+      "confidence": "medium",
+      "evidence": "small dark figures on the road center, on the right grass, and at the bottom-left edge"
+    },
+    {
+      "category": "combat",
+      "description": "No muzzle flash, tracer, explosion, smoke plume, grenade, or vehicle is visible",
+      "confidence": "medium",
+      "evidence": "open view of road, grass, billboard and containers shows no fire, blast, smoke, throwable arc, or vehicle shape"
+    }
+  ],
+  "uncertainties": [
+    "Player identities, teams, weapons, health, and movement intent cannot be determined",
+    "Knockdown, down, or revive states cannot be determined from the small figure sizes",
+    "Whether the translucent blue tint on the right side is zone, an effect, or a visual artifact is unreadable"
+  ]
+}

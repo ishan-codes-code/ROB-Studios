@@ -28,7 +28,7 @@ from ..config import (
     EVENT_ZONE_CATEGORIES,
 )
 from ..errors import ObservationError
-from ..state.gameplay import entry_signals
+from ..state.gameplay import entry_signals, entry_wording_negated
 from ..state.match_state import fact_key, observation_sha256, validate_match_state
 from ..storage import write_json_atomic
 from ..vision.client import ensure_observation_timestamp
@@ -415,14 +415,19 @@ def _gameplay_signal_entries(clean: list, categories: tuple) -> list:
 def _engagement_sightings(candidates: list) -> list:
     """Entries evidencing combat activity.
 
-    A sighting needs the combat category or explicit combat wording in a
-    character entry. Generic character visibility without combat wording
-    is not a sighting.
+    A sighting needs unnegated combat-category wording or explicit
+    combat wording in a character entry. Negated combat descriptions
+    ("No muzzle flash, ...") report absence, never a sighting, and
+    generic character visibility without combat wording is not a
+    sighting either.
     """
     return [
         entry
         for entry in candidates
-        if entry["item"]["category"] == "combat"
+        if (
+            entry["item"]["category"] == "combat"
+            and not entry_wording_negated(entry["item"])
+        )
         or "combat" in entry["signals"]["observed"]
     ]
 

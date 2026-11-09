@@ -1,0 +1,35 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 49.668,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Outdoor dirt-ground area with a wall structure on the left, a blue shipping container ahead, and trees and buildings in the background under daylight",
+      "confidence": "high",
+      "evidence": "dirt ground with vertical wall on the left and blue container shape ahead with tree and building shapes behind under daylight"
+    },
+    {
+      "category": "character",
+      "description": "One player figure in dark clothing with a backpack moving forward in the center foreground toward the container",
+      "confidence": "high",
+      "evidence": "dark-clothed figure with backpack in center foreground in running pose holding gun forward"
+    },
+    {
+      "category": "combat",
+      "description": "One Blue Wall segment deployed on the right foreground beside the player path",
+      "confidence": "medium",
+      "evidence": "dark blocky wall shape standing on dirt on the right side"
+    },
+    {
+      "category": "combat",
+      "description": "No clearly visible muzzle flash, tracer fire, grenade arc, explosion, distinct smoke plume, or vehicle",
+      "confidence": "medium",
+      "evidence": "view of the player, container, and Blue Wall shows no distinct fire effects, throwable arcs, blasts, distinct smoke, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Specific weapon family or model cannot be confidently recognized from the in-world view alone",
+    "Whether white haze near the ground and Blue Wall base is smoke, dust, or lighting effect is ambiguous",
+    "Team affiliation, movement intent, and down or revive status beyond upright posture cannot be determined from this frame"
+  ]
+}

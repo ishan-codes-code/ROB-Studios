@@ -1,0 +1,35 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 48.834,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Outdoor compound with mixed dirt and grass ground, yellow stair railing on the left, and buildings and containers in the background under daylight",
+      "confidence": "high",
+      "evidence": "dirt and grass ground with yellow stair railing on the left and building and container structures in the background under daylight"
+    },
+    {
+      "category": "character",
+      "description": "One player figure in dark clothing with a backpack and a rifle on the back moving forward near the stairs",
+      "confidence": "high",
+      "evidence": "dark-clothed figure with backpack in the center foreground in a running pose near stairs"
+    },
+    {
+      "category": "combat",
+      "description": "Multiple Blue Walls deployed on the open ground ahead of the player",
+      "confidence": "high",
+      "evidence": "irregular gray-blue Blue Wall shapes standing on dirt in the midground with light glow at their bases"
+    },
+    {
+      "category": "combat",
+      "description": "No clearly visible muzzle flash, tracer fire, grenade arc, explosion, distinct smoke plume, or vehicle",
+      "confidence": "medium",
+      "evidence": "view of the player, Blue Walls, and containers shows no distinct fire effects, throwable arcs, blasts, distinct smoke, or vehicle shapes"
+    }
+  ],
+  "uncertainties": [
+    "Specific weapon model cannot be confidently recognized from the in-world view alone",
+    "Whether bright spot near the Blue Walls is gunfire, impact effect, or lighting artifact is ambiguous",
+    "Team affiliation, movement intent, and down or revive status beyond upright posture cannot be determined from this frame"
+  ]
+}

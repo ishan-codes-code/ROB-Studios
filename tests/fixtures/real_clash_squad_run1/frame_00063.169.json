@@ -1,0 +1,36 @@
+{
+  "schema_version": "observation-v2",
+  "timestamp": 63.169,
+  "observations": [
+    {
+      "category": "environment",
+      "description": "Outdoor container yard with blue shipping containers on brown dirt beside gray water under daylight.",
+      "confidence": "high",
+      "evidence": "Large blue rectangular containers sit on brown dirt with gray water visible on the right under bright daylight."
+    },
+    {
+      "category": "combat",
+      "description": "Multiple Blue Wall segments remain deployed around the containers and on the dirt forming curved cover.",
+      "confidence": "high",
+      "evidence": "White-blue curved shapes form a C shape on the left and three arcs in the center and isolated pieces near the water."
+    },
+    {
+      "category": "character",
+      "description": "Small player figures remain positioned below the central Blue Walls and near the water edge by the containers.",
+      "confidence": "medium",
+      "evidence": "Tiny dark figure shapes appear beneath the central arcs and beside the water near the container corner from above."
+    },
+    {
+      "category": "combat",
+      "description": "Light white-gray smoke or dust is visible under the central Blue Walls and near the water edge figure.",
+      "confidence": "medium",
+      "evidence": "Pale translucent puffs appear beneath the central arcs and just below the figure near the water edge. "
+    }
+  ],
+  "uncertainties": [
+    "Whether the small figures are standing, prone, or down cannot be determined from this high top-down view.",
+    "Team affiliation and specific identities of the figures cannot be determined from in-world view alone.",
+    "Specific weapon families or models cannot be confidently recognized from the small shapes.",
+    "Whether the light puffs are smoke, dust, or weapon effects cannot be determined from this frame alone."
+  ]
+}

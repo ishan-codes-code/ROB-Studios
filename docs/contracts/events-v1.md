@@ -158,11 +158,13 @@ never cluster.
 
 Fires when combat activity is observed at two or more distinct
 timestamps whose span fits `EVENT_ENGAGEMENT_WINDOW_S` seconds
-(initial value 15; a tuning placeholder). A sighting is a `combat`
-observation with confidence `high` or `medium`, or a `character`
-observation with `high`/`medium` confidence and explicit combat
-wording; generic character visibility without combat wording is not a
-sighting. Sightings cluster greedily in timestamp order (a sighting
+(initial value 15; a tuning placeholder). A sighting is an unnegated
+`combat` observation with confidence `high` or `medium` (negated
+wording such as `No muzzle flash, ...` reports absence, never a
+sighting), or a `character` observation with `high`/`medium`
+confidence and explicit combat wording; generic character visibility
+without combat wording is not a sighting. Sightings cluster greedily
+in timestamp order (a sighting
 joins the open cluster when its span from the cluster start fits the
 window, otherwise the cluster closes and a new one opens); only
 clusters spanning at least two distinct timestamps emit.
